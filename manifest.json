@@ -1,17 +1,25 @@
 {
-  "name": "PingMe",
-  "short_name": "PingMe",
-  "description": "Find ping pong partners near you instantly",
+  "name": "pingme — pickup ping pong",
+  "short_name": "pingme",
+  "description": "Find pickup ping pong games at Texas Tech. See who's playing, go down, get pinged.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "theme_color": "#0a0a0a",
-  "background_color": "#0a0a0a",
+  "theme_color": "#F4EDDC",
+  "background_color": "#F4EDDC",
+  "categories": ["sports", "social"],
   "icons": [
     {
-      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏓</text></svg>",
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23F4EDDC'/><text x='50' y='50' font-size='60' text-anchor='middle' dominant-baseline='central'>🏓</text></svg>",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%23F4EDDC'/><text x='50' y='50' font-size='60' text-anchor='middle' dominant-baseline='central'>🏓</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

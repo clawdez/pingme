@@ -1,5 +1,5 @@
-const CACHE = 'pingme-v1';
-const ASSETS = ['/', '/index.html', '/style.css', '/app.js'];
+const CACHE = 'pingme-v3';
+const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).catch(() => {}));
@@ -14,6 +14,9 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  if (e.request.url.includes('supabase.co') || e.request.url.includes('googleapis.com') || e.request.url.includes('gstatic.com') || e.request.url.includes('unpkg.com')) {
+    return;
+  }
   e.respondWith(
     caches.match(e.request).then(r => r || fetch(e.request)).catch(() => caches.match('/index.html'))
   );
@@ -21,10 +24,8 @@ self.addEventListener('fetch', e => {
 
 self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {};
-  e.waitUntil(self.registration.showNotification(data.title || '🏓 PingMe', {
+  e.waitUntil(self.registration.showNotification(data.title || 'pingme', {
     body: data.body || 'Someone wants to play ping pong!',
-    icon: '/icon.png',
-    badge: '/icon.png',
     tag: 'pingme-match',
     renotify: true,
     vibrate: [200, 100, 200]

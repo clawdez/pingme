@@ -1,51 +1,174 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0a0a0a" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="PingMe" />
-  <title>PingMe 🏓</title>
-  <link rel="manifest" href="manifest.json" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" />
-  <link rel="stylesheet" href="style.css" />
+<meta charset="utf-8"/>
+<title>pingme — pickup ping pong</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#F4EDDC"/>
+<meta name="description" content="Find pickup ping pong games at Texas Tech. See who's playing, go down, get pinged."/>
+<meta property="og:title" content="pingme"/>
+<meta property="og:description" content="Pickup ping pong at TTU. See who's playing right now."/>
+<meta property="og:type" content="website"/>
+<meta name="twitter:card" content="summary_large_image"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="pingme"/>
+<link rel="manifest" href="manifest.json"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css"/>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
+<svg width="0" height="0" style="position:absolute">
+<defs>
+  <filter id="wobble" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="4" result="t"/>
+    <feDisplacementMap in="SourceGraphic" in2="t" scale="1.4"/>
+  </filter>
+  <pattern id="netMesh" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">
+    <line x1="0" y1="0" x2="0" y2="4" stroke="#F4EDDC" stroke-width=".6" opacity=".7"/>
+    <line x1="0" y1="0" x2="4" y2="0" stroke="#F4EDDC" stroke-width=".6" opacity=".7"/>
+  </pattern>
+</defs>
+</svg>
+
+<div id="app" data-home-state="off">
+
   <!-- HOME -->
-  <div id="screen-home" class="screen active"></div>
+  <div class="screen active" data-screen="home">
 
-  <!-- PLAY -->
-  <div id="screen-play" class="screen"></div>
+    <!-- top bar: wordmark + pings chip + avatar -->
+    <div class="top">
+      <div class="wordmark">ping<span class="me">me!</span></div>
+      <div class="top-actions">
+        <button class="pings-chip" id="pings-chip">pings <span class="badge" id="pings-badge">0</span></button>
+        <button class="profile-av" id="profile-av" data-nav="me">?</button>
+      </div>
+    </div>
 
-  <!-- WAITING -->
-  <div id="screen-waiting" class="screen"></div>
+    <!-- THE TABLE: the focal point -->
+    <div class="court-card">
+      <span class="court-eyebrow">tap or drag &rarr;</span>
+      <div class="court-wrap" id="court-wrap">
+        <svg class="court-svg" viewBox="0 0 340 168" preserveAspectRatio="none">
+          <g filter="url(#wobble)">
+            <ellipse cx="170" cy="156" rx="140" ry="5" fill="rgba(20,18,16,.18)"/>
+            <path d="M 56 50 L 284 50 L 298 130 L 42 130 Z" fill="var(--table)" stroke="#141210" stroke-width="2.5" stroke-linejoin="round"/>
+            <path d="M 62 55 L 278 55 L 290 125 L 50 125 Z" fill="none" stroke="#F4EDDC" stroke-width="1.4" opacity=".65"/>
+            <line x1="49" y1="90" x2="291" y2="90" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="5 3" opacity=".55"/>
+            <path d="M 56 50 L 284 50 L 282 55 L 58 55 Z" fill="rgba(20,18,16,.2)"/>
+            <g>
+              <rect x="166" y="44" width="3" height="10" fill="#141210"/>
+              <rect x="171" y="128" width="3" height="10" fill="#141210"/>
+              <path d="M 168 46 L 175 46 L 175 130 L 168 130 Z" fill="url(#netMesh)" stroke="#141210" stroke-width="1.5"/>
+              <path d="M 167 44 L 176 44 L 176 48 L 167 48 Z" fill="#F4EDDC" stroke="#141210" stroke-width="1"/>
+            </g>
+            <!-- LEFT PADDLE (cobalt / down) -->
+            <g transform="translate(28, 90)">
+              <g class="paddle left-paddle" id="left-paddle">
+                <rect x="-22" y="-4" width="26" height="10" rx="3" fill="var(--handle)" stroke="#141210" stroke-width="2.2" transform="rotate(-22 -9 1)"/>
+                <rect x="-18" y="-3" width="2" height="8" fill="#141210" opacity=".5" transform="rotate(-22 -9 1)"/>
+                <rect x="-10" y="-3" width="2" height="8" fill="#141210" opacity=".5" transform="rotate(-22 -9 1)"/>
+                <ellipse cx="14" cy="0" rx="20" ry="23" fill="var(--cobalt)" stroke="#141210" stroke-width="2.5"/>
+                <ellipse cx="14" cy="0" rx="14" ry="17" fill="none" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="1.5 3" opacity=".55"/>
+                <path d="M 4 -10 Q 8 -22 18 -22" stroke="#F4EDDC" stroke-width="1.5" fill="none" opacity=".45"/>
+              </g>
+            </g>
+            <!-- RIGHT PADDLE (flame / playing) -->
+            <g transform="translate(312, 90)">
+              <g class="paddle right-paddle" id="right-paddle">
+                <rect x="-4" y="-4" width="26" height="10" rx="3" fill="var(--handle)" stroke="#141210" stroke-width="2.2" transform="rotate(22 9 1)"/>
+                <rect x="2" y="-3" width="2" height="8" fill="#141210" opacity=".5" transform="rotate(22 9 1)"/>
+                <rect x="10" y="-3" width="2" height="8" fill="#141210" opacity=".5" transform="rotate(22 9 1)"/>
+                <ellipse cx="-14" cy="0" rx="20" ry="23" fill="var(--flame)" stroke="#141210" stroke-width="2.5"/>
+                <ellipse cx="-14" cy="0" rx="14" ry="17" fill="none" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="1.5 3" opacity=".55"/>
+                <path d="M -24 -10 Q -20 -22 -10 -22" stroke="#F4EDDC" stroke-width="1.5" fill="none" opacity=".45"/>
+              </g>
+            </g>
+          </g>
+        </svg>
+        <!-- draggable ball -->
+        <div class="ball at-rest" id="ball" style="left: 50%;">
+          <div class="ball-shadow"></div>
+          <div class="ball-core"></div>
+        </div>
+      </div>
+      <div class="court-labels">
+        <button class="c-lbl left" data-state="down"><span>down</span><span class="hint">hit me up, i'm around</span></button>
+        <button class="c-lbl middle" data-state="off">off</button>
+        <button class="c-lbl right" data-state="playing"><span>playing</span><span class="hint">i'm at the table now</span></button>
+      </div>
+    </div>
 
-  <!-- PROFILE -->
-  <div id="screen-profile" class="screen"></div>
+    <!-- status strip -->
+    <div class="strip" id="strip"></div>
 
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav">
-    <button class="nav-btn active" data-nav="home" onclick="location.hash='#home'">
-      🏠 <span>Home</span>
-    </button>
-    <button class="nav-btn" data-nav="play" onclick="location.hash='#play'">
-      🏓 <span>Play</span>
-    </button>
-    <button class="nav-btn" data-nav="profile" onclick="location.hash='#profile'">
-      👤 <span>Profile</span>
-    </button>
-  </nav>
+    <!-- friends list -->
+    <div class="raiders" id="raiders">
+      <div class="rdrs-head">
+        <span class="title">friends</span>
+        <span class="sub" id="rdr-sub"></span>
+      </div>
+      <div id="rdr-list"></div>
+    </div>
 
-  <!-- TOAST -->
-  <div class="toast"></div>
+    <div class="home-foot">pingme <span class="dot">&middot;</span> made for the sub <span class="dot">&middot;</span> &#127955;</div>
+  </div>
 
-  <!-- SUPABASE -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <!-- APP -->
-  <script src="app.js"></script>
+  <!-- PINGS -->
+  <div class="screen" data-screen="pings">
+    <div class="screen-head">
+      <button class="back-btn" data-back>&lsaquo;</button>
+      <div class="screen-head-body">
+        <h2 class="act-title">pings</h2>
+        <div class="inbox-sub" id="pings-sub"></div>
+      </div>
+    </div>
+    <div class="ping-list" id="ping-list"></div>
+  </div>
+
+  <!-- ME / PROFILE -->
+  <div class="screen" data-screen="me">
+    <div class="screen-head just-back">
+      <button class="back-btn" data-back>&lsaquo;</button>
+    </div>
+    <div class="me-wrap" id="me-wrap"></div>
+  </div>
+
+  <!-- SHEETS -->
+  <div class="sheet-wrap" id="sheet-duration">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="sheet">
+      <div class="grab"></div>
+      <h3>how long are you down?</h3>
+      <div class="opts">
+        <button class="opt" data-dur="30"><span>30 min</span><span class="hint">quick game</span></button>
+        <button class="opt primary" data-dur="60"><span>1 hour</span><span class="hint">the usual</span></button>
+        <button class="opt" data-dur="120"><span>2 hours</span><span class="hint">long session</span></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sheet-wrap" id="sheet-raider">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="raider-sheet">
+      <div class="grab"></div>
+      <div class="r-av" id="rs-av"></div>
+      <div class="r-name" id="rs-name"></div>
+      <div class="r-status-wrap"><div class="r-status" id="rs-status"></div></div>
+      <div class="r-ambient" id="rs-ambient"></div>
+      <button class="ping-user-btn" id="rs-ping-btn">&#127955; ping</button>
+    </div>
+  </div>
+
+</div>
+
+<div id="setup-root"></div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
 </body>
 </html>
