@@ -549,44 +549,44 @@ function renderRoster() {
   }
   emptyEl.style.display = 'none';
 
-  function renderPlayerRow(r) {
+  function renderBubble(r) {
     const isMe = profile && r.id === profile.id;
     const ini = r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
-    let sub = '', badge = '';
+    let sub = '';
     if (r.status === 'playing') {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-      sub = m + 'm in';
-      badge = '<span class="row-badge">&#127955;</span>';
+      sub = m + 'm';
     } else if (r.status === 'down') {
-      sub = timeLeft(r) + ' left';
-      badge = '<span class="row-badge">&#9203;</span>';
+      sub = timeLeft(r);
     } else {
-      sub = 'away';
+      sub = '';
     }
-    // T2C: never show "anon · you" — use real name from profile
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
       ? profile.name : r.name;
-    return '<button class="rrow ' + (r.status === 'off' ? 'off-row' : r.status) + '" data-id="' + r.id + '">' +
-      '<span class="rav" style="background:' + (r.color || '#E8502A') + ';color:#F4EDDC">' + ini + '</span>' +
-      '<span class="rbody">' +
-      '<div class="rname">' + esc(displayName) + (isMe ? ' <span class="you-tag">you</span>' : '') + '</div>' +
-      '<div class="rsub">' + sub + '</div>' +
-      '</span>' + badge + '</button>';
+    const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
+    return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
+      '<div class="rbub-av-wrap">' +
+      '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      (isMe ? '<span class="rbub-you">you</span>' : '') +
+      '</div>' +
+      '<div class="rbub-name">' + esc(displayName) + '</div>' +
+      (sub ? '<div class="rbub-sub">' + sub + '</div>' : '') +
+      '</button>';
   }
 
   playingSection.style.display = playing.length ? 'block' : 'none';
   downSection.style.display = down.length ? 'block' : 'none';
   document.getElementById('count-playing').textContent = playing.length || '';
   document.getElementById('count-down').textContent = down.length || '';
-  playingList.innerHTML = playing.map(renderPlayerRow).join('');
-  downList.innerHTML = down.map(renderPlayerRow).join('');
+  playingList.innerHTML = '<div class="bub-grid">' + playing.map(renderBubble).join('') + '</div>';
+  downList.innerHTML = '<div class="bub-grid">' + down.map(renderBubble).join('') + '</div>';
 
   // T5: off section hidden by default, expand link at bottom
   if (off.length > 0) {
     if (showOffRaidersState) {
       offSection.style.display = 'block';
       document.getElementById('count-off').textContent = off.length || '';
-      offList.innerHTML = off.map(renderPlayerRow).join('') +
+      offList.innerHTML = '<div class="bub-grid">' + off.map(renderBubble).join('') + '</div>' +
         '<div class="off-expand"><button class="show-off-btn" id="hide-off-btn">hide away players</button></div>';
       clearOffExpand();
       const hideBtn = document.getElementById('hide-off-btn');
@@ -607,10 +607,10 @@ function renderRoster() {
     clearOffExpand();
   }
 
-  // Wire row clicks
-  document.querySelectorAll('.section-list .rrow').forEach(row =>
-    row.addEventListener('click', () => {
-      const r = allRaiders().find(x => x.id === row.dataset.id);
+  // Wire bubble clicks
+  document.querySelectorAll('.section-list .rbub').forEach(bub =>
+    bub.addEventListener('click', () => {
+      const r = allRaiders().find(x => x.id === bub.dataset.id);
       if (r) openRaiderSheet(r);
     })
   );
