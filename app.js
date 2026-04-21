@@ -196,9 +196,9 @@ function subscribeRealtime() {
         else roster.push(payload.new);
         if (profile && payload.new.id !== profile.id) {
           if (payload.new.status === 'playing' && payload.old?.status !== 'playing')
-            maybeNotify(payload.new.name + ' is now playing at ' + PLACE);
+            maybeNotify(payload.new.name + ' just started playing');
           else if (payload.new.status === 'down' && payload.old?.status !== 'down')
-            maybeNotify(payload.new.name + ' is down to play');
+            maybeNotify(payload.new.name + ' is looking for a game');
         }
       } else if (payload.eventType === 'DELETE') {
         roster = roster.filter(r => r.id !== payload.old.id);
@@ -453,7 +453,7 @@ function renderStrip() {
       '<span class="ondeck-sub">hit me up, i\'m around</span>' +
       '</div></div>' +
       '<div class="strip-actions">' +
-      '<button class="mini-btn" id="ping-every">&#127955; rally the squad</button>' +
+      '<button class="mini-btn" id="ping-every">&#127955; ping everyone</button>' +
       '<button class="tiny-link" id="change-dur">change time</button>' +
       '</div>';
     document.getElementById('ping-every').onclick = async function () {
@@ -530,7 +530,7 @@ function renderRoster() {
       sub = timeLeft(r) + ' left';
       badge = '<span class="row-badge">&#9203;</span>';
     } else {
-      sub = 'off'; // T3: was "off court"
+      sub = 'not around';
     }
     // T2C: never show "anon · you" — use real name from profile
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
@@ -617,7 +617,7 @@ function openRaiderSheet(r) {
     s.innerHTML = '&#128993; down &middot; ' + timeLeft(r) + ' left';
     s.style.background = 'var(--straw)';
   } else {
-    s.innerHTML = 'off'; // T3: was "offline"
+    s.innerHTML = 'not around';
     s.style.background = 'var(--cream)';
   }
 
@@ -659,11 +659,11 @@ function renderNotis() {
       '<div class="nw-icon">&#127955;</div>' +
       '<div class="nw-title">your notis will live here</div>' +
       '<div class="nw-body">' +
-      '<div class="nw-item">&middot; when raiders go down to play</div>' +
-      '<div class="nw-item">&middot; when someone heads to the table</div>' +
-      '<div class="nw-item">&middot; when your status is about to expire</div>' +
+      '<div class="nw-item">&middot; when someone\'s looking for a game</div>' +
+      '<div class="nw-item">&middot; when someone starts playing</div>' +
+      '<div class="nw-item">&middot; before your time runs out</div>' +
       '</div>' +
-      '<div class="nw-coming">coming soon: direct pings</div>' +
+      '<div class="nw-coming">coming soon: message players directly</div>' +
       '</div>';
     return;
   }
@@ -749,7 +749,7 @@ function renderMe() {
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
     '<div class="me-name-min">' + esc(profile.name) + '</div>' +
-    '<div class="me-tag-min">ttu ping pong raider</div>' +
+    '<div class="me-tag-min">here to play</div>' +
     '</div>' +
 
     '<div class="me-rule"></div>' +
@@ -770,7 +770,7 @@ function renderMe() {
     '<div class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><div class="knob"></div></div>' +
     '</div>' +
     '<div class="setting-row" id="sr-invite">' +
-    '<div class="sr-label">invite a raider</div>' +
+    '<div class="sr-label">invite someone</div>' +
     '<div class="sr-val">&#8250;</div>' +
     '</div>' +
     '<div class="setting-row" id="sr-signout">' +
@@ -781,7 +781,7 @@ function renderMe() {
 
     '<div class="me-rule"></div>' +
 
-    '<div class="me-foot-min">pingme &middot; made for the sub &#127955;</div>';
+    '<div class="me-foot-min">pingme &middot; find your game &#127955;</div>';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -811,7 +811,7 @@ function renderMe() {
   // T1: "invite a raider" — native share with preset message
   document.getElementById('sr-invite').addEventListener('click', () => {
     const url = location.origin;
-    const text = '\uD83C\uDFD3 ping pong at the sub. join us \u2192 ' + url;
+    const text = '\uD83C\uDFD3 come play ping pong. \u2192 ' + url;
     if (navigator.share) {
       navigator.share({ title: 'pingme', text, url }).catch(() => {});
     } else {
@@ -891,10 +891,10 @@ function showSetup() {
     '</svg></div>' +
 
     '<div class="setup-wm">ping<span class="swm-me">me!</span></div>' +
-    '<div class="setup-tagline">ping pong at the sub. live.</div>' +
+    '<div class="setup-tagline">find your game. right now.</div>' +
 
     '<button class="setup-primary" id="s1-in">i\'m in</button>' +
-    '<div class="setup-disclaimer">by tapping in, you\'ll get pinged when raiders are down. it\'s free, no spam.</div>' +
+    '<div class="setup-disclaimer">you\'ll hear when someone\'s looking for a game. free, no spam.</div>' +
     '</div>' + // end s-page-1
     '</div>'; // end setup-fs
 
@@ -912,7 +912,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-2">' +
     '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
-    '<h2 class="setup-h2">what do raiders call you?</h2>' +
+    '<h2 class="setup-h2">what do people call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
     '<button class="setup-primary" id="s2-rally">let\'s rally</button>' +
@@ -991,7 +991,7 @@ function showSetupScreen3() {
       '<div class="setup-pwa-step">3. tap <b>add</b> — then open pingme from your home screen</div>' +
       '</div>' +
       '<button class="setup-primary" id="s3-done">got it</button>' +
-      '<div class="setup-disclaimer">this lets us send you pings when raiders show up</div>';
+      '<div class="setup-disclaimer">so we can let you know when someone starts playing</div>';
   } else if (!pushOk) {
     // Android Chrome or other non-push browser → add-to-home instructions
     content =
@@ -1008,9 +1008,9 @@ function showSetupScreen3() {
     content =
       '<div class="setup-notif-art">' +
       '<div class="sna-phone">&#128241;</div>' +
-      '<div class="sna-bubble">jake is down to play &#127955;</div>' +
+      '<div class="sna-bubble">jake is looking for a game &#127955;</div>' +
       '</div>' +
-      '<h2 class="setup-h2">want a heads up when raiders show up?</h2>' +
+      '<h2 class="setup-h2">want a heads up when someone starts playing?</h2>' +
       '<button class="setup-primary" id="s3-yes">yes, ping me</button>' +
       '<button class="setup-skip" id="s3-no">not now</button>';
   }
