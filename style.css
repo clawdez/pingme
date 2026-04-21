@@ -406,35 +406,50 @@ button { font: inherit; color: inherit; }
 
 /* ============ THE TABLE (ping pong themed roster) ============ */
 .the-table {
-  padding: 14px 22px 28px;
+  padding: 18px 22px 28px;
   flex: 1;
 }
 .table-head {
-  display: flex; align-items: baseline; justify-content: space-between;
-  margin: 4px 2px 10px;
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 0 2px 16px;
+  padding-bottom: 12px;
+  border-bottom: 2.5px solid var(--ink);
 }
-.table-title { font-family: 'Permanent Marker'; font-size: 22px; transform: rotate(-1.5deg); }
-.table-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); }
-.table-sections { display: flex; flex-direction: column; gap: 16px; }
+.table-title {
+  font-family: 'Permanent Marker'; font-size: 24px;
+  transform: rotate(-1.5deg);
+  display: flex; align-items: center; gap: 4px;
+}
+.table-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 15px; color: var(--muted); }
+.table-sections { display: flex; flex-direction: column; gap: 20px; }
 .table-section { }
 .section-label {
-  font-family: 'Space Grotesk'; font-weight: 700; font-size: 12px;
-  text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
-  margin-bottom: 8px; display: flex; align-items: center; gap: 8px;
+  font-family: 'Permanent Marker'; font-size: 15px;
+  letter-spacing: .03em; color: var(--ink);
+  margin-bottom: 10px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 12px;
+  background: rgba(20,18,16,.04);
+  border-radius: 10px;
 }
-.s-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.s-dot.green { background: var(--sage); box-shadow: 0 0 0 3px rgba(111,210,123,.25); }
+.section-label .s-dot { flex: 0 0 auto; }
+.section-label .section-count {
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 12px;
+  color: var(--muted); margin-left: auto;
+}
+.s-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.s-dot.green { background: var(--sage); box-shadow: 0 0 0 3px rgba(111,210,123,.25); animation: blink 1.3s ease-in-out infinite; }
 .s-dot.yellow { background: var(--mustard); box-shadow: 0 0 0 3px rgba(232,184,74,.25); }
 .s-dot.gray { background: var(--muted-2); }
 .section-list { display: flex; flex-direction: column; gap: 8px; }
-.row-badge { font-size: 16px; flex: 0 0 auto; margin-left: auto; }
+.row-badge { font-size: 18px; flex: 0 0 auto; margin-left: auto; }
 .empty-roster {
-  text-align: center; padding: 30px 10px;
-  border: 2px dashed var(--ink); border-radius: 18px; margin: 8px 0;
+  text-align: center; padding: 40px 10px;
+  border: 2.5px dashed var(--ink); border-radius: 22px; margin: 8px 0;
 }
-.empty-roster-icon { font-size: 40px; margin-bottom: 8px; }
-.empty-roster-text { font-family: 'Permanent Marker'; font-size: 20px; margin-bottom: 4px; }
-.empty-roster-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 15px; color: var(--muted); }
+.empty-roster-icon { font-size: 48px; margin-bottom: 10px; }
+.empty-roster-text { font-family: 'Permanent Marker'; font-size: 22px; margin-bottom: 6px; }
+.empty-roster-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 16px; color: var(--muted); }
 
 .rrow {
   display: flex; align-items: center; gap: 11px;

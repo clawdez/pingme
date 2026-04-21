@@ -472,6 +472,10 @@ function renderRoster() {
   downSection.style.display = down.length ? 'block' : 'none';
   offSection.style.display = off.length ? 'block' : 'none';
 
+  document.getElementById('count-playing').textContent = playing.length || '';
+  document.getElementById('count-down').textContent = down.length || '';
+  document.getElementById('count-off').textContent = off.length || '';
+
   playingList.innerHTML = playing.map(renderPlayerRow).join('');
   downList.innerHTML = down.map(renderPlayerRow).join('');
   offList.innerHTML = off.map(renderPlayerRow).join('');
