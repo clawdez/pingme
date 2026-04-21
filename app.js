@@ -17,13 +17,13 @@ const SEED_DEFS = [
   { id:'seed-leo',    name:'leo',    ini:'LO', color:'#E8502A', status:'down',    dur:60,  elapsed:15 },
   { id:'seed-alex',   name:'alex',   ini:'AW', color:'#E8B84A', status:'down',    dur:60,  elapsed:30 },
   { id:'seed-tessa',  name:'tessa',  ini:'TR', color:'#6FD27B', status:'down',    dur:120, elapsed:70 },
-  { id:'seed-devon',  name:'devon',  ini:'DC', color:'#FF9AA2', status:'off', hoursAgo:1.2 },
-  { id:'seed-priya',  name:'priya',  ini:'PS', color:'#B5EAD7', status:'off', hoursAgo:2.5 },
-  { id:'seed-marcus', name:'marcus', ini:'MB', color:'#BFA8E0', status:'off', hoursAgo:0.7 },
-  { id:'seed-sam',    name:'sam',    ini:'SL', color:'#2544D6', status:'off', hoursAgo:3.1 },
-  { id:'seed-noor',   name:'noor',   ini:'NA', color:'#E8B84A', status:'off', hoursAgo:1.8 },
-  { id:'seed-riley',  name:'riley',  ini:'RF', color:'#6FD27B', status:'off', hoursAgo:4.2 },
-  { id:'seed-caleb',  name:'caleb',  ini:'CH', color:'#E8502A', status:'off', hoursAgo:0.4 },
+  { id:'seed-devon',  name:'devon',  ini:'DC', color:'#FF9AA2', status:'off', hoursAgo:1.2, displayStatus:'away' },
+  { id:'seed-priya',  name:'priya',  ini:'PS', color:'#B5EAD7', status:'off', hoursAgo:2.5, displayStatus:'away' },
+  { id:'seed-marcus', name:'marcus', ini:'MB', color:'#BFA8E0', status:'off', hoursAgo:0.7, displayStatus:'away' },
+  { id:'seed-sam',    name:'sam',    ini:'SL', color:'#2544D6', status:'off', hoursAgo:3.1, displayStatus:'away' },
+  { id:'seed-noor',   name:'noor',   ini:'NA', color:'#E8B84A', status:'off', hoursAgo:1.8, displayStatus:'away' },
+  { id:'seed-riley',  name:'riley',  ini:'RF', color:'#6FD27B', status:'off', hoursAgo:4.2, displayStatus:'away' },
+  { id:'seed-caleb',  name:'caleb',  ini:'CH', color:'#E8502A', status:'off', hoursAgo:0.4, displayStatus:'away' },
 ];
 
 function buildSeedUsers() {
@@ -60,6 +60,7 @@ let dragging = false;
 let currentPct = 50;
 let pingsSubscribed = false;
 let showOffRaidersState = false; // T5
+let downExpiryTimer = null; // exact client-side expiry for "down" status
 
 const SNAP = { down: 10, off: 50, playing: 90 };
 const TH_L = 32;
@@ -110,6 +111,14 @@ async function boot() {
         // Returning user — already onboarded
         profile = existing;
         homeState = existing.status || 'off';
+        // Restore expiry timer if returning as "down"
+        if (existing.status === 'down' && existing.started_at && existing.duration) {
+          const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
+          if (msLeft > 0) {
+            downDur = existing.duration;
+            downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+          }
+        }
         document.getElementById('setup-root').innerHTML = '';
         await loadRoster();
         await loadPings();
@@ -156,7 +165,18 @@ async function signInWithGoogle() {
 
 async function loadOrCreateProfile(user) {
   const { data: existing } = await sb.from('profiles').select('*').eq('id', user.id).single();
-  if (existing) { profile = existing; homeState = existing.status || 'off'; return; }
+  if (existing) {
+    profile = existing; homeState = existing.status || 'off';
+    // Restore expiry timer if returning as "down"
+    if (existing.status === 'down' && existing.started_at && existing.duration) {
+      const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
+      if (msLeft > 0) {
+        downDur = existing.duration;
+        downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+      }
+    }
+    return;
+  }
   // T2B: don't default to 'anon' — use empty string so nameless users are filtered
   const name = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '';
   const color = AV_COLORS[Math.abs(hash(name || user.id)) % AV_COLORS.length];
@@ -198,7 +218,7 @@ function subscribeRealtime() {
           if (payload.new.status === 'playing' && payload.old?.status !== 'playing')
             maybeNotify(payload.new.name + ' just started playing');
           else if (payload.new.status === 'down' && payload.old?.status !== 'down')
-            maybeNotify(payload.new.name + ' is looking for a game');
+            maybeNotify(payload.new.name + ' is down to play');
         }
       } else if (payload.eventType === 'DELETE') {
         roster = roster.filter(r => r.id !== payload.old.id);
@@ -251,11 +271,14 @@ document.querySelectorAll('[data-dismiss]').forEach(el =>
   el.addEventListener('click', () => el.closest('.sheet-wrap').classList.remove('open'))
 );
 document.querySelectorAll('#sheet-duration .opt').forEach(b =>
-  b.addEventListener('click', () => {
+  b.addEventListener('click', async () => {
     downDur = parseInt(b.dataset.dur, 10);
     document.getElementById('sheet-duration').classList.remove('open');
-    setMyStatus('down');
+    await setMyStatus('down');
     renderStrip();
+    // Auto-ping squad when going down
+    await pingEveryone();
+    toast('pinged the squad');
   })
 );
 
@@ -356,11 +379,19 @@ function setHomeState(st) {
 
 async function setMyStatus(st) {
   if (!profile) return;
+  // Clear any existing expiry timer
+  if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
+
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
     updates.venue = PLACE; updates.started_at = new Date().toISOString(); updates.duration = null;
   } else if (st === 'down') {
     updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = null;
+    // Set exact expiry timer
+    downExpiryTimer = setTimeout(() => {
+      toast('your down window expired');
+      snapTo('off');
+    }, downDur * 60000);
   } else {
     updates.venue = null; updates.duration = null; updates.started_at = null;
   }
@@ -427,24 +458,17 @@ function renderStrip() {
   } else {
     // down
     const m = downDur === 30 ? '30 min' : downDur === 60 ? '1 hr' : '2 hrs';
+    const tl = profile ? timeLeft(profile) : '?';
     strip.innerHTML =
       '<div class="strip-ondeck">' +
       '<span class="ondeck-icon">&#9203;</span>' +
       '<div class="ondeck-info">' +
       '<span class="ondeck-title">down for <b>' + m + '</b></span>' +
-      '<span class="ondeck-sub">hit me up, i\'m around</span>' +
+      '<span class="ondeck-sub">' + tl + ' left &middot; squad pinged</span>' +
       '</div></div>' +
       '<div class="strip-actions">' +
-      '<button class="mini-btn" id="ping-every">&#127955; rally the squad</button>' +
       '<button class="tiny-link" id="change-dur">change time</button>' +
       '</div>';
-    document.getElementById('ping-every').onclick = async function () {
-      await pingEveryone();
-      this.textContent = '✓ sent!';
-      this.style.background = 'var(--sage)';
-      this.style.color = 'var(--ink)';
-      setTimeout(renderStrip, 1800);
-    };
     document.getElementById('change-dur').onclick = () =>
       document.getElementById('sheet-duration').classList.add('open');
   }
@@ -457,7 +481,7 @@ async function pingEveryone() {
   const rows = others.map(r => ({
     from_id: profile.id, to_id: r.id,
     verb: 'is down to play',
-    msg: profile.name + ' is looking for a game',
+    msg: profile.name + ' is down for ' + downDur + ' min — you in?',
     unread: true
   }));
   if (rows.length) await sb.from('pings').insert(rows);
@@ -486,7 +510,6 @@ function renderRoster() {
   const down = all.filter(r => r.status === 'down');
   const off = all.filter(r => r.status === 'off');
 
-  // T3: "playing · down" (not "playing · on deck")
   tableSub.textContent = playing.length + ' playing \u00b7 ' + down.length + ' down';
 
   if (all.length === 0) {
@@ -512,7 +535,7 @@ function renderRoster() {
       sub = timeLeft(r) + ' left';
       badge = '<span class="row-badge">&#9203;</span>';
     } else {
-      sub = 'not around';
+      sub = 'away';
     }
     // T2C: never show "anon · you" — use real name from profile
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
@@ -538,7 +561,7 @@ function renderRoster() {
       offSection.style.display = 'block';
       document.getElementById('count-off').textContent = off.length || '';
       offList.innerHTML = off.map(renderPlayerRow).join('') +
-        '<div class="off-expand"><button class="show-off-btn" id="hide-off-btn">hide off raiders</button></div>';
+        '<div class="off-expand"><button class="show-off-btn" id="hide-off-btn">hide away players</button></div>';
       clearOffExpand();
       const hideBtn = document.getElementById('hide-off-btn');
       if (hideBtn) hideBtn.onclick = () => { showOffRaidersState = false; renderRoster(); };
@@ -548,7 +571,7 @@ function renderRoster() {
       const expandEl = getOrCreateOffExpand();
       expandEl.innerHTML =
         '<button class="show-off-btn" id="show-off-btn">show ' + off.length +
-        ' off raider' + (off.length !== 1 ? 's' : '') + '</button>';
+        ' away' + '</button>';
       document.getElementById('show-off-btn').onclick = () => {
         showOffRaidersState = true; renderRoster();
       };
@@ -599,7 +622,7 @@ function openRaiderSheet(r) {
     s.innerHTML = '&#128993; down &middot; ' + timeLeft(r) + ' left';
     s.style.background = 'var(--straw)';
   } else {
-    s.innerHTML = 'not around';
+    s.innerHTML = 'away';
     s.style.background = 'var(--cream)';
   }
 
@@ -710,7 +733,7 @@ function renderMe() {
   const col = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
   const me = roster.find(r => r.id === profile.id) || profile;
 
-  let nowIc = '&#9898;', nowHd = "you're off", nowSub = 'drag the ball to change your status';
+  let nowIc = '&#9898;', nowHd = "you're away", nowSub = 'drag the ball to change your status';
   if (me.status === 'playing') {
     nowIc = '&#127955;';
     nowHd = 'playing at ' + (me.venue || PLACE);
@@ -805,6 +828,7 @@ function renderMe() {
 
   // Sign out
   document.getElementById('sr-signout').addEventListener('click', async () => {
+    if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
     if (profile) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
