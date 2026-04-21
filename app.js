@@ -61,7 +61,24 @@ let currentPct = 50;
 let pingsSubscribed = false;
 let showOffRaidersState = false; // T5
 let downExpiryTimer = null; // exact client-side expiry for "down" status
-let sentPingIds = []; // ping IDs sent this session for response tracking
+let downReminderTimer = null; // 5-min warning before expiry
+let lastPingTime = 0; // rate limit pings (ms)
+const PING_COOLDOWN = 10000; // 10 seconds between pings
+
+/* ── FAVORITES ── */
+function getFavorites() {
+  try { return JSON.parse(localStorage.getItem('pm_favorites') || '[]'); } catch { return []; }
+}
+function setFavorites(ids) { localStorage.setItem('pm_favorites', JSON.stringify(ids)); }
+function isFavorite(id) { return getFavorites().includes(id); }
+function toggleFavorite(id) {
+  const favs = getFavorites();
+  const idx = favs.indexOf(id);
+  if (idx >= 0) favs.splice(idx, 1);
+  else favs.push(id);
+  setFavorites(favs);
+  return idx < 0; // true = just added
+}
 
 const SNAP = { down: 10, off: 50, playing: 90 };
 const TH_L = 32;
@@ -118,6 +135,20 @@ async function boot() {
           if (msLeft > 0) {
             downDur = existing.duration;
             downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+            // Schedule 5-min reminder if enough time left
+            const reminderMs = msLeft - 5 * 60000;
+            if (reminderMs > 60000) {
+              downReminderTimer = setTimeout(() => {
+                toast('5 min left on your down window');
+                maybeNotify('5 minutes left — find your game!');
+              }, reminderMs);
+            }
+          } else {
+            // Expired while offline — immediately set to off
+            homeState = 'off';
+            existing.status = 'off';
+            profile = existing;
+            await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
           }
         }
         document.getElementById('setup-root').innerHTML = '';
@@ -174,6 +205,18 @@ async function loadOrCreateProfile(user) {
       if (msLeft > 0) {
         downDur = existing.duration;
         downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+        const reminderMs = msLeft - 5 * 60000;
+        if (reminderMs > 60000) {
+          downReminderTimer = setTimeout(() => {
+            toast('5 min left on your down window');
+            maybeNotify('5 minutes left — find your game!');
+          }, reminderMs);
+        }
+      } else {
+        // Expired while offline — immediately set to off
+        homeState = 'off';
+        profile.status = 'off';
+        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
       }
     }
     return;
@@ -245,22 +288,27 @@ function subscribePings() {
     .subscribe();
 }
 
-/* ── NAV — single screen, modals for notis + profile ── */
+/* ── TABLE SUBTITLE (dynamic counts) ── */
+function updateTableSub() {
+  const sub = document.getElementById('table-sub');
+  if (!sub) return;
+  const all = allRaiders();
+  const playing = all.filter(r => r.status === 'playing').length;
+  const down = all.filter(r => r.status === 'down').length;
+  sub.textContent = `${playing} playing \u00b7 ${down} down`;
+}
+
+
+/* ── NAV — single screen, avatar opens combined panel ── */
 function setTab(t) {
-  // Only home screen exists now — just re-render
   if (t === 'home') renderHome();
 }
 
-// Notis chip → open notis modal
-document.getElementById('notis-chip').addEventListener('click', () => {
-  renderNotis();
-  document.getElementById('sheet-notis').classList.add('open');
-});
-
-// Avatar → open profile modal
+// Avatar → open combined profile + notis modal
 document.getElementById('profile-av').addEventListener('click', () => {
   renderMe();
-  document.getElementById('sheet-profile').classList.add('open');
+  renderNotis();
+  document.getElementById('sheet-me').classList.add('open');
 });
 
 /* ── SHEETS ── */
@@ -268,27 +316,33 @@ document.querySelectorAll('[data-dismiss]').forEach(el =>
   el.addEventListener('click', () => {
     const wrap = el.closest('.sheet-wrap');
     wrap.classList.remove('open');
-    // If duration picker dismissed without choosing, snap back to previous state
-    if (wrap.id === 'sheet-duration' && homeState === 'down' && profile && profile.status !== 'down') {
+    // If ping confirm dismissed, revert to previous state
+    if (wrap.id === 'sheet-ping-confirm' && homeState === 'down' && profile && profile.status !== 'down') {
       homeState = profile.status || 'off';
       app.dataset.homeState = homeState;
       placeBall(SNAP[homeState], true);
-      renderLiveZone();
       renderRoster();
     }
   })
 );
-document.querySelectorAll('#sheet-duration .opt').forEach(b =>
-  b.addEventListener('click', async () => {
-    downDur = parseInt(b.dataset.dur, 10);
-    document.getElementById('sheet-duration').classList.remove('open');
-    await setMyStatus('down');
-    renderStrip();
-    // Auto-ping squad when going down
-    await pingEveryone();
-    toast('pinged the squad');
-  })
-);
+
+// Ping confirm buttons
+document.getElementById('confirm-ping').addEventListener('click', async () => {
+  document.getElementById('sheet-ping-confirm').classList.remove('open');
+  downDur = 60;
+  const ok = await setMyStatus('down');
+  if (!ok) {
+    // Revert UI on failure
+    homeState = profile?.status || 'off';
+    app.dataset.homeState = homeState;
+    placeBall(SNAP[homeState], true);
+    renderRoster();
+    return;
+  }
+  renderHome();
+  await pingEveryone();
+  toast('pinged the squad');
+});
 
 /* ── BALL DRAG ── */
 function placeBall(pct, smooth) {
@@ -377,7 +431,7 @@ function setHomeState(st) {
   homeState = st;
   app.dataset.homeState = st;
   if (st === 'down') {
-    document.getElementById('sheet-duration').classList.add('open');
+    document.getElementById('sheet-ping-confirm').classList.add('open');
   } else {
     setMyStatus(st);
   }
@@ -386,10 +440,10 @@ function setHomeState(st) {
 }
 
 async function setMyStatus(st) {
-  if (!profile) return;
-  // Clear any existing expiry timer
+  if (!profile) return false;
+  // Clear any existing expiry / reminder timers
   if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
-  if (st !== 'down') sentPingIds = []; // clear ping tracking when leaving down
+  if (downReminderTimer) { clearTimeout(downReminderTimer); downReminderTimer = null; }
 
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
@@ -397,18 +451,28 @@ async function setMyStatus(st) {
   } else if (st === 'down') {
     updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = null;
     // Set exact expiry timer
+    const expiryMs = downDur * 60000;
     downExpiryTimer = setTimeout(() => {
       toast('your down window expired');
       snapTo('off');
-    }, downDur * 60000);
+    }, expiryMs);
+    // 5-minute warning (only if window > 10 min)
+    const reminderMs = expiryMs - 5 * 60000;
+    if (reminderMs > 60000) {
+      downReminderTimer = setTimeout(() => {
+        toast('5 min left on your down window');
+        maybeNotify('5 minutes left — find your game!');
+      }, reminderMs);
+    }
   } else {
     updates.venue = null; updates.duration = null; updates.started_at = null;
   }
   const { error } = await sb.from('profiles').update(updates).eq('id', profile.id);
-  if (error) { toast('update failed'); console.error(error); return; }
+  if (error) { toast('update failed'); console.error(error); return false; }
   Object.assign(profile, updates);
   const me = roster.find(r => r.id === profile.id);
   if (me) Object.assign(me, updates);
+  return true;
 }
 
 /* ── RENDER HOME ── */
@@ -425,8 +489,10 @@ function renderHome() {
 function updateNotisBadge() {
   const u = pings.filter(p => p.unread).length;
   const badge = document.getElementById('notis-badge');
-  badge.textContent = u;
-  badge.style.display = u > 0 ? 'inline-flex' : 'none';
+  if (badge) {
+    badge.textContent = u;
+    badge.style.display = u > 0 ? 'flex' : 'none';
+  }
 }
 
 function updateProfileAv() {
@@ -439,18 +505,10 @@ function updateProfileAv() {
   }
 }
 
-/* ── LIVE ZONE — avatar bubbles (down) / nothing (away) ── */
+/* ── COURT TIMER — only for playing state ── */
 function renderLiveZone() {
-  const zone = document.getElementById('live-zone');
   const timer = document.getElementById('court-timer');
-
-  if (homeState === 'off') {
-    zone.innerHTML = '';
-    timer.innerHTML = '';
-
-  } else if (homeState === 'playing') {
-    zone.innerHTML = '';
-    // Timer lives ON the court
+  if (homeState === 'playing') {
     const me = profile ? allRaiders().find(r => r.id === profile.id) : null;
     const mins = me && me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
     timer.innerHTML =
@@ -458,142 +516,41 @@ function renderLiveZone() {
       '<span class="ct-dot"></span>' +
       'live &middot; ' + mins + 'm &middot; @ ' + PLACE +
       '</div>';
-
   } else {
-    // down — calling screen with response states
     timer.innerHTML = '';
-    const all = allRaiders();
-    const tl = profile ? timeLeft(profile) : '?';
-
-    // Build response map from sent pings
-    const responseMap = {};
-    sentPingIds.forEach(sp => {
-      responseMap[sp.to_id] = sp.action_taken || null;
-    });
-
-    // Categorize everyone
-    let bubblesHtml = '';
-    let nIn = 0, nCant = 0, nRinging = 0;
-
-    // First show people who are already down or playing (they're "in" automatically)
-    const othersActive = all.filter(r =>
-      (r.status === 'down' || r.status === 'playing') && (!profile || r.id !== profile.id)
-    );
-    othersActive.forEach(r => {
-      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
-      bubblesHtml += '<div class="lz-bub lz-in" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + '">' +
-        ini + '<span class="lz-check">&#10003;</span></div>';
-      nIn++;
-    });
-
-    // Then show pinged people with response states
-    const pingedIds = new Set(othersActive.map(r => r.id));
-    sentPingIds.forEach(sp => {
-      if (pingedIds.has(sp.to_id)) return; // already shown as active
-      const r = roster.find(x => x.id === sp.to_id);
-      if (!r) return;
-      const ini = r.name ? r.name.slice(0, 2).toUpperCase() : '??';
-      const action = sp.action_taken;
-
-      if (action === 'on my way') {
-        bubblesHtml += '<div class="lz-bub lz-in" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — on my way">' +
-          ini + '<span class="lz-check">&#10003;</span></div>';
-        nIn++;
-      } else if (action === 'can\'t' || action === 'maybe') {
-        bubblesHtml += '<div class="lz-bub lz-cant" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — ' + action + '">' +
-          ini + '</div>';
-        nCant++;
-      } else {
-        // No response yet — ringing
-        bubblesHtml += '<div class="lz-bub lz-ring" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — ringing">' +
-          ini + '<div class="lz-ring-wave"></div><div class="lz-ring-wave w2"></div></div>';
-        nRinging++;
-      }
-    });
-
-    // If no pings sent yet (seed scenario), show empty ringing slots
-    if (sentPingIds.length === 0 && othersActive.length === 0) {
-      for (let i = 0; i < 3; i++) {
-        bubblesHtml += '<div class="lz-bub lz-ring empty">?<div class="lz-ring-wave"></div><div class="lz-ring-wave w2"></div></div>';
-        nRinging++;
-      }
-    }
-
-    // Status summary
-    let statusParts = [];
-    if (nRinging > 0) statusParts.push('ringing ' + nRinging);
-    if (nIn > 0) statusParts.push('&#10003; ' + nIn + ' in');
-    if (nCant > 0) statusParts.push(nCant + ' passed');
-    const statusText = statusParts.join(' &middot; ') || 'pinging...';
-
-    zone.innerHTML =
-      '<div class="lz-calling">' +
-      '<div class="lz-call-status">' + statusText + '</div>' +
-      '<div class="lz-call-timer">' + tl + ' left</div>' +
-      '<div class="lz-bubbles">' + bubblesHtml + '</div>' +
-      '<button class="lz-change" id="change-dur">change time</button>' +
-      '</div>';
-
-    document.getElementById('change-dur').onclick = () =>
-      document.getElementById('sheet-duration').classList.add('open');
   }
 }
-
-// Alias for backward compat
 function renderStrip() { renderLiveZone(); }
 
 async function pingEveryone() {
   if (!profile) return;
-  sentPingIds = [];
-  // Don't ping seed users — they're not real
+  const now = Date.now();
+  if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
+  lastPingTime = now;
   const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
   const rows = others.map(r => ({
     from_id: profile.id, to_id: r.id,
     verb: 'is down to play',
-    msg: profile.name + ' is down for ' + downDur + ' min — you in?',
+    msg: profile.name + ' is down — you in?',
     unread: true
   }));
   if (rows.length) {
-    const { data } = await sb.from('pings').insert(rows).select('id, to_id');
-    if (data) sentPingIds = data;
+    await sb.from('pings').insert(rows);
   }
-  // Subscribe to responses on sent pings
-  subscribeSentPings();
 }
 
-function subscribeSentPings() {
-  if (!sentPingIds.length) return;
-  // Listen for updates to pings we sent (action_taken changes)
-  const ids = sentPingIds.map(p => p.id);
-  sb.channel('sent-pings-' + Date.now())
-    .on('postgres_changes', {
-      event: 'UPDATE', schema: 'public', table: 'pings',
-      filter: 'from_id=eq.' + profile.id
-    }, (payload) => {
-      // Update our local sent pings with the response
-      const sp = sentPingIds.find(p => p.id === payload.new.id);
-      if (sp) {
-        sp.action_taken = payload.new.action_taken;
-        renderLiveZone();
-        if (payload.new.action_taken === 'on my way') {
-          const responder = roster.find(r => r.id === sp.to_id);
-          toast((responder ? responder.name : 'someone') + ' is in!');
-        }
-      }
-    })
-    .subscribe();
-}
 
 /* ── T2: MERGED RAIDERS (real + seed) ── */
 function allRaiders() {
   // T2B: filter out unnamed / 'anon' real users
   const real = roster.filter(r => r.name && r.name !== 'anon');
-  return [...real, ...seedUsers];
+  // Only show seed users when roster is sparse (< 3 real users)
+  if (real.length < 3) return [...real, ...seedUsers];
+  return real;
 }
 
 /* ── ROSTER — T2, T3, T5 ── */
 function renderRoster() {
-  const tableSub = document.getElementById('table-sub');
   const emptyEl = document.getElementById('empty-roster');
   const playingList = document.getElementById('list-playing');
   const downList = document.getElementById('list-down');
@@ -603,11 +560,16 @@ function renderRoster() {
   const offSection = document.getElementById('section-off');
 
   const all = allRaiders();
-  const playing = all.filter(r => r.status === 'playing');
-  const down = all.filter(r => r.status === 'down');
-  const off = all.filter(r => r.status === 'off');
+  // Sort: you first in each group
+  const meFirst = (a, b) => {
+    const aMe = profile && a.id === profile.id ? -1 : 0;
+    const bMe = profile && b.id === profile.id ? -1 : 0;
+    return aMe - bMe;
+  };
+  const playing = all.filter(r => r.status === 'playing').sort(meFirst);
+  const down = all.filter(r => r.status === 'down').sort(meFirst);
+  const off = all.filter(r => r.status === 'off').sort(meFirst);
 
-  tableSub.textContent = playing.length + ' playing \u00b7 ' + down.length + ' down';
 
   if (all.length === 0) {
     playingList.innerHTML = ''; downList.innerHTML = ''; offList.innerHTML = '';
@@ -635,10 +597,11 @@ function renderRoster() {
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
       ? profile.name : r.name;
     const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
-    return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
+    const seedBadge = r._seed ? '<span class="rbub-demo">demo</span>' : '';
+    return '<button class="rbub ' + stClass + (r._seed ? ' rbub-seed' : '') + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
       '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
-      (isMe ? '<span class="rbub-you">you</span>' : '') +
+      (isMe ? '<span class="rbub-you">you</span>' : seedBadge) +
       '</div>' +
       '<div class="rbub-name">' + esc(displayName) + '</div>' +
       (sub ? '<div class="rbub-sub">' + sub + '</div>' : '') +
@@ -661,6 +624,7 @@ function renderRoster() {
     offSection.style.display = 'none';
   }
   clearOffExpand();
+  updateTableSub();
 
   // Wire bubble clicks
   document.querySelectorAll('.section-list .rbub').forEach(bub =>
@@ -707,12 +671,29 @@ function openRaiderSheet(r) {
     s.style.background = 'var(--cream)';
   }
 
-  document.getElementById('rs-ambient').innerHTML = r.ambient || '';
+  document.getElementById('rs-ambient').textContent = r.ambient || '';
 
   const pingBtn = document.getElementById('rs-ping-btn');
+  const favBtn = document.getElementById('rs-fav-btn');
+
+  // Favorite button — only for real (non-seed) other users
   if (profile && r.id !== profile.id && !r._seed) {
+    favBtn.style.display = 'block';
+    const starred = isFavorite(r.id);
+    favBtn.textContent = starred ? '\u2605 favorited' : '\u2606 favorite';
+    favBtn.className = 'fav-user-btn' + (starred ? ' fav-active' : '');
+    favBtn.onclick = () => {
+      const added = toggleFavorite(r.id);
+      favBtn.textContent = added ? '\u2605 favorited' : '\u2606 favorite';
+      favBtn.className = 'fav-user-btn' + (added ? ' fav-active' : '');
+      toast(added ? esc(r.name) + ' added to favorites' : esc(r.name) + ' removed');
+    };
+
     pingBtn.style.display = 'block';
     pingBtn.onclick = async () => {
+      const now = Date.now();
+      if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
+      lastPingTime = now;
       await sb.from('pings').insert({
         from_id: profile.id, to_id: r.id,
         verb: 'wants to play',
@@ -725,6 +706,7 @@ function openRaiderSheet(r) {
     };
   } else {
     pingBtn.style.display = 'none';
+    favBtn.style.display = 'none';
   }
 
   document.getElementById('sheet-raider').classList.add('open');
@@ -796,7 +778,7 @@ function renderNotis() {
         await setMyStatus('down');
         homeState = 'down';
         app.dataset.homeState = 'down';
-        document.getElementById('sheet-notis').classList.remove('open');
+        document.getElementById('sheet-me').classList.remove('open');
         renderHome();
         toast('you\'re down — heading to ' + PLACE);
         return;
@@ -838,7 +820,7 @@ function renderMe() {
     nowSub = timeLeft(me) + ' remaining';
   }
 
-  const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted';
+  const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
   // T1: no week strip, no stats, no rally-grade badge
   // Layout: avatar (centered, tappable) → name → tag → divider → status → divider → settings → divider → footer
@@ -861,6 +843,11 @@ function renderMe() {
 
     '<div class="me-rule"></div>' +
 
+    '<div class="section-title" style="padding:0 4px 8px">favorites</div>' +
+    '<div id="me-favorites" class="me-favorites"></div>' +
+
+    '<div class="me-rule"></div>' +
+
     '<div class="settings-group">' +
     '<div class="setting-row" id="sr-notif">' +
     '<div class="sr-label">notifications</div>' +
@@ -876,9 +863,7 @@ function renderMe() {
     '</div>' +
     '</div>' +
 
-    '<div class="me-rule"></div>' +
-
-    '<div class="me-foot-min">pingme &middot; find your game &#127955;</div>';
+    '';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -897,11 +882,23 @@ function renderMe() {
     if (!('Notification' in window)) { toast('not supported'); return; }
     const tog = document.getElementById('notif-tog');
     if (Notification.permission === 'granted') {
+      // Already granted — toggle local preference
+      const nowOn = tog.classList.contains('on');
       tog.classList.toggle('on');
+      localStorage.setItem('pm_notif_off', nowOn ? '1' : '');
+      toast(nowOn ? 'notifications off' : 'notifications on');
+    } else if (Notification.permission === 'denied') {
+      toast('blocked — check browser settings');
     } else {
       const p = await Notification.requestPermission();
-      if (p === 'granted') { tog.classList.add('on'); toast('pings are on'); }
-      else toast('check browser settings');
+      if (p === 'granted') {
+        tog.classList.add('on');
+        localStorage.removeItem('pm_notif_off');
+        toast('pings are on');
+      } else {
+        tog.classList.remove('on');
+        toast('permission denied — check browser settings');
+      }
     }
   });
 
@@ -921,6 +918,7 @@ function renderMe() {
   // Sign out
   document.getElementById('sr-signout').addEventListener('click', async () => {
     if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
+    if (downReminderTimer) { clearTimeout(downReminderTimer); downReminderTimer = null; }
     if (profile) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
@@ -931,9 +929,49 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    document.getElementById('sheet-profile').classList.remove('open');
+    document.getElementById('sheet-me').classList.remove('open');
     renderHome();
   });
+
+  // Render favorites list
+  renderFavoritesList();
+}
+
+function renderFavoritesList() {
+  const container = document.getElementById('me-favorites');
+  if (!container) return;
+  const favIds = getFavorites();
+  const allR = roster.filter(r => r.name && r.name !== 'anon');
+  const favUsers = favIds.map(id => allR.find(r => r.id === id)).filter(Boolean);
+
+  if (favUsers.length === 0) {
+    container.innerHTML =
+      '<div class="fav-empty">no favorites yet — tap a player and hit <b>favorite</b></div>';
+    return;
+  }
+
+  container.innerHTML = '<div class="bub-grid">' + favUsers.map(r => {
+    const ini = r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
+    const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
+    return '<button class="rbub ' + stClass + '" data-fav-id="' + r.id + '">' +
+      '<div class="rbub-av-wrap">' +
+      '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<span class="rbub-fav-star">\u2605</span>' +
+      '</div>' +
+      '<div class="rbub-name">' + esc(r.name) + '</div>' +
+      '<div class="rbub-sub">' + r.status + '</div>' +
+      '</button>';
+  }).join('') + '</div>';
+
+  container.querySelectorAll('[data-fav-id]').forEach(bub =>
+    bub.addEventListener('click', () => {
+      const r = allR.find(x => x.id === bub.dataset.favId);
+      if (r) {
+        document.getElementById('sheet-me').classList.remove('open');
+        setTimeout(() => openRaiderSheet(r), 200);
+      }
+    })
+  );
 }
 
 /* ── T9: PUSH / PWA DETECTION ── */
@@ -1023,8 +1061,11 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   const inp = document.getElementById('setup-name-2');
   setTimeout(() => { inp.focus(); inp.select(); }, 80);
 
+  // Cap name length
+  inp.maxLength = 30;
+
   document.getElementById('s2-rally').addEventListener('click', async () => {
-    const n = inp.value.trim().toLowerCase();
+    const n = inp.value.trim().toLowerCase().slice(0, 30);
     if (!n) { toast('enter your name first'); return; }
     const btn = document.getElementById('s2-rally');
     btn.textContent = '...'; btn.disabled = true;
@@ -1226,7 +1267,7 @@ function toast(msg, dur) {
   t._t = setTimeout(() => t.classList.remove('show'), dur);
 }
 function maybeNotify(body) {
-  if ('Notification' in window && Notification.permission === 'granted') {
+  if ('Notification' in window && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off')) {
     new Notification('pingme', { body, tag: 'pm-update', renotify: true });
   }
 }

@@ -48,12 +48,11 @@ if ('serviceWorker' in navigator) {
   <!-- HOME -->
   <div class="screen active" data-screen="home">
 
-    <!-- top bar: wordmark + notis chip + avatar -->
+    <!-- top bar: wordmark + avatar (opens combined panel) -->
     <div class="top">
       <div class="wordmark">ping<span class="me">me!</span></div>
       <div class="top-actions">
-        <button class="pings-chip" id="notis-chip">notis <span class="badge" id="notis-badge">0</span></button>
-        <button class="profile-av" id="profile-av">?</button>
+        <button class="profile-av" id="profile-av">?<span class="av-badge" id="notis-badge" style="display:none">0</span></button>
       </div>
     </div>
 
@@ -113,15 +112,12 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <!-- live zone: avatar bubbles (down) or nothing (away) -->
-    <div class="live-zone" id="live-zone"></div>
-
-    <!-- the table -->
+    <!-- the table (calling screen integrates here when down) -->
     <div class="the-table" id="the-table">
       <div class="table-head">
         <span class="table-title">&#127955; the table</span>
-        <span class="table-sub" id="table-sub"></span>
       </div>
+      <span class="table-sub" id="table-sub">2 playing · 3 down</span>
       <div class="table-sections">
         <div class="table-section" id="section-playing">
           <div class="section-label playing-label"><span class="s-dot green"></span> playing <span class="section-count" id="count-playing"></span></div>
@@ -147,16 +143,13 @@ if ('serviceWorker' in navigator) {
 
   <!-- CENTERED MODALS -->
 
-  <!-- Duration picker -->
-  <div class="sheet-wrap" id="sheet-duration">
+  <!-- Ping confirm -->
+  <div class="sheet-wrap" id="sheet-ping-confirm">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
-      <h3>how long are you down?</h3>
-      <div class="opts">
-        <button class="opt" data-dur="30"><span>30 min</span><span class="hint">quick game</span></button>
-        <button class="opt primary" data-dur="60"><span>1 hour</span><span class="hint">the usual</span></button>
-        <button class="opt" data-dur="120"><span>2 hours</span><span class="hint">long session</span></button>
-      </div>
+      <h3>rally the table?</h3>
+      <div class="ping-confirm-sub">everyone gets a ping that you're down to play</div>
+      <button class="ping-confirm-btn" id="confirm-ping">serve it up</button>
     </div>
   </div>
 
@@ -168,25 +161,24 @@ if ('serviceWorker' in navigator) {
       <div class="r-name" id="rs-name"></div>
       <div class="r-status-wrap"><div class="r-status" id="rs-status"></div></div>
       <div class="r-ambient" id="rs-ambient"></div>
+      <button class="fav-user-btn" id="rs-fav-btn">&#9734; favorite</button>
       <button class="ping-user-btn" id="rs-ping-btn">&#127955; ping</button>
     </div>
   </div>
 
-  <!-- Notis modal -->
-  <div class="sheet-wrap" id="sheet-notis">
-    <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center modal-tall">
-      <h3>notis</h3>
-      <div class="notis-sub" id="notis-sub"></div>
-      <div class="ping-list" id="ping-list"></div>
-    </div>
-  </div>
-
-  <!-- Profile modal -->
-  <div class="sheet-wrap" id="sheet-profile">
+  <!-- Combined profile + notis modal -->
+  <div class="sheet-wrap" id="sheet-me">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-tall">
       <div class="me-wrap" id="me-wrap"></div>
+      <div class="me-notis-section" id="me-notis-section">
+        <div class="me-rule"></div>
+        <div class="me-notis-head">
+          <span class="me-notis-title">notis</span>
+          <span class="notis-sub" id="notis-sub"></span>
+        </div>
+        <div class="ping-list" id="ping-list"></div>
+      </div>
     </div>
   </div>
 
