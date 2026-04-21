@@ -1,4 +1,4 @@
-const CACHE = 'pingme-v3';
+const CACHE = 'pingme-v4';
 const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -14,11 +14,17 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Skip external requests
   if (e.request.url.includes('supabase.co') || e.request.url.includes('googleapis.com') || e.request.url.includes('gstatic.com') || e.request.url.includes('unpkg.com')) {
     return;
   }
+  // Network-first: always try fresh, fall back to cache
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request)).catch(() => caches.match('/index.html'))
+    fetch(e.request).then(res => {
+      const clone = res.clone();
+      caches.open(CACHE).then(c => c.put(e.request, clone));
+      return res;
+    }).catch(() => caches.match(e.request).then(r => r || caches.match('/index.html')))
   );
 });
 
