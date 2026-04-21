@@ -3,7 +3,12 @@
 const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+let sb = null;
+try {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+} catch (e) {
+  console.error('Supabase failed to load:', e);
+}
 
 const PLACE = 'the sub';
 const AV_COLORS = ['#E8502A','#2544D6','#6FD27B','#E8B84A','#BFA8E0','#FFD3B6','#FF9AA2','#B5EAD7'];
@@ -33,7 +38,13 @@ const rp = document.getElementById('right-paddle');
 window.addEventListener('load', boot);
 
 async function boot() {
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  if (!sb) {
+    // Supabase didn't load — still make UI interactive
+    setTab('home');
+    renderHome();
+    setTimeout(showSetup, 300);
+    return;
+  }
 
   try {
     const { data: { session } } = await sb.auth.getSession();
