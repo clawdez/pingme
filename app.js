@@ -268,7 +268,18 @@ document.querySelectorAll('[data-back]').forEach(b =>
 
 /* ── SHEETS ── */
 document.querySelectorAll('[data-dismiss]').forEach(el =>
-  el.addEventListener('click', () => el.closest('.sheet-wrap').classList.remove('open'))
+  el.addEventListener('click', () => {
+    const wrap = el.closest('.sheet-wrap');
+    wrap.classList.remove('open');
+    // If duration picker dismissed without choosing, snap back to previous state
+    if (wrap.id === 'sheet-duration' && homeState === 'down' && profile && profile.status !== 'down') {
+      homeState = profile.status || 'off';
+      app.dataset.homeState = homeState;
+      placeBall(SNAP[homeState], true);
+      renderLiveZone();
+      renderRoster();
+    }
+  })
 );
 document.querySelectorAll('#sheet-duration .opt').forEach(b =>
   b.addEventListener('click', async () => {
