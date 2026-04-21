@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/admin/reseed", "destination": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",

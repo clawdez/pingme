@@ -330,15 +330,16 @@ button { font: inherit; color: inherit; }
 [data-home-state="playing"] .strip { background: var(--peach); }
 [data-home-state="down"] .strip { background: var(--straw); }
 
-/* scoreboard (off state) */
+/* scoreboard (off state) — T4 */
 .strip-scoreboard {
-  display: flex; align-items: center; justify-content: center; gap: 16px;
+  display: flex; align-items: center; gap: 10px;
   padding: 4px 0;
 }
-.sb-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.sb-num { font-family: 'Permanent Marker'; font-size: 32px; line-height: 1; }
-.sb-label { font-family: 'Caveat', cursive; font-weight: 700; font-size: 13px; color: var(--muted); }
-.sb-vs { font-family: 'Permanent Marker'; font-size: 16px; color: var(--muted); transform: rotate(-8deg); }
+.sb-count {
+  font-family: 'Space Grotesk'; font-weight: 600; font-size: 16px; color: var(--ink);
+}
+.sb-count b { font-family: 'Permanent Marker'; font-size: 28px; line-height: 1; }
+.sb-dot { font-family: 'Permanent Marker'; font-size: 22px; color: var(--muted); }
 .strip-bottom {
   display: flex; align-items: center; justify-content: space-between;
   margin-top: 8px; padding-top: 8px;
@@ -354,6 +355,12 @@ button { font: inherit; color: inherit; }
 .heat-tag.warm { background: var(--mustard); color: var(--ink); }
 .heat-tag.mild { background: var(--straw); color: var(--ink); }
 .heat-tag.cold { background: var(--paper); color: var(--muted); }
+/* T4: subtle dead quiet pill */
+.heat-tag.cold.subtle {
+  font-size: 9px; padding: 2px 8px; letter-spacing: .08em;
+  background: transparent; border-color: var(--muted-2); color: var(--muted-2);
+  opacity: .75;
+}
 
 /* live strip (playing state) */
 .strip-live {
@@ -469,7 +476,7 @@ button { font: inherit; color: inherit; }
 .rrow:nth-child(even) { transform: rotate(.3deg); }
 .rrow.playing { background: var(--peach); }
 .rrow.down { background: var(--straw); }
-.rrow.off-row { opacity: .45; }
+/* T5: off row opacity controlled by .off-row below */
 
 .rav {
   width: 34px; height: 34px; border-radius: 50%;
@@ -768,56 +775,53 @@ button { font: inherit; color: inherit; }
 
 /* ============ ME / PROFILE ============ */
 .me-wrap {
-  padding: 6px 22px 40px;
+  padding: 24px 22px 32px;
   display: flex; flex-direction: column;
-  gap: 14px; flex: 1;
+  gap: 20px; flex: 1;
   overflow-y: auto;
 }
 
-.me-hero {
-  border: 2.5px solid var(--ink);
-  border-radius: 22px;
-  background: var(--cobalt);
-  color: var(--cream);
-  padding: 18px;
-  box-shadow: 4px 5px 0 var(--ink);
-  display: flex; align-items: center; gap: 16px;
-  transform: rotate(-.8deg);
+/* T1: minimal Me hero — centered column layout */
+.me-hero-min {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 8px 0 4px;
 }
-.me-hero .me-av-big {
-  width: 74px; height: 74px;
-  border: 2.5px solid var(--ink);
-  background: var(--cream);
-  color: var(--cobalt);
+.me-av-tap {
+  width: 88px; height: 88px;
+  border: 3px solid var(--ink);
   border-radius: 50%;
   display: grid; place-items: center;
-  font-family: 'Permanent Marker';
-  font-size: 28px;
-  box-shadow: 3px 3px 0 var(--ink);
+  font-family: 'Permanent Marker'; font-size: 32px;
+  color: var(--cream);
+  box-shadow: 4px 4px 0 var(--ink);
+  cursor: pointer;
+  background: var(--cobalt);
+  transition: transform .15s, box-shadow .15s;
   flex: 0 0 auto;
 }
-.me-hero .me-body { flex: 1; min-width: 0; }
-.me-hero .me-name-big {
-  font-family: 'Permanent Marker';
-  font-size: 26px; line-height: 1;
+.me-av-tap:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.me-name-min {
+  font-family: 'Permanent Marker'; font-size: 28px; line-height: 1;
+  margin-top: 4px; text-align: center;
 }
-.me-hero .me-tag {
+.me-tag-min {
   font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 17px;
-  margin-top: 6px;
-  opacity: .92;
+  font-size: 16px; color: var(--muted);
+  text-align: center;
 }
-.me-hero .me-rank {
-  font-family: 'Space Grotesk'; font-weight: 700;
-  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
-  padding: 4px 10px 5px;
-  margin-top: 10px;
-  background: var(--mustard);
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  display: inline-block;
-  transform: rotate(-2deg);
+
+/* T1: horizontal rule between sections */
+.me-rule {
+  width: 100%; height: 1.5px;
+  background: rgba(20,18,16,.12);
+  border: none; margin: 2px 0;
+}
+
+/* T1: footer */
+.me-foot-min {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 14px; color: var(--muted-2);
+  text-align: center; padding: 4px 0;
 }
 
 .section-title {
@@ -1091,6 +1095,58 @@ button { font: inherit; color: inherit; }
   box-shadow: 2px 2px 0 var(--ink);
 }
 .notif-card button:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+
+/* ============ T5: OFF EXPAND ============ */
+.off-expand-wrap {
+  display: flex; justify-content: center;
+  padding: 8px 0 4px;
+}
+.off-expand { display: flex; justify-content: center; padding: 8px 0 4px; }
+.show-off-btn {
+  background: none; border: none;
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 15px; color: var(--muted);
+  text-decoration: underline; text-decoration-style: dashed;
+  text-underline-offset: 3px;
+  cursor: pointer; padding: 4px 10px;
+  transition: color .15s;
+}
+.show-off-btn:hover { color: var(--ink); }
+
+/* T5: off rows slightly dimmed */
+.off-row { opacity: .6; }
+
+/* ============ T7: NOTIS WELCOME CARD ============ */
+.notis-welcome {
+  border: 2.5px dashed var(--ink);
+  border-radius: 20px;
+  padding: 28px 22px 24px;
+  text-align: center;
+  background: var(--cream);
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.nw-icon { font-size: 40px; }
+.nw-title {
+  font-family: 'Permanent Marker'; font-size: 22px;
+  transform: rotate(-.5deg);
+}
+.nw-body {
+  display: flex; flex-direction: column; gap: 6px;
+  text-align: left; width: 100%;
+}
+.nw-item {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 14px; color: var(--muted);
+  padding-left: 8px;
+}
+.nw-coming {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 14px; color: var(--muted-2);
+  margin-top: 4px;
+  border-top: 1.5px dashed rgba(20,18,16,.12);
+  padding-top: 10px; width: 100%;
+  text-align: center;
+}
 
 /* ============ TOAST ============ */
 .toast {
