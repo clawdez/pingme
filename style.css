@@ -40,7 +40,7 @@ button { font: inherit; color: inherit; }
 /* ============ SCREENS ============ */
 .screen {
   position: absolute;
-  top: 0; left: 0; right: 0; bottom: 72px;
+  top: 0; left: 0; right: 0; bottom: 0;
   display: none;
   flex-direction: column;
   overflow-y: auto;
@@ -49,43 +49,8 @@ button { font: inherit; color: inherit; }
 }
 .screen.active { display: flex; }
 
-/* ============ BOTTOM NAV ============ */
-.bottom-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  max-width: 430px; margin: 0 auto;
-  display: flex; align-items: stretch;
-  background: var(--cream);
-  border-top: 2.5px solid var(--ink);
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-  z-index: 20;
-  gap: 4px;
-}
-.nav-tab {
-  flex: 1;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  background: none; border: none; border-radius: 12px;
-  padding: 6px 4px 4px;
-  cursor: pointer;
-  color: var(--muted);
-  transition: color .15s, background .15s;
-  position: relative;
-}
-.nav-tab.active { color: var(--ink); background: var(--straw); }
-.nav-tab span {
-  font-family: 'Space Grotesk'; font-weight: 700;
-  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-}
-.nav-badge {
-  position: absolute;
-  top: 2px; right: calc(50% - 20px);
-  min-width: 16px; height: 16px;
-  background: var(--flame); color: var(--cream);
-  font-family: 'Space Grotesk'; font-weight: 700; font-size: 9px;
-  border-radius: 999px; border: 2px solid var(--ink);
-  display: flex; align-items: center; justify-content: center;
-  padding: 0 4px;
-}
+/* ============ BOTTOM NAV (hidden) ============ */
+.bottom-nav { display: none; }
 
 /* ============ TOP BAR ============ */
 .top {
@@ -556,18 +521,9 @@ button { font: inherit; color: inherit; }
   margin-top: 4px;
 }
 
-/* home footer */
-.home-foot {
-  text-align: center;
-  padding: 10px 22px 26px;
-  font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 13px; color: var(--muted-2);
-  opacity: .85;
-  transform: rotate(-.4deg);
-}
-.home-foot .dot { opacity: .6; }
+/* home footer — removed */
 
-/* ============ SHEETS ============ */
+/* ============ MODALS — all centered ============ */
 .sheet-wrap {
   position: fixed; inset: 0;
   max-width: 430px; margin: 0 auto;
@@ -575,49 +531,47 @@ button { font: inherit; color: inherit; }
   pointer-events: none;
   opacity: 0;
   transition: opacity .2s ease;
+  display: flex; align-items: center; justify-content: center;
 }
 .sheet-wrap.open { pointer-events: auto; opacity: 1; }
-.sheet-scrim { position: absolute; inset: 0; background: rgba(20,18,16,.38); }
-.sheet {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: var(--cream);
-  border-top-left-radius: 28px;
-  border-top-right-radius: 28px;
-  border: 2.5px solid var(--ink);
-  box-shadow: 0 -10px 40px rgba(0,0,0,.3);
-  padding: 10px 22px calc(28px + env(safe-area-inset-bottom, 0px));
-  transform: translateY(20px);
-  transition: transform .22s ease;
-}
-.sheet-wrap.open .sheet { transform: translateY(0); }
+.sheet-scrim { position: absolute; inset: 0; background: rgba(20,18,16,.45); }
 
-/* duration picker — centered modal */
-#sheet-duration .sheet {
-  top: 50%; bottom: auto; left: 16px; right: 16px;
-  border-radius: 24px;
+/* Centered modal card */
+.modal-center {
+  position: relative;
+  margin: 16px;
+  width: calc(100% - 32px);
+  max-width: 360px;
+  background: var(--cream);
   border: 2.5px solid var(--ink);
+  border-radius: 24px;
   box-shadow: 6px 6px 0 var(--ink);
-  padding: 28px 22px 28px;
-  transform: translateY(calc(-50% + 12px));
-  transition: transform .22s cubic-bezier(.25,2.2,.35,.85), opacity .18s ease;
+  padding: 28px 22px;
+  transform: scale(.92) translateY(8px);
   opacity: 0;
+  transition: transform .22s cubic-bezier(.25,2.2,.35,.85), opacity .18s ease;
+  z-index: 1;
 }
-#sheet-duration.open .sheet {
-  transform: translateY(-50%);
+.sheet-wrap.open .modal-center {
+  transform: scale(1) translateY(0);
   opacity: 1;
 }
-.sheet .grab {
-  width: 44px; height: 5px; background: var(--ink); border-radius: 3px;
-  margin: 6px auto 18px; opacity: .5;
+
+/* Tall variant for notis + profile */
+.modal-center.modal-tall {
+  max-height: 70vh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
-.sheet h3 {
+
+.modal-center h3 {
   font-family: 'Permanent Marker';
   font-size: 26px; margin: 0 0 18px;
   text-align: center;
   transform: rotate(-.8deg);
 }
-.sheet .opts { display: flex; flex-direction: column; gap: 12px; }
-.sheet .opt {
+.modal-center .opts { display: flex; flex-direction: column; gap: 12px; }
+.modal-center .opt {
   border: 2.5px solid var(--ink);
   background: var(--cream);
   color: var(--ink);
@@ -630,44 +584,27 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
   transition: transform .16s ease;
 }
-.sheet .opt:hover { transform: translate(-1px,-1px); }
-.sheet .opt .hint {
+.modal-center .opt:hover { transform: translate(-1px,-1px); }
+.modal-center .opt .hint {
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 14px; color: var(--muted);
 }
-.sheet .opt.primary { background: var(--mustard); }
-.sheet .opt:nth-child(2) { transform: rotate(.3deg); }
-.sheet .opt:nth-child(3) { transform: rotate(-.3deg); }
+.modal-center .opt.primary { background: var(--mustard); }
+.modal-center .opt:nth-child(2) { transform: rotate(.3deg); }
+.modal-center .opt:nth-child(3) { transform: rotate(-.3deg); }
 
-/* raider sheet */
-.raider-sheet {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  background: var(--cream);
-  border-top-left-radius: 28px;
-  border-top-right-radius: 28px;
-  border: 2.5px solid var(--ink);
-  box-shadow: 0 -10px 40px rgba(0,0,0,.3);
-  padding: 10px 24px calc(28px + env(safe-area-inset-bottom, 0px));
-  height: 45%;
-  transform: translateY(20px);
-  transition: transform .22s ease;
-}
-.sheet-wrap.open .raider-sheet { transform: translateY(0); }
-.raider-sheet .grab {
-  width: 44px; height: 5px; background: var(--ink); opacity: .5;
-  border-radius: 3px; margin: 6px auto 16px;
-}
-.raider-sheet .r-av {
-  width: 78px; height: 78px; border-radius: 50%;
+/* Player profile in modal */
+.modal-center .r-av {
+  width: 72px; height: 72px; border-radius: 50%;
   border: 3px solid var(--ink);
   display: grid; place-items: center;
-  font-family: 'Permanent Marker'; font-size: 28px;
+  font-family: 'Permanent Marker'; font-size: 26px;
   box-shadow: 4px 4px 0 var(--ink);
-  margin: 0 auto 16px;
+  margin: 0 auto 14px;
 }
-.raider-sheet .r-name {
+.modal-center .r-name {
   font-family: 'Permanent Marker';
-  font-size: 30px; text-align: center; line-height: 1;
+  font-size: 28px; text-align: center; line-height: 1;
 }
 .r-status-wrap {
   display: flex; justify-content: center;
@@ -683,22 +620,18 @@ button { font: inherit; color: inherit; }
   border-radius: 999px;
   box-shadow: 2px 2px 0 var(--ink);
 }
-.raider-sheet .r-ambient {
-  margin-top: 22px;
-  padding-top: 14px;
+.modal-center .r-ambient {
+  margin-top: 16px;
+  padding-top: 12px;
   border-top: 1.5px dashed var(--muted);
   text-align: center;
   font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 17px; color: var(--muted);
-}
-.raider-sheet .r-ambient b {
-  font-family: 'Permanent Marker';
-  font-weight: 400; color: var(--ink); font-size: 18px;
+  font-size: 16px; color: var(--muted);
 }
 
 .ping-user-btn {
   display: block; width: 100%;
-  margin-top: 18px;
+  margin-top: 16px;
   border: 2.5px solid var(--ink);
   border-radius: 14px;
   padding: 14px;
@@ -709,6 +642,24 @@ button { font: inherit; color: inherit; }
   transition: transform .16s, box-shadow .16s;
 }
 .ping-user-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+
+/* Notis modal content */
+.modal-center .notis-sub {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 14px; color: var(--muted);
+  text-align: center; margin-top: -10px; margin-bottom: 12px;
+}
+.modal-center .ping-list {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 0;
+}
+
+/* Profile modal content */
+.modal-center .me-wrap {
+  padding: 0;
+  display: flex; flex-direction: column;
+  gap: 16px;
+}
 
 /* ============ BACK BUTTON ============ */
 .back-btn {

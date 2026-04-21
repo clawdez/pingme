@@ -143,33 +143,14 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <div class="home-foot">pingme <span class="dot">&middot;</span> find your game <span class="dot">&middot;</span> &#127955;</div>
   </div>
 
-  <!-- NOTIS -->
-  <div class="screen" data-screen="notis">
-    <div class="screen-head">
-      <button class="back-btn" data-back>&lsaquo;</button>
-      <div class="screen-head-body">
-        <h2 class="act-title">notis</h2>
-        <div class="inbox-sub" id="notis-sub"></div>
-      </div>
-    </div>
-    <div class="ping-list" id="ping-list"></div>
-  </div>
+  <!-- CENTERED MODALS -->
 
-  <!-- ME / PROFILE -->
-  <div class="screen" data-screen="me">
-    <div class="screen-head just-back">
-      <button class="back-btn" data-back>&lsaquo;</button>
-    </div>
-    <div class="me-wrap" id="me-wrap"></div>
-  </div>
-
-  <!-- SHEETS -->
+  <!-- Duration picker -->
   <div class="sheet-wrap" id="sheet-duration">
     <div class="sheet-scrim" data-dismiss></div>
-    <div class="sheet">
+    <div class="modal-center">
       <h3>how long are you down?</h3>
       <div class="opts">
         <button class="opt" data-dur="30"><span>30 min</span><span class="hint">quick game</span></button>
@@ -179,10 +160,10 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
+  <!-- Player profile modal -->
   <div class="sheet-wrap" id="sheet-raider">
     <div class="sheet-scrim" data-dismiss></div>
-    <div class="raider-sheet">
-      <div class="grab"></div>
+    <div class="modal-center">
       <div class="r-av" id="rs-av"></div>
       <div class="r-name" id="rs-name"></div>
       <div class="r-status-wrap"><div class="r-status" id="rs-status"></div></div>
@@ -191,22 +172,23 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <!-- BOTTOM NAV -->
-  <nav class="bottom-nav" id="bottom-nav">
-    <button class="nav-tab active" data-nav="home">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
-      <span>home</span>
-    </button>
-    <button class="nav-tab" data-nav="notis">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
-      <span>notis</span>
-      <span class="nav-badge" id="nav-badge" style="display:none"></span>
-    </button>
-    <button class="nav-tab" data-nav="me">
-      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-      <span>me</span>
-    </button>
-  </nav>
+  <!-- Notis modal -->
+  <div class="sheet-wrap" id="sheet-notis">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center modal-tall">
+      <h3>notis</h3>
+      <div class="notis-sub" id="notis-sub"></div>
+      <div class="ping-list" id="ping-list"></div>
+    </div>
+  </div>
+
+  <!-- Profile modal -->
+  <div class="sheet-wrap" id="sheet-profile">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center modal-tall">
+      <div class="me-wrap" id="me-wrap"></div>
+    </div>
+  </div>
 
 </div>
 

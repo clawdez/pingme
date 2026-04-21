@@ -244,27 +244,23 @@ function subscribePings() {
     .subscribe();
 }
 
-/* ── NAV ── */
+/* ── NAV — single screen, modals for notis + profile ── */
 function setTab(t) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
-  const el = document.querySelector('[data-screen="' + t + '"]');
-  if (el) el.classList.add('active');
-  document.querySelectorAll('.nav-tab').forEach(btn =>
-    btn.classList.toggle('active', btn.dataset.nav === t)
-  );
+  // Only home screen exists now — just re-render
   if (t === 'home') renderHome();
-  else if (t === 'notis') renderNotis();
-  else if (t === 'me') renderMe();
 }
 
-document.querySelectorAll('.nav-tab').forEach(btn =>
-  btn.addEventListener('click', () => setTab(btn.dataset.nav))
-);
-document.getElementById('notis-chip').addEventListener('click', () => setTab('notis'));
-document.getElementById('profile-av').addEventListener('click', () => setTab('me'));
-document.querySelectorAll('[data-back]').forEach(b =>
-  b.addEventListener('click', () => setTab('home'))
-);
+// Notis chip → open notis modal
+document.getElementById('notis-chip').addEventListener('click', () => {
+  renderNotis();
+  document.getElementById('sheet-notis').classList.add('open');
+});
+
+// Avatar → open profile modal
+document.getElementById('profile-av').addEventListener('click', () => {
+  renderMe();
+  document.getElementById('sheet-profile').classList.add('open');
+});
 
 /* ── SHEETS ── */
 document.querySelectorAll('[data-dismiss]').forEach(el =>
@@ -426,9 +422,6 @@ function renderHome() {
 
 function updateNotisBadge() {
   const u = pings.filter(p => p.unread).length;
-  const navBadge = document.getElementById('nav-badge');
-  if (u > 0) { navBadge.textContent = u; navBadge.style.display = 'flex'; }
-  else { navBadge.style.display = 'none'; }
   document.getElementById('notis-badge').textContent = u;
 }
 
@@ -872,7 +865,8 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    setTab('home');
+    document.getElementById('sheet-profile').classList.remove('open');
+    renderHome();
   });
 }
 
