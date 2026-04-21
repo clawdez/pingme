@@ -104,13 +104,27 @@ async function boot() {
 
   sb.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
-      await loadOrCreateProfile(session.user);
-      document.getElementById('setup-root').innerHTML = '';
-      await loadRoster();
-      await loadPings();
-      subscribePings();
-      renderHome();
-      toast('welcome, ' + profile.name);
+      // T8: detect new vs returning user
+      const { data: existing } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+      if (existing && existing.name) {
+        // Returning user — already onboarded
+        profile = existing;
+        homeState = existing.status || 'off';
+        document.getElementById('setup-root').innerHTML = '';
+        await loadRoster();
+        await loadPings();
+        subscribePings();
+        renderHome();
+        toast('welcome back, ' + profile.name);
+      } else {
+        // New user — continue onboarding at name screen
+        const prefill = (
+          session.user.user_metadata?.given_name ||
+          session.user.user_metadata?.full_name?.split(' ')[0] ||
+          ''
+        ).toLowerCase();
+        showSetupScreen2(session.user, existing || null, prefill);
+      }
     } else if (event === 'SIGNED_OUT') {
       profile = null; homeState = 'off'; pingsSubscribed = false;
       placeBall(SNAP.off, true);
@@ -290,6 +304,13 @@ function snapTo(st) {
   placeBall(SNAP[st], true);
   if (st === 'down') flashP(lp);
   if (st === 'playing') flashP(rp);
+  // T10: haptic bump on land
+  if (navigator.vibrate) navigator.vibrate(10);
+  // T10: squash-and-stretch on ball-core when it lands
+  ball.classList.remove('landing');
+  void ball.getBoundingClientRect();
+  ball.classList.add('landing');
+  setTimeout(() => ball.classList.remove('landing'), 500);
   setHomeState(st);
   setTimeout(() => { if (!dragging) ball.classList.add('at-rest'); }, 450);
 }
@@ -816,51 +837,229 @@ function renderMe() {
   });
 }
 
-/* ── SETUP ── */
+/* ── T9: PUSH / PWA DETECTION ── */
+function isPushSupported() {
+  return 'Notification' in window && 'PushManager' in window;
+}
+function isIOS() {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent);
+}
+function isStandalonePWA() {
+  return window.matchMedia('(display-mode: standalone)').matches ||
+         window.navigator.standalone === true;
+}
+
+/* ── T8: SETUP — 3-screen onboarding ── */
+
+// Screen 1 — Hero
 function showSetup() {
   const root = document.getElementById('setup-root');
   root.innerHTML =
-    '<div class="setup-overlay"><div class="setup-sheet">' +
-    '<h2>welcome to pingme!</h2>' +
-    '<div class="setup-sub">sign in to play</div>' +
-    '<button class="setup-btn google-btn" id="google-signin">' +
-    '<svg width="18" height="18" viewBox="0 0 48 48" style="vertical-align:middle;margin-right:10px"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>' +
-    'sign in with Google</button>' +
-    '<div class="setup-divider"><span>or</span></div>' +
-    '<div class="field"><label>just enter your name</label><input id="setup-name" placeholder="what do people call you?" autofocus/></div>' +
-    '<button class="setup-btn" id="anon-go">let\'s go</button>' +
-    '<div class="notif-card"><p>want to know when someone heads to the tables?</p><button onclick="reqNotif()">turn on pings</button></div>' +
-    '</div></div>';
-  document.getElementById('google-signin').addEventListener('click', signInWithGoogle);
-  document.getElementById('anon-go').addEventListener('click', finishAnonSetup);
+    '<div class="setup-fs">' +
+    '<div class="setup-page" id="s-page-1">' +
+
+    // Inline court SVG (same style as the toggle)
+    '<div class="setup-art">' +
+    '<svg viewBox="0 0 320 150" preserveAspectRatio="xMidYMid meet" style="width:100%;max-width:300px">' +
+    '<defs>' +
+    '<pattern id="nm2" x="0" y="0" width="4" height="4" patternUnits="userSpaceOnUse">' +
+    '<line x1="0" y1="0" x2="0" y2="4" stroke="#F4EDDC" stroke-width=".6" opacity=".7"/>' +
+    '<line x1="0" y1="0" x2="4" y2="0" stroke="#F4EDDC" stroke-width=".6" opacity=".7"/>' +
+    '</pattern></defs>' +
+    '<ellipse cx="160" cy="148" rx="130" ry="5" fill="rgba(20,18,16,.12)"/>' +
+    '<path d="M 50 46 L 270 46 L 282 122 L 38 122 Z" fill="#1E5EA8" stroke="#141210" stroke-width="2.5"/>' +
+    '<path d="M 56 51 L 264 51 L 274 117 L 46 117 Z" fill="none" stroke="#F4EDDC" stroke-width="1.4" opacity=".55"/>' +
+    '<line x1="44" y1="84" x2="276" y2="84" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="5 3" opacity=".5"/>' +
+    '<rect x="157" y="40" width="6" height="88" fill="url(#nm2)" stroke="#141210" stroke-width="1.5"/>' +
+    '<rect x="155" y="37" width="10" height="6" fill="#F4EDDC" stroke="#141210" stroke-width="1"/>' +
+    // left paddle
+    '<g transform="translate(26,84)">' +
+    '<rect x="-20" y="-4" width="24" height="9" rx="3" fill="#C99060" stroke="#141210" stroke-width="2.2" transform="rotate(-22 -9 1)"/>' +
+    '<ellipse cx="14" cy="0" rx="18" ry="21" fill="#2544D6" stroke="#141210" stroke-width="2.5"/>' +
+    '<ellipse cx="14" cy="0" rx="12" ry="15" fill="none" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="2 3" opacity=".5"/>' +
+    '</g>' +
+    // right paddle
+    '<g transform="translate(294,84)">' +
+    '<rect x="-4" y="-4" width="24" height="9" rx="3" fill="#C99060" stroke="#141210" stroke-width="2.2" transform="rotate(22 9 1)"/>' +
+    '<ellipse cx="-14" cy="0" rx="18" ry="21" fill="#E8502A" stroke="#141210" stroke-width="2.5"/>' +
+    '<ellipse cx="-14" cy="0" rx="12" ry="15" fill="none" stroke="#F4EDDC" stroke-width="1" stroke-dasharray="2 3" opacity=".5"/>' +
+    '</g>' +
+    // ball mid-bounce
+    '<ellipse cx="160" cy="72" rx="9" ry="3" fill="rgba(20,18,16,.18)"/>' +
+    '<circle cx="160" cy="56" r="11" fill="white" stroke="#141210" stroke-width="2.5" style="filter:drop-shadow(0 2px 0 rgba(20,18,16,.18))"/>' +
+    '<circle cx="157" cy="53" r="3.5" fill="rgba(255,255,255,.85)"/>' +
+    '</svg></div>' +
+
+    '<div class="setup-wm">ping<span class="swm-me">me!</span></div>' +
+    '<div class="setup-tagline">ping pong at the sub. live.</div>' +
+
+    '<button class="setup-primary" id="s1-in">i\'m in</button>' +
+    '<div class="setup-disclaimer">by tapping in, you\'ll get pinged when raiders are down. it\'s free, no spam.</div>' +
+    '</div>' + // end s-page-1
+    '</div>'; // end setup-fs
+
+  document.getElementById('s1-in').addEventListener('click', () => {
+    if (!sb) { toast('not connected'); return; }
+    signInWithGoogle();
+  });
 }
 window.showSetup = showSetup;
 
-async function finishAnonSetup() {
-  const n = document.getElementById('setup-name').value.trim();
-  if (!n) { toast('enter your name first'); return; }
-  const { data: { user }, error: authErr } = await sb.auth.signInAnonymously();
-  if (authErr || !user) { toast('error signing in'); console.error(authErr); return; }
-  const color = AV_COLORS[Math.abs(hash(n)) % AV_COLORS.length];
-  const { data: newProfile, error } = await sb.from('profiles').insert({
-    id: user.id, name: n, color, status: 'off', ambient: 'just joined'
-  }).select().single();
-  if (error) { toast('error creating profile'); console.error(error); return; }
-  profile = newProfile; homeState = 'off';
-  roster.push(newProfile);
-  document.getElementById('setup-root').innerHTML = '';
-  toast('welcome, ' + n);
-  subscribePings();
-  renderHome();
+// Screen 2 — Name (called after Google OAuth or as fallback)
+async function showSetupScreen2(user, existingProfile, prefill) {
+  const root = document.getElementById('setup-root');
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-page-2">' +
+    '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
+    '<h2 class="setup-h2">what do raiders call you?</h2>' +
+    '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
+      esc(prefill || '') + '" autocomplete="off" autofocus/>' +
+    '<button class="setup-primary" id="s2-rally">let\'s rally</button>' +
+    '<div class="setup-disclaimer">you can change this anytime</div>' +
+    '</div>' +
+    '</div>';
+
+  // Focus + select the prefilled name
+  const inp = document.getElementById('setup-name-2');
+  setTimeout(() => { inp.focus(); inp.select(); }, 80);
+
+  document.getElementById('s2-rally').addEventListener('click', async () => {
+    const n = inp.value.trim().toLowerCase();
+    if (!n) { toast('enter your name first'); return; }
+    const btn = document.getElementById('s2-rally');
+    btn.textContent = '...'; btn.disabled = true;
+
+    const color = AV_COLORS[Math.abs(hash(n)) % AV_COLORS.length];
+    let newProfile;
+
+    if (user) {
+      if (existingProfile) {
+        // Update existing nameless profile
+        const { data, error } = await sb.from('profiles')
+          .update({ name: n, color })
+          .eq('id', user.id).select().single();
+        if (error) { toast('error saving name'); console.error(error); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+        newProfile = data;
+      } else {
+        // Create fresh profile
+        const { data, error } = await sb.from('profiles').insert({
+          id: user.id, name: n, color, status: 'off', ambient: 'just joined'
+        }).select().single();
+        if (error) { toast('error creating profile'); console.error(error); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+        newProfile = data;
+      }
+    } else {
+      // Anon path — sign in first then create profile
+      const { data: { user: anonUser }, error: authErr } = await sb.auth.signInAnonymously();
+      if (authErr || !anonUser) { toast('error signing in'); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+      const { data, error } = await sb.from('profiles').insert({
+        id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined'
+      }).select().single();
+      if (error) { toast('error creating profile'); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+      newProfile = data;
+    }
+
+    profile = newProfile;
+    homeState = 'off';
+    if (!roster.find(r => r.id === newProfile.id)) roster.push(newProfile);
+    await loadRoster();
+    subscribePings();
+    showSetupScreen3();
+  });
+}
+
+// Screen 3 — Push opt-in (T8 + T9)
+function showSetupScreen3() {
+  const root = document.getElementById('setup-root');
+
+  // T9: detect platform
+  const ios = isIOS();
+  const standalone = isStandalonePWA();
+  const pushOk = isPushSupported();
+
+  let content = '';
+
+  if (ios && !standalone) {
+    // T9: iOS Safari without PWA install → show add-to-home-screen instructions
+    content =
+      '<div class="setup-pwa-icon">&#8679;</div>' +
+      '<h2 class="setup-h2">add pingme to your home screen first</h2>' +
+      '<div class="setup-pwa-steps">' +
+      '<div class="setup-pwa-step">1. tap the <b>share</b> icon &#11014; at the bottom of Safari</div>' +
+      '<div class="setup-pwa-step">2. scroll down and tap <b>add to home screen</b></div>' +
+      '<div class="setup-pwa-step">3. tap <b>add</b> — then open pingme from your home screen</div>' +
+      '</div>' +
+      '<button class="setup-primary" id="s3-done">got it</button>' +
+      '<div class="setup-disclaimer">this lets us send you pings when raiders show up</div>';
+  } else if (!pushOk) {
+    // Android Chrome or other non-push browser → add-to-home instructions
+    content =
+      '<div class="setup-pwa-icon">&#8942;</div>' +
+      '<h2 class="setup-h2">add pingme to your home screen</h2>' +
+      '<div class="setup-pwa-steps">' +
+      '<div class="setup-pwa-step">1. tap the menu <b>&#8942;</b> in your browser</div>' +
+      '<div class="setup-pwa-step">2. tap <b>install app</b> or <b>add to home screen</b></div>' +
+      '<div class="setup-pwa-step">3. open pingme from your home screen to get pings</div>' +
+      '</div>' +
+      '<button class="setup-primary" id="s3-done">got it</button>';
+  } else {
+    // Push is supported — ask for permission
+    content =
+      '<div class="setup-notif-art">' +
+      '<div class="sna-phone">&#128241;</div>' +
+      '<div class="sna-bubble">jake is down to play &#127955;</div>' +
+      '</div>' +
+      '<h2 class="setup-h2">want a heads up when raiders show up?</h2>' +
+      '<button class="setup-primary" id="s3-yes">yes, ping me</button>' +
+      '<button class="setup-skip" id="s3-no">not now</button>';
+  }
+
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-page-3">' +
+    content +
+    '</div>' +
+    '</div>';
+
+  const done = () => {
+    root.innerHTML = '';
+    renderHome();
+    toast('welcome, ' + (profile?.name || 'raider'));
+  };
+
+  const doneBtn = document.getElementById('s3-done');
+  if (doneBtn) doneBtn.addEventListener('click', done);
+
+  const yesBtn = document.getElementById('s3-yes');
+  if (yesBtn) {
+    yesBtn.addEventListener('click', async () => {
+      const p = await Notification.requestPermission();
+      if (p === 'granted') {
+        new Notification('pingme', { body: "you\'ll get pinged when raiders are down &#127955;" });
+      }
+      done();
+    });
+  }
+
+  const noBtn = document.getElementById('s3-no');
+  if (noBtn) noBtn.addEventListener('click', done);
 }
 
 window.reqNotif = function () {
-  if (!('Notification' in window)) { toast('not supported in this browser'); return; }
+  if (!isPushSupported()) {
+    if (isIOS() && !isStandalonePWA()) {
+      toast('add pingme to your home screen first');
+    } else {
+      toast('not supported in this browser');
+    }
+    return;
+  }
   Notification.requestPermission().then(p => {
     if (p === 'granted') {
       toast('pings are on');
       new Notification('pingme', { body: "you'll get pinged when someone wants to play" });
-    } else toast('notifications blocked');
+    } else toast('check browser settings');
   });
 };
 

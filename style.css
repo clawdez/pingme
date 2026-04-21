@@ -221,7 +221,8 @@ button { font: inherit; color: inherit; }
   will-change: left, transform;
 }
 .ball.dragging { cursor: grabbing; }
-.ball.snapping { transition: left .42s cubic-bezier(.35, 1.8, .4, 1); }
+/* T10: overshoot-bounce on snap */
+.ball.snapping { transition: left .48s cubic-bezier(.25, 2.4, .35, .85); }
 .ball-shadow {
   position: absolute;
   bottom: -10px; left: 50%;
@@ -259,6 +260,17 @@ button { font: inherit; color: inherit; }
 }
 .ball.at-rest .ball-core {
   animation: idleBob 2.6s ease-in-out infinite;
+}
+/* T10: squash-and-stretch on land */
+@keyframes ballLand {
+  0%   { transform: scale(1, 1); }
+  20%  { transform: scale(1.14, .86); }
+  50%  { transform: scale(.93, 1.07); }
+  75%  { transform: scale(1.05, .96); }
+  100% { transform: scale(1, 1); }
+}
+.ball.landing .ball-core {
+  animation: ballLand .46s cubic-bezier(.3, 1.6, .4, 1) forwards;
 }
 @keyframes idleBob {
   0%, 100% { transform: translateY(0); }
@@ -989,112 +1001,161 @@ button { font: inherit; color: inherit; }
   padding: 14px 0 6px;
 }
 
-/* ============ SETUP OVERLAY ============ */
-.setup-overlay {
+/* ============ T8: SETUP — 3-SCREEN FULLSCREEN FLOW ============ */
+@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes pageIn {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Full-screen container (replaces old bottom-sheet overlay) */
+.setup-fs {
   position: fixed; inset: 0;
   max-width: 430px; margin: 0 auto;
   z-index: 50;
-  background: rgba(20,18,16,.5);
-  backdrop-filter: blur(4px);
-  display: flex; align-items: flex-end; justify-content: center;
-  animation: fadeIn .25s ease;
-}
-@keyframes fadeIn { 0% { opacity: 0; } 100% { opacity: 1; } }
-
-.setup-sheet {
-  width: 100%;
   background: var(--cream);
-  border-top: 3px solid var(--ink);
-  border-radius: 28px 28px 0 0;
-  padding: 24px 24px calc(32px + env(safe-area-inset-bottom, 0px));
-  animation: sheetUp .35s cubic-bezier(.3,1.6,.4,1);
+  background-image:
+    radial-gradient(circle at 20% 12%, rgba(20,18,16,.04) 0, transparent 45%),
+    radial-gradient(circle at 80% 85%, rgba(20,18,16,.03) 0, transparent 48%);
+  animation: fadeIn .25s ease;
+  overflow: hidden;
 }
-@keyframes sheetUp { 0% { transform: translateY(100%); } 100% { transform: translateY(0); } }
 
-.setup-sheet h2 {
-  font-family: 'Permanent Marker';
-  font-size: 28px; text-align: center;
-  transform: rotate(-1.5deg);
-  margin-bottom: 4px;
+/* Each screen */
+.setup-page {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  padding: 32px 28px calc(32px + env(safe-area-inset-bottom, 0px));
+  gap: 18px;
+  overflow-y: auto;
 }
-.setup-sheet .setup-sub {
+.s-slide-in { animation: pageIn .3s cubic-bezier(.3,1.4,.4,1); }
+
+/* Illustration area */
+.setup-art {
+  display: flex; justify-content: center; align-items: center;
+  width: 100%; margin-bottom: 4px;
+}
+
+/* Wordmarks */
+.setup-wm {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 52px; line-height: 1;
+  transform: rotate(-2deg);
+  letter-spacing: .3px;
+}
+.setup-wm-sm {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 28px; line-height: 1;
+  transform: rotate(-1.5deg);
+  letter-spacing: .3px;
+  align-self: flex-start;
+}
+.swm-me { color: var(--flame); }
+
+.setup-tagline {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 22px; color: var(--muted);
+  text-align: center;
+  transform: rotate(-.5deg);
+}
+
+/* Primary CTA — chunky orange-red full-width */
+.setup-primary {
+  width: 100%;
+  border: 2.5px solid var(--ink);
+  border-radius: 20px;
+  padding: 18px;
+  font-family: 'Permanent Marker'; font-size: 26px;
+  background: var(--flame); color: var(--cream);
+  box-shadow: 5px 5px 0 var(--ink);
+  cursor: pointer;
+  transition: transform .16s, box-shadow .16s;
+  text-align: center;
+}
+.setup-primary:active { transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
+.setup-primary:disabled { opacity: .6; pointer-events: none; }
+
+/* Secondary skip link */
+.setup-skip {
+  background: none; border: none;
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 16px; color: var(--muted);
-  text-align: center; margin-bottom: 20px;
+  cursor: pointer; padding: 4px 10px;
+  text-decoration: underline; text-decoration-style: dashed;
+  text-underline-offset: 3px;
 }
-.setup-sheet .field { margin-bottom: 16px; }
-.setup-sheet label {
-  font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 15px; color: var(--muted);
-  display: block; margin-bottom: 6px;
+
+/* Small disclaimer text */
+.setup-disclaimer {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 12px; color: var(--muted-2);
+  text-align: center; line-height: 1.5;
+  max-width: 280px;
 }
-.setup-sheet input {
+
+/* Headline on screens 2 & 3 */
+.setup-h2 {
+  font-family: 'Permanent Marker';
+  font-size: 28px; text-align: center;
+  transform: rotate(-.8deg);
+  line-height: 1.15;
+  margin: 0;
+}
+
+/* Name input */
+.setup-name-input {
   width: 100%;
   border: 2.5px solid var(--ink);
-  border-radius: 14px;
-  padding: 14px 16px;
-  font-family: 'Space Grotesk'; font-size: 16px; font-weight: 600;
+  border-radius: 16px;
+  padding: 16px 18px;
+  font-family: 'Permanent Marker'; font-size: 28px;
   background: var(--cream); color: var(--ink);
   outline: none;
-}
-.setup-sheet input:focus { border-color: var(--flame); box-shadow: 0 0 0 3px rgba(232,80,42,.15); }
-.setup-sheet input::placeholder { color: var(--muted-2); }
-
-.setup-btn {
-  width: 100%;
-  border: 2.5px solid var(--ink);
-  border-radius: 18px;
-  padding: 16px;
-  font-family: 'Permanent Marker'; font-size: 22px;
-  background: var(--flame); color: var(--cream);
-  box-shadow: 4px 4px 0 var(--ink);
-  cursor: pointer;
-  transition: transform .16s;
-}
-.setup-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
-
-.google-btn {
-  display: flex; align-items: center; justify-content: center;
-  background: var(--cream) !important;
-  color: var(--ink) !important;
-  border: 2.5px solid var(--ink) !important;
-  box-shadow: 4px 4px 0 var(--ink);
-}
-.google-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink) !important; }
-
-.setup-divider {
-  display: flex; align-items: center; gap: 12px;
-  margin: 14px 0;
-  color: var(--muted);
-  font-family: 'Caveat', cursive; font-weight: 700; font-size: 15px;
-}
-.setup-divider::before, .setup-divider::after {
-  content: ''; flex: 1; height: 2px;
-  background: var(--ink); opacity: .15;
-}
-
-.notif-card {
-  border: 2px dashed var(--ink);
-  border-radius: 14px;
-  padding: 14px;
   text-align: center;
-  margin-top: 16px;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: border-color .15s, box-shadow .15s;
 }
-.notif-card p {
-  font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 15px; color: var(--muted);
-  margin-bottom: 10px;
+.setup-name-input:focus {
+  border-color: var(--flame);
+  box-shadow: 3px 3px 0 var(--flame);
 }
-.notif-card button {
-  border: 2px solid var(--ink);
-  border-radius: 999px;
-  padding: 8px 16px;
-  background: var(--ink); color: var(--cream);
+.setup-name-input::placeholder { color: var(--muted-2); }
+
+/* T8 Screen 3: push notification art */
+.setup-notif-art {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; position: relative; width: 100%;
+}
+.sna-phone { font-size: 56px; line-height: 1; }
+.sna-bubble {
   font-family: 'Space Grotesk'; font-weight: 700; font-size: 13px;
-  cursor: pointer;
-  box-shadow: 2px 2px 0 var(--ink);
+  background: var(--ink); color: var(--cream);
+  padding: 8px 14px; border-radius: 14px;
+  box-shadow: 2px 2px 0 rgba(20,18,16,.25);
+  transform: rotate(1.5deg);
+  max-width: 220px; text-align: center;
 }
-.notif-card button:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+
+/* T9: PWA install instructions */
+.setup-pwa-icon {
+  font-size: 52px; line-height: 1;
+  transform: rotate(-5deg);
+}
+.setup-pwa-steps {
+  width: 100%;
+  border: 2.5px dashed var(--ink);
+  border-radius: 18px;
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 12px;
+  background: rgba(20,18,16,.03);
+}
+.setup-pwa-step {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 14px; line-height: 1.4; color: var(--ink);
+}
+.setup-pwa-step b { font-weight: 700; }
 
 /* ============ T5: OFF EXPAND ============ */
 .off-expand-wrap {
