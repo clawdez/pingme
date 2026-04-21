@@ -61,6 +61,7 @@ let currentPct = 50;
 let pingsSubscribed = false;
 let showOffRaidersState = false; // T5
 let downExpiryTimer = null; // exact client-side expiry for "down" status
+let sentPingIds = []; // ping IDs sent this session for response tracking
 
 const SNAP = { down: 10, off: 50, playing: 90 };
 const TH_L = 32;
@@ -388,6 +389,7 @@ async function setMyStatus(st) {
   if (!profile) return;
   // Clear any existing expiry timer
   if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
+  if (st !== 'down') sentPingIds = []; // clear ping tracking when leaving down
 
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
@@ -422,7 +424,9 @@ function renderHome() {
 
 function updateNotisBadge() {
   const u = pings.filter(p => p.unread).length;
-  document.getElementById('notis-badge').textContent = u;
+  const badge = document.getElementById('notis-badge');
+  badge.textContent = u;
+  badge.style.display = u > 0 ? 'inline-flex' : 'none';
 }
 
 function updateProfileAv() {
@@ -456,39 +460,77 @@ function renderLiveZone() {
       '</div>';
 
   } else {
-    // down — show who else is down as avatar bubbles
+    // down — calling screen with response states
     timer.innerHTML = '';
     const all = allRaiders();
-    const othersDown = all.filter(r => r.status === 'down' && (!profile || r.id !== profile.id));
-    const othersPlaying = all.filter(r => r.status === 'playing');
-
-    let bubblesHtml = '';
-    // Show people who are down
-    othersDown.forEach(r => {
-      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
-      bubblesHtml += '<div class="lz-bub" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + '">' + ini + '</div>';
-    });
-    // Show people who are playing
-    othersPlaying.forEach(r => {
-      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
-      bubblesHtml += '<div class="lz-bub" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' (playing)">' + ini + '</div>';
-    });
-
-    // Empty slots if nobody responded yet
-    if (othersDown.length === 0 && othersPlaying.length === 0) {
-      bubblesHtml += '<div class="lz-bub empty">?</div>';
-      bubblesHtml += '<div class="lz-bub empty">?</div>';
-      bubblesHtml += '<div class="lz-bub empty">?</div>';
-    }
-
-    const m = downDur === 30 ? '30 min' : downDur === 60 ? '1 hr' : '2 hrs';
     const tl = profile ? timeLeft(profile) : '?';
 
+    // Build response map from sent pings
+    const responseMap = {};
+    sentPingIds.forEach(sp => {
+      responseMap[sp.to_id] = sp.action_taken || null;
+    });
+
+    // Categorize everyone
+    let bubblesHtml = '';
+    let nIn = 0, nCant = 0, nRinging = 0;
+
+    // First show people who are already down or playing (they're "in" automatically)
+    const othersActive = all.filter(r =>
+      (r.status === 'down' || r.status === 'playing') && (!profile || r.id !== profile.id)
+    );
+    othersActive.forEach(r => {
+      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
+      bubblesHtml += '<div class="lz-bub lz-in" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + '">' +
+        ini + '<span class="lz-check">&#10003;</span></div>';
+      nIn++;
+    });
+
+    // Then show pinged people with response states
+    const pingedIds = new Set(othersActive.map(r => r.id));
+    sentPingIds.forEach(sp => {
+      if (pingedIds.has(sp.to_id)) return; // already shown as active
+      const r = roster.find(x => x.id === sp.to_id);
+      if (!r) return;
+      const ini = r.name ? r.name.slice(0, 2).toUpperCase() : '??';
+      const action = sp.action_taken;
+
+      if (action === 'on my way') {
+        bubblesHtml += '<div class="lz-bub lz-in" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — on my way">' +
+          ini + '<span class="lz-check">&#10003;</span></div>';
+        nIn++;
+      } else if (action === 'can\'t' || action === 'maybe') {
+        bubblesHtml += '<div class="lz-bub lz-cant" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — ' + action + '">' +
+          ini + '</div>';
+        nCant++;
+      } else {
+        // No response yet — ringing
+        bubblesHtml += '<div class="lz-bub lz-ring" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' — ringing">' +
+          ini + '<div class="lz-ring-wave"></div><div class="lz-ring-wave w2"></div></div>';
+        nRinging++;
+      }
+    });
+
+    // If no pings sent yet (seed scenario), show empty ringing slots
+    if (sentPingIds.length === 0 && othersActive.length === 0) {
+      for (let i = 0; i < 3; i++) {
+        bubblesHtml += '<div class="lz-bub lz-ring empty">?<div class="lz-ring-wave"></div><div class="lz-ring-wave w2"></div></div>';
+        nRinging++;
+      }
+    }
+
+    // Status summary
+    let statusParts = [];
+    if (nRinging > 0) statusParts.push('ringing ' + nRinging);
+    if (nIn > 0) statusParts.push('&#10003; ' + nIn + ' in');
+    if (nCant > 0) statusParts.push(nCant + ' passed');
+    const statusText = statusParts.join(' &middot; ') || 'pinging...';
+
     zone.innerHTML =
-      '<div class="lz-waiting">' +
-      '<div class="lz-status"><span class="lz-pulse"></span> waiting for players &middot; ' + tl + ' left</div>' +
+      '<div class="lz-calling">' +
+      '<div class="lz-call-status">' + statusText + '</div>' +
+      '<div class="lz-call-timer">' + tl + ' left</div>' +
       '<div class="lz-bubbles">' + bubblesHtml + '</div>' +
-      '<div class="lz-hint">' + (othersDown.length + othersPlaying.length) + ' around &middot; squad pinged</div>' +
       '<button class="lz-change" id="change-dur">change time</button>' +
       '</div>';
 
@@ -502,6 +544,7 @@ function renderStrip() { renderLiveZone(); }
 
 async function pingEveryone() {
   if (!profile) return;
+  sentPingIds = [];
   // Don't ping seed users — they're not real
   const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
   const rows = others.map(r => ({
@@ -510,7 +553,35 @@ async function pingEveryone() {
     msg: profile.name + ' is down for ' + downDur + ' min — you in?',
     unread: true
   }));
-  if (rows.length) await sb.from('pings').insert(rows);
+  if (rows.length) {
+    const { data } = await sb.from('pings').insert(rows).select('id, to_id');
+    if (data) sentPingIds = data;
+  }
+  // Subscribe to responses on sent pings
+  subscribeSentPings();
+}
+
+function subscribeSentPings() {
+  if (!sentPingIds.length) return;
+  // Listen for updates to pings we sent (action_taken changes)
+  const ids = sentPingIds.map(p => p.id);
+  sb.channel('sent-pings-' + Date.now())
+    .on('postgres_changes', {
+      event: 'UPDATE', schema: 'public', table: 'pings',
+      filter: 'from_id=eq.' + profile.id
+    }, (payload) => {
+      // Update our local sent pings with the response
+      const sp = sentPingIds.find(p => p.id === payload.new.id);
+      if (sp) {
+        sp.action_taken = payload.new.action_taken;
+        renderLiveZone();
+        if (payload.new.action_taken === 'on my way') {
+          const responder = roster.find(r => r.id === sp.to_id);
+          toast((responder ? responder.name : 'someone') + ' is in!');
+        }
+      }
+    })
+    .subscribe();
 }
 
 /* ── T2: MERGED RAIDERS (real + seed) ── */
@@ -581,31 +652,15 @@ function renderRoster() {
   playingList.innerHTML = '<div class="bub-grid">' + playing.map(renderBubble).join('') + '</div>';
   downList.innerHTML = '<div class="bub-grid">' + down.map(renderBubble).join('') + '</div>';
 
-  // T5: off section hidden by default, expand link at bottom
+  // Away players always visible but dimmed
   if (off.length > 0) {
-    if (showOffRaidersState) {
-      offSection.style.display = 'block';
-      document.getElementById('count-off').textContent = off.length || '';
-      offList.innerHTML = '<div class="bub-grid">' + off.map(renderBubble).join('') + '</div>' +
-        '<div class="off-expand"><button class="show-off-btn" id="hide-off-btn">hide away players</button></div>';
-      clearOffExpand();
-      const hideBtn = document.getElementById('hide-off-btn');
-      if (hideBtn) hideBtn.onclick = () => { showOffRaidersState = false; renderRoster(); };
-    } else {
-      offSection.style.display = 'none';
-      offList.innerHTML = '';
-      const expandEl = getOrCreateOffExpand();
-      expandEl.innerHTML =
-        '<button class="show-off-btn" id="show-off-btn">show ' + off.length +
-        ' away' + '</button>';
-      document.getElementById('show-off-btn').onclick = () => {
-        showOffRaidersState = true; renderRoster();
-      };
-    }
+    offSection.style.display = 'block';
+    document.getElementById('count-off').textContent = off.length || '';
+    offList.innerHTML = '<div class="bub-grid">' + off.map(renderBubble).join('') + '</div>';
   } else {
     offSection.style.display = 'none';
-    clearOffExpand();
   }
+  clearOffExpand();
 
   // Wire bubble clicks
   document.querySelectorAll('.section-list .rbub').forEach(bub =>
@@ -735,6 +790,17 @@ function renderNotis() {
       await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
+      // "on my way" sets your status to down automatically
+      if (action === 'on my way' && profile && homeState !== 'down' && homeState !== 'playing') {
+        downDur = 60;
+        await setMyStatus('down');
+        homeState = 'down';
+        app.dataset.homeState = 'down';
+        document.getElementById('sheet-notis').classList.remove('open');
+        renderHome();
+        toast('you\'re down — heading to ' + PLACE);
+        return;
+      }
       renderNotis();
       updateNotisBadge();
     })
