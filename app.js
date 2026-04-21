@@ -162,6 +162,7 @@ async function boot() {
         const prefill = (
           session.user.user_metadata?.given_name ||
           session.user.user_metadata?.full_name?.split(' ')[0] ||
+          session.user.email?.split('@')[0] ||
           ''
         ).toLowerCase();
         showSetupScreen2(session.user, existing || null, prefill);
@@ -188,11 +189,13 @@ async function boot() {
 }
 
 /* ── AUTH ── */
-async function signInWithGoogle() {
-  const { error } = await sb.auth.signInWithOAuth({
-    provider: 'google', options: { redirectTo: window.location.origin }
+async function signInWithMagicLink(email) {
+  const { error } = await sb.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin }
   });
-  if (error) toast('sign in failed: ' + error.message);
+  if (error) { toast('sign in failed: ' + error.message); return false; }
+  return true;
 }
 
 async function loadOrCreateProfile(user) {
@@ -1037,12 +1040,55 @@ function showSetup() {
 
   document.getElementById('s1-in').addEventListener('click', () => {
     if (!sb) { toast('not connected'); return; }
-    signInWithGoogle();
+    showSetupEmail();
   });
 }
 window.showSetup = showSetup;
 
-// Screen 2 — Name (called after Google OAuth or as fallback)
+// Screen 1b — Email input for magic link
+function showSetupEmail() {
+  const root = document.getElementById('setup-root');
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-page-email">' +
+    '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
+    '<h2 class="setup-h2">enter your email</h2>' +
+    '<input class="setup-name-input" id="setup-email" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
+    '<button class="setup-primary" id="s-email-go">send me a link</button>' +
+    '<div class="setup-disclaimer">we\'ll send a magic link — no password needed</div>' +
+    '</div>' +
+    '</div>';
+
+  const inp = document.getElementById('setup-email');
+  setTimeout(() => inp.focus(), 80);
+
+  document.getElementById('s-email-go').addEventListener('click', async () => {
+    const email = inp.value.trim();
+    if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
+    const btn = document.getElementById('s-email-go');
+    btn.textContent = 'sending...'; btn.disabled = true;
+
+    const ok = await signInWithMagicLink(email);
+    if (!ok) { btn.textContent = 'send me a link'; btn.disabled = false; return; }
+
+    // Show "check your inbox" screen
+    const root = document.getElementById('setup-root');
+    root.innerHTML =
+      '<div class="setup-fs">' +
+      '<div class="setup-page s-slide-in">' +
+      '<div class="setup-check-icon">&#9993;</div>' +
+      '<h2 class="setup-h2">check your inbox</h2>' +
+      '<div class="setup-check-sub">we sent a magic link to <b>' + esc(email) + '</b></div>' +
+      '<div class="setup-check-sub">tap the link to get in</div>' +
+      '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
+      '</div>' +
+      '</div>';
+
+    document.getElementById('s-email-retry').addEventListener('click', showSetupEmail);
+  });
+}
+
+// Screen 2 — Name (called after magic link auth or as fallback)
 async function showSetupScreen2(user, existingProfile, prefill) {
   const root = document.getElementById('setup-root');
   root.innerHTML =

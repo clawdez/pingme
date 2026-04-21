@@ -1143,6 +1143,18 @@ button { font: inherit; color: inherit; }
   max-width: 220px; text-align: center;
 }
 
+/* Magic link check-inbox screen */
+.setup-check-icon {
+  font-size: 56px; line-height: 1;
+  transform: rotate(-5deg);
+}
+.setup-check-sub {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 15px; color: var(--muted);
+  text-align: center; line-height: 1.5;
+}
+.setup-check-sub b { font-weight: 700; color: var(--ink); }
+
 /* T9: PWA install instructions */
 .setup-pwa-icon {
   font-size: 52px; line-height: 1;
