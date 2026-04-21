@@ -453,7 +453,7 @@ function renderStrip() {
       '<span class="ondeck-sub">hit me up, i\'m around</span>' +
       '</div></div>' +
       '<div class="strip-actions">' +
-      '<button class="mini-btn" id="ping-every">&#127955; ping everyone</button>' +
+      '<button class="mini-btn" id="ping-every">&#127955; rally the squad</button>' +
       '<button class="tiny-link" id="change-dur">change time</button>' +
       '</div>';
     document.getElementById('ping-every').onclick = async function () {
