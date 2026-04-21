@@ -302,17 +302,26 @@ button { font: inherit; color: inherit; }
   font-size: 16px;
   align-items: center;
   padding-top: 4px;
+  flex-direction: column;
 }
 .c-lbl .hint {
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 13px;
   color: var(--muted);
   margin-top: 4px;
-  opacity: 0;
+  opacity: .35;
   max-width: 150px;
   transition: opacity .3s;
   line-height: 1.15;
   white-space: nowrap;
+}
+/* "off" center label subtitle */
+.hint-mid {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 12px; color: var(--muted);
+  display: block; margin-top: 3px;
+  opacity: .35; transition: opacity .3s;
+  line-height: 1;
 }
 
 [data-home-state="down"] .c-lbl.left { transform: scale(1.14) translateX(3px); }
@@ -326,6 +335,7 @@ button { font: inherit; color: inherit; }
 [data-home-state="playing"] .c-lbl.left { opacity: .4; }
 
 [data-home-state="off"] .c-lbl.middle { transform: scale(1.35); color: var(--ink); }
+[data-home-state="off"] .c-lbl.middle .hint-mid { opacity: .7; }
 
 /* ============ STATUS STRIP (gamified) ============ */
 .strip {
