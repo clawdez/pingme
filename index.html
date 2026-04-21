@@ -103,6 +103,8 @@ if ('serviceWorker' in navigator) {
           <div class="ball-shadow"></div>
           <div class="ball-core"></div>
         </div>
+        <!-- live timer overlay (visible when playing) -->
+        <div class="court-timer" id="court-timer"></div>
       </div>
       <div class="court-labels">
         <button class="c-lbl left" data-state="down"><span>down</span><span class="hint">free to play</span></button>
@@ -111,8 +113,8 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <!-- status strip -->
-    <div class="strip" id="strip"></div>
+    <!-- live zone: avatar bubbles (down) or nothing (away) -->
+    <div class="live-zone" id="live-zone"></div>
 
     <!-- the table -->
     <div class="the-table" id="the-table">

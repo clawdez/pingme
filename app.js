@@ -406,7 +406,7 @@ async function setMyStatus(st) {
 function renderHome() {
   updateNotisBadge();
   updateProfileAv();
-  renderStrip();
+  renderLiveZone();
   renderRoster();
   placeBall(SNAP[homeState], false);
   app.dataset.homeState = homeState;
@@ -431,48 +431,70 @@ function updateProfileAv() {
   }
 }
 
-/* ── STRIP — T3 terminology, T4 counter ── */
-function renderStrip() {
-  const strip = document.getElementById('strip');
-  const all = allRaiders();
-  const nP = all.filter(r => r.status === 'playing').length;
-  const nD = all.filter(r => r.status === 'down').length;
-  const total = nP + nD;
+/* ── LIVE ZONE — avatar bubbles (down) / nothing (away) ── */
+function renderLiveZone() {
+  const zone = document.getElementById('live-zone');
+  const timer = document.getElementById('court-timer');
 
   if (homeState === 'off') {
-    strip.innerHTML = '';
+    zone.innerHTML = '';
+    timer.innerHTML = '';
 
   } else if (homeState === 'playing') {
+    zone.innerHTML = '';
+    // Timer lives ON the court
     const me = profile ? allRaiders().find(r => r.id === profile.id) : null;
     const mins = me && me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    strip.innerHTML =
-      '<div class="strip-live">' +
-      '<span class="live-dot"></span>' +
-      '<span class="live-tag">LIVE</span>' +
-      '<span class="live-loc">@ ' + PLACE + '</span>' +
-      '<span class="live-time">' + timeStr() + ' &middot; ' + mins + 'm in</span>' +
-      '</div>' +
-      // T3: "you're in the game" → "you're playing"
-      '<div class="strip-bottom"><span class="heat-tag fire">you\'re playing</span></div>';
+    timer.innerHTML =
+      '<div class="ct-pill">' +
+      '<span class="ct-dot"></span>' +
+      'live &middot; ' + mins + 'm &middot; @ ' + PLACE +
+      '</div>';
 
   } else {
-    // down
+    // down — show who else is down as avatar bubbles
+    timer.innerHTML = '';
+    const all = allRaiders();
+    const othersDown = all.filter(r => r.status === 'down' && (!profile || r.id !== profile.id));
+    const othersPlaying = all.filter(r => r.status === 'playing');
+
+    let bubblesHtml = '';
+    // Show people who are down
+    othersDown.forEach(r => {
+      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
+      bubblesHtml += '<div class="lz-bub" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + '">' + ini + '</div>';
+    });
+    // Show people who are playing
+    othersPlaying.forEach(r => {
+      const ini = r.ini || r.name.slice(0, 2).toUpperCase();
+      bubblesHtml += '<div class="lz-bub" style="background:' + (r.color || '#E8502A') + '" title="' + esc(r.name) + ' (playing)">' + ini + '</div>';
+    });
+
+    // Empty slots if nobody responded yet
+    if (othersDown.length === 0 && othersPlaying.length === 0) {
+      bubblesHtml += '<div class="lz-bub empty">?</div>';
+      bubblesHtml += '<div class="lz-bub empty">?</div>';
+      bubblesHtml += '<div class="lz-bub empty">?</div>';
+    }
+
     const m = downDur === 30 ? '30 min' : downDur === 60 ? '1 hr' : '2 hrs';
     const tl = profile ? timeLeft(profile) : '?';
-    strip.innerHTML =
-      '<div class="strip-ondeck">' +
-      '<span class="ondeck-icon">&#9203;</span>' +
-      '<div class="ondeck-info">' +
-      '<span class="ondeck-title">down for <b>' + m + '</b></span>' +
-      '<span class="ondeck-sub">' + tl + ' left &middot; squad pinged</span>' +
-      '</div></div>' +
-      '<div class="strip-actions">' +
-      '<button class="tiny-link" id="change-dur">change time</button>' +
+
+    zone.innerHTML =
+      '<div class="lz-waiting">' +
+      '<div class="lz-status"><span class="lz-pulse"></span> waiting for players &middot; ' + tl + ' left</div>' +
+      '<div class="lz-bubbles">' + bubblesHtml + '</div>' +
+      '<div class="lz-hint">' + (othersDown.length + othersPlaying.length) + ' around &middot; squad pinged</div>' +
+      '<button class="lz-change" id="change-dur">change time</button>' +
       '</div>';
+
     document.getElementById('change-dur').onclick = () =>
       document.getElementById('sheet-duration').classList.add('open');
   }
 }
+
+// Alias for backward compat
+function renderStrip() { renderLiveZone(); }
 
 async function pingEveryone() {
   if (!profile) return;
