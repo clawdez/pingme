@@ -580,6 +580,22 @@ button { font: inherit; color: inherit; }
   transition: transform .22s ease;
 }
 .sheet-wrap.open .sheet { transform: translateY(0); }
+
+/* duration picker — centered modal */
+#sheet-duration .sheet {
+  top: 50%; bottom: auto; left: 16px; right: 16px;
+  border-radius: 24px;
+  border: 2.5px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  padding: 28px 22px 28px;
+  transform: translateY(calc(-50% + 12px));
+  transition: transform .22s cubic-bezier(.25,2.2,.35,.85), opacity .18s ease;
+  opacity: 0;
+}
+#sheet-duration.open .sheet {
+  transform: translateY(-50%);
+  opacity: 1;
+}
 .sheet .grab {
   width: 44px; height: 5px; background: var(--ink); border-radius: 3px;
   margin: 6px auto 18px; opacity: .5;
