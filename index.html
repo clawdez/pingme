@@ -40,13 +40,9 @@
   <!-- HOME -->
   <div class="screen active" data-screen="home">
 
-    <!-- top bar: wordmark + pings chip + avatar -->
+    <!-- top bar: wordmark only -->
     <div class="top">
       <div class="wordmark">ping<span class="me">me!</span></div>
-      <div class="top-actions">
-        <button class="pings-chip" id="pings-chip">pings <span class="badge" id="pings-badge">0</span></button>
-        <button class="profile-av" id="profile-av" data-nav="me">?</button>
-      </div>
     </div>
 
     <!-- THE TABLE: the focal point -->
@@ -106,25 +102,43 @@
     <!-- status strip -->
     <div class="strip" id="strip"></div>
 
-    <!-- friends list -->
-    <div class="raiders" id="raiders">
-      <div class="rdrs-head">
-        <span class="title">friends</span>
-        <span class="sub" id="rdr-sub"></span>
+    <!-- the table -->
+    <div class="the-table" id="the-table">
+      <div class="table-head">
+        <span class="table-title">&#127955; the table</span>
+        <span class="table-sub" id="table-sub"></span>
       </div>
-      <div id="rdr-list"></div>
+      <div class="table-sections">
+        <div class="table-section" id="section-playing">
+          <div class="section-label playing-label"><span class="s-dot green"></span> at the table</div>
+          <div class="section-list" id="list-playing"></div>
+        </div>
+        <div class="table-section" id="section-down">
+          <div class="section-label down-label"><span class="s-dot yellow"></span> on deck</div>
+          <div class="section-list" id="list-down"></div>
+        </div>
+        <div class="table-section" id="section-off">
+          <div class="section-label off-label"><span class="s-dot gray"></span> benched</div>
+          <div class="section-list" id="list-off"></div>
+        </div>
+      </div>
+      <div class="empty-roster" id="empty-roster" style="display:none">
+        <div class="empty-roster-icon">&#127955;</div>
+        <div class="empty-roster-text">no one's here yet</div>
+        <div class="empty-roster-sub">share the link &amp; rally the squad</div>
+      </div>
     </div>
 
     <div class="home-foot">pingme <span class="dot">&middot;</span> made for the sub <span class="dot">&middot;</span> &#127955;</div>
   </div>
 
-  <!-- PINGS -->
-  <div class="screen" data-screen="pings">
+  <!-- NOTIS -->
+  <div class="screen" data-screen="notis">
     <div class="screen-head">
       <button class="back-btn" data-back>&lsaquo;</button>
       <div class="screen-head-body">
-        <h2 class="act-title">pings</h2>
-        <div class="inbox-sub" id="pings-sub"></div>
+        <h2 class="act-title">notis</h2>
+        <div class="inbox-sub" id="notis-sub"></div>
       </div>
     </div>
     <div class="ping-list" id="ping-list"></div>
@@ -163,6 +177,23 @@
       <button class="ping-user-btn" id="rs-ping-btn">&#127955; ping</button>
     </div>
   </div>
+
+  <!-- BOTTOM NAV -->
+  <nav class="bottom-nav" id="bottom-nav">
+    <button class="nav-tab active" data-nav="home">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      <span>home</span>
+    </button>
+    <button class="nav-tab" data-nav="notis">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+      <span>notis</span>
+      <span class="nav-badge" id="nav-badge" style="display:none"></span>
+    </button>
+    <button class="nav-tab" data-nav="me">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      <span>me</span>
+    </button>
+  </nav>
 
 </div>
 

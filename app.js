@@ -1,4 +1,4 @@
-/* pingme — prototype-exact design · Supabase-powered · v3 */
+/* pingme — gamified ping pong PWA · Supabase-powered · v4 */
 
 const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
@@ -14,7 +14,6 @@ let roster = [];
 let pings = [];
 let homeState = 'off';
 let downDur = 60;
-let rosterExpanded = false;
 let dragging = false;
 let currentPct = 50;
 let pingsSubscribed = false;
@@ -156,7 +155,7 @@ function subscribePings() {
       filter: 'to_id=eq.' + profile.id
     }, async () => {
       await loadPings();
-      updatePingsBadge();
+      updateNotisBadge();
       maybeNotify('new ping!');
     })
     .subscribe();
@@ -168,15 +167,21 @@ function setTab(t) {
   document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
   const el = document.querySelector('[data-screen="' + t + '"]');
   if (el) el.classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(btn =>
+    btn.classList.toggle('active', btn.dataset.nav === t)
+  );
   if (t === 'home') renderHome();
-  else if (t === 'pings') renderPings();
+  else if (t === 'notis') renderNotis();
   else if (t === 'me') renderMe();
 }
 
-// Top bar nav: pings chip → pings, avatar → me
-document.getElementById('pings-chip').addEventListener('click', () => setTab('pings'));
-document.getElementById('profile-av').addEventListener('click', () => setTab('me'));
-document.querySelectorAll('[data-back]').forEach(b => b.addEventListener('click', () => setTab('home')));
+// Bottom nav
+document.querySelectorAll('.nav-tab').forEach(btn =>
+  btn.addEventListener('click', () => setTab(btn.dataset.nav))
+);
+document.querySelectorAll('[data-back]').forEach(b =>
+  b.addEventListener('click', () => setTab('home'))
+);
 
 /* ── SHEETS ── */
 
@@ -252,7 +257,6 @@ function flashP(el) {
   setTimeout(() => el.classList.remove('bounce'), 520);
 }
 
-/* tap labels + paddles */
 document.querySelectorAll('.c-lbl').forEach(b =>
   b.addEventListener('click', () => snapTo(b.dataset.state))
 );
@@ -304,8 +308,7 @@ async function setMyStatus(st) {
 /* ── RENDER HOME ── */
 
 function renderHome() {
-  updatePingsBadge();
-  updateProfileAv();
+  updateNotisBadge();
   renderStrip();
   renderRoster();
   placeBall(SNAP[homeState], false);
@@ -313,55 +316,67 @@ function renderHome() {
   setTimeout(() => { if (!dragging) ball.classList.add('at-rest'); }, 100);
 }
 
-function updatePingsBadge() {
+function updateNotisBadge() {
   const u = pings.filter(p => p.unread).length;
-  const badge = document.getElementById('pings-badge');
-  badge.textContent = u;
-}
-
-function updateProfileAv() {
-  const av = document.getElementById('profile-av');
-  if (profile) {
-    av.textContent = profile.name.slice(0, 1).toUpperCase() + profile.name.slice(1, 2).toUpperCase();
-    av.style.background = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
+  const badge = document.getElementById('nav-badge');
+  if (u > 0) {
+    badge.textContent = u;
+    badge.style.display = 'flex';
   } else {
-    av.textContent = '?';
-    av.style.background = '';
+    badge.style.display = 'none';
   }
 }
 
-/* ── STRIP (prototype-exact) ── */
+/* ── STRIP (gamified) ── */
 
 function renderStrip() {
   const strip = document.getElementById('strip');
   const nP = roster.filter(r => r.status === 'playing').length;
   const nD = roster.filter(r => r.status === 'down').length;
+  const total = nP + nD;
 
   if (homeState === 'off') {
-    strip.innerHTML =
-      '<span class="tick o"></span>' +
-      '<span><b>' + nP + '</b> playing</span>' +
-      '<span class="divider"></span>' +
-      '<span><b>' + nD + '</b> down</span>' +
-      '<span class="c-sub">right now at ' + PLACE + '</span>';
+    // Scoreboard with heat tag
+    let heat = '';
+    if (nP >= 3) heat = '<span class="heat-tag fire">court\'s on fire</span>';
+    else if (total >= 2) heat = '<span class="heat-tag warm">warming up</span>';
+    else if (total === 0) heat = '<span class="heat-tag cold">dead quiet</span>';
+    else heat = '<span class="heat-tag mild">getting started</span>';
+
+    strip.innerHTML = '<div class="strip-scoreboard">' +
+      '<div class="sb-stat"><span class="sb-num">' + nP + '</span><span class="sb-label">at table</span></div>' +
+      '<div class="sb-vs">vs</div>' +
+      '<div class="sb-stat"><span class="sb-num">' + nD + '</span><span class="sb-label">on deck</span></div>' +
+      '</div>' +
+      '<div class="strip-bottom">' + heat + '<span class="strip-place">@ ' + PLACE + '</span></div>';
+
   } else if (homeState === 'playing') {
+    // LIVE match feel
     const me = profile ? roster.find(r => r.id === profile.id) : null;
     const mins = me && me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    strip.innerHTML =
-      '<span class="tick"></span>' +
-      '<span>you\'re at <b>' + PLACE + '</b></span>' +
-      '<span class="divider"></span>' +
-      '<span class="c-sub">since ' + timeStr() + ' \u00b7 ' + mins + 'm in</span>';
+    strip.innerHTML = '<div class="strip-live">' +
+      '<span class="live-dot"></span>' +
+      '<span class="live-tag">LIVE</span>' +
+      '<span class="live-loc">@ ' + PLACE + '</span>' +
+      '<span class="live-time">' + timeStr() + ' \u00b7 ' + mins + 'm in</span>' +
+      '</div>' +
+      '<div class="strip-bottom"><span class="heat-tag fire">you\'re in the game</span></div>';
+
   } else {
-    const m = downDur === 30 ? '30 min' : downDur === 60 ? '1 hour' : '2 hours';
-    strip.innerHTML =
-      '<span class="tick y"></span>' +
-      '<span>down for <b>' + m + '</b></span>' +
-      '<button class="mini-btn" id="ping-every">\ud83d\udce2 ping friends</button>' +
-      '<button class="tiny-link" id="change-dur" style="margin-left:auto;">tap to change</button>';
+    // On deck / waiting
+    const m = downDur === 30 ? '30 min' : downDur === 60 ? '1 hr' : '2 hrs';
+    strip.innerHTML = '<div class="strip-ondeck">' +
+      '<span class="ondeck-icon">\u23f3</span>' +
+      '<div class="ondeck-info"><span class="ondeck-title">on deck for <b>' + m + '</b></span>' +
+      '<span class="ondeck-sub">waiting for the next serve</span></div>' +
+      '</div>' +
+      '<div class="strip-actions">' +
+      '<button class="mini-btn" id="ping-every">\ud83c\udfd3 rally the squad</button>' +
+      '<button class="tiny-link" id="change-dur">change time</button>' +
+      '</div>';
     document.getElementById('ping-every').onclick = async function () {
       await pingEveryone();
-      this.textContent = '\u2713 sent to ' + (roster.length - 1) + ' friends';
+      this.textContent = '\u2713 sent!';
       this.style.background = 'var(--sage)';
       this.style.color = 'var(--ink)';
       setTimeout(renderStrip, 1800);
@@ -383,61 +398,71 @@ async function pingEveryone() {
   if (rows.length) await sb.from('pings').insert(rows);
 }
 
-/* ── ROSTER (prototype flat friends list) ── */
+/* ── ROSTER (the table — ping pong sections) ── */
 
 function renderRoster() {
-  const rdrSub = document.getElementById('rdr-sub');
-  const rdrList = document.getElementById('rdr-list');
+  const tableSub = document.getElementById('table-sub');
+  const emptyEl = document.getElementById('empty-roster');
+  const playingList = document.getElementById('list-playing');
+  const downList = document.getElementById('list-down');
+  const offList = document.getElementById('list-off');
+  const playingSection = document.getElementById('section-playing');
+  const downSection = document.getElementById('section-down');
+  const offSection = document.getElementById('section-off');
 
-  const nP = roster.filter(r => r.status === 'playing').length;
-  const nD = roster.filter(r => r.status === 'down').length;
+  const playing = roster.filter(r => r.status === 'playing');
+  const down = roster.filter(r => r.status === 'down');
+  const off = roster.filter(r => r.status === 'off');
 
-  if (homeState === 'off') rdrSub.textContent = 'at ' + PLACE + ' \u00b7 ' + (nP + nD) + ' active';
-  else rdrSub.textContent = nP + ' playing \u00b7 ' + nD + ' down';
+  tableSub.textContent = playing.length + ' playing \u00b7 ' + down.length + ' on deck';
 
-  // Sort: playing first, then down, then off
-  let list = [...roster].sort((a, b) => {
-    const order = { playing: 0, down: 1, off: 2 };
-    return (order[a.status] || 2) - (order[b.status] || 2);
-  });
+  if (roster.length === 0) {
+    playingList.innerHTML = '';
+    downList.innerHTML = '';
+    offList.innerHTML = '';
+    playingSection.style.display = 'none';
+    downSection.style.display = 'none';
+    offSection.style.display = 'none';
+    emptyEl.style.display = 'block';
+    return;
+  }
+  emptyEl.style.display = 'none';
 
-  const LIMIT = 3;
-  const visible = rosterExpanded ? list : list.slice(0, LIMIT);
-  const hidden = list.length - visible.length;
-
-  rdrList.innerHTML = visible.map(r => {
+  function renderPlayerRow(r) {
     const isMe = profile && r.id === profile.id;
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
     let sub = '';
+    let badge = '';
     if (r.status === 'playing') {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-      sub = PLACE + ' \u00b7 ' + m + ' min in';
+      sub = m + 'm in';
+      badge = '<span class="row-badge">\ud83c\udfd3</span>';
     } else if (r.status === 'down') {
-      sub = 'down \u00b7 ' + timeLeft(r) + ' left';
+      sub = timeLeft(r) + ' left';
+      badge = '<span class="row-badge">\u23f3</span>';
     } else {
       sub = 'off court';
     }
-    return '<button class="rrow ' + r.status + '" data-id="' + r.id + '">' +
+    return '<button class="rrow ' + (r.status === 'off' ? 'off-row' : r.status) + '" data-id="' + r.id + '">' +
       '<span class="rav" style="background:' + (r.color || '#E8502A') + ';color:#F4EDDC">' + ini + '</span>' +
       '<span class="rbody"><div class="rname">' + esc(r.name) + (isMe ? ' <span class="you-tag">you</span>' : '') + '</div>' +
-      '<div class="rsub">' + sub + '</div></span></button>';
-  }).join('') + (
-    (hidden > 0 || rosterExpanded)
-      ? '<button class="show-more" id="show-more">' + (rosterExpanded ? 'show less \u2191' : 'show ' + hidden + ' more \u2193') + '</button>'
-      : ''
-  );
+      '<div class="rsub">' + sub + '</div></span>' + badge + '</button>';
+  }
 
-  rdrList.querySelectorAll('.rrow').forEach(row =>
+  playingSection.style.display = playing.length ? 'block' : 'none';
+  downSection.style.display = down.length ? 'block' : 'none';
+  offSection.style.display = off.length ? 'block' : 'none';
+
+  playingList.innerHTML = playing.map(renderPlayerRow).join('');
+  downList.innerHTML = down.map(renderPlayerRow).join('');
+  offList.innerHTML = off.map(renderPlayerRow).join('');
+
+  document.querySelectorAll('.section-list .rrow').forEach(row =>
     row.addEventListener('click', () => {
       const r = roster.find(x => x.id === row.dataset.id);
       if (r) openRaiderSheet(r);
     })
   );
-  const sm = document.getElementById('show-more');
-  if (sm) sm.addEventListener('click', () => {
-    rosterExpanded = !rosterExpanded;
-    renderRoster();
-  });
 }
 
 function openRaiderSheet(r) {
@@ -486,17 +511,17 @@ function openRaiderSheet(r) {
   document.getElementById('sheet-raider').classList.add('open');
 }
 
-/* ── PINGS ── */
+/* ── NOTIS ── */
 
-function renderPings() {
-  const pingsSub = document.getElementById('pings-sub');
+function renderNotis() {
+  const notisSub = document.getElementById('notis-sub');
   const pingList = document.getElementById('ping-list');
   const u = pings.filter(p => p.unread).length;
   const rr = pings.filter(p => !p.unread).length;
-  pingsSub.textContent = u + ' unread \u00b7 ' + rr + ' replied';
+  notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
 
   if (pings.length === 0) {
-    pingList.innerHTML = '<div class="empty-hint">no pings yet. go play and they\'ll come.</div>';
+    pingList.innerHTML = '<div class="empty-hint">no notis yet. go play and they\'ll come.</div>';
     return;
   }
 
@@ -537,13 +562,13 @@ function renderPings() {
       await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
-      renderPings();
-      updatePingsBadge();
+      renderNotis();
+      updateNotisBadge();
     })
   );
 }
 
-/* ── ME (prototype-exact: hero + status + weekly + stats + settings) ── */
+/* ── ME ── */
 
 function renderMe() {
   const w = document.getElementById('me-wrap');
@@ -573,11 +598,9 @@ function renderMe() {
     nowSub = 'hit me up, i\'m around';
   }
 
-  // Weekly activity (placeholder data — will be real once we track games)
   const WEEK = [0, 0, 0, 0, 0, 0, 0];
   const WEEK_LABELS = ['M','T','W','T','F','S','S'];
-  const TODAY_IDX = new Date().getDay();
-  const adjustedIdx = TODAY_IDX === 0 ? 6 : TODAY_IDX - 1; // Mon=0
+  const adjustedIdx = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1;
   const peak = 60;
 
   const weekHtml = WEEK_LABELS.map((label, i) => {
@@ -591,7 +614,6 @@ function renderMe() {
   }).join('');
 
   w.innerHTML =
-    // Hero card
     '<div class="me-hero">' +
     '<div class="me-av-big" style="color:' + col + '">' + ini + '</div>' +
     '<div class="me-body">' +
@@ -599,41 +621,27 @@ function renderMe() {
     '<div class="me-tag">ttu ping pong raider</div>' +
     '<div class="me-rank">rally-grade</div>' +
     '</div></div>' +
-
-    // Current status
     '<div class="section-title">what\'s happening</div>' +
     '<div class="now-card"><div class="now-ic">' + nowIc + '</div>' +
     '<div class="now-body"><div class="now-hd">' + nowHd + '</div>' +
     '<div class="now-sub">' + nowSub + '</div></div></div>' +
-
-    // Weekly activity
     '<div class="section-title">this week</div>' +
     '<div class="week-strip">' + weekHtml + '</div>' +
-
-    // Stats
     '<div class="section-title">stats</div>' +
     '<div class="stat-grid">' +
     '<div class="stat-card"><div class="sn">0</div><div class="sl">games</div></div>' +
     '<div class="stat-card"><div class="sn">0-0</div><div class="sl">you vs them</div></div>' +
     '<div class="stat-card"><div class="sn">0h</div><div class="sl">weekly avg</div></div>' +
     '</div>' +
-
-    // Settings
     '<div class="section-title">settings</div>' +
     '<div class="settings-group">' +
-    '<div class="setting-row" id="sr-share"><div class="sr-label">share status</div>' +
-    '<div class="tog-switch on" data-tog><div class="knob"></div></div></div>' +
     '<div class="setting-row" id="sr-notif"><div class="sr-label">notifications</div>' +
-    '<div class="sr-val">' + (typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'on' : 'off') + '</div></div>' +
-    '<div class="setting-row" id="sr-invite"><div class="sr-label">invite a friend</div>' +
-    '<div class="sr-val">\u203a</div></div>' +
-    '<div class="setting-row" id="sr-signout"><div class="sr-label">sign out</div>' +
-    '<div class="sr-val danger">\u203a</div></div>' +
+    '<div class="tog-switch ' + (typeof Notification !== 'undefined' && Notification.permission === 'granted' ? 'on' : '') + '" data-tog><div class="knob"></div></div></div>' +
+    '<div class="setting-row" id="sr-share"><div class="sr-label">share pingme</div><div class="sr-val">\u203a</div></div>' +
+    '<div class="setting-row" id="sr-signout"><div class="sr-label">sign out</div><div class="sr-val danger">\u203a</div></div>' +
     '</div>' +
-
     '<div class="me-foot">pingme v1 \u00b7 made in lubbock \ud83c\udfd3</div>';
 
-  // Wire settings
   document.getElementById('sr-notif').addEventListener('click', () => {
     if (!('Notification' in window)) { toast('not supported'); return; }
     Notification.requestPermission().then(p => {
@@ -642,7 +650,7 @@ function renderMe() {
     });
   });
 
-  document.getElementById('sr-invite').addEventListener('click', () => {
+  document.getElementById('sr-share').addEventListener('click', () => {
     if (navigator.share) {
       navigator.share({ title: 'pingme', text: 'pickup ping pong at ttu', url: location.href }).catch(() => {});
     } else {
