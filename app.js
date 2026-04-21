@@ -409,25 +409,7 @@ function renderStrip() {
   const total = nP + nD;
 
   if (homeState === 'off') {
-    // T4: dot separator, dead quiet only when both === 0 and subtler
-    let heatPill = '';
-    if (nP === 0 && nD === 0) {
-      heatPill = '<span class="heat-tag cold subtle">dead quiet</span>';
-    } else if (nP >= 3) {
-      heatPill = '<span class="heat-tag fire">court\'s on fire</span>';
-    } else if (total >= 2) {
-      heatPill = '<span class="heat-tag warm">warming up</span>';
-    } else if (total === 1) {
-      heatPill = '<span class="heat-tag mild">getting started</span>';
-    }
-
-    strip.innerHTML =
-      '<div class="strip-scoreboard">' +
-      '<span class="sb-count"><b>' + nP + '</b> playing</span>' +
-      '<span class="sb-dot">&middot;</span>' +
-      '<span class="sb-count"><b>' + nD + '</b> down</span>' +
-      '</div>' +
-      '<div class="strip-bottom">' + heatPill + '<span class="strip-place">@ ' + PLACE + '</span></div>';
+    strip.innerHTML = '';
 
   } else if (homeState === 'playing') {
     const me = profile ? allRaiders().find(r => r.id === profile.id) : null;
