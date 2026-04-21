@@ -179,6 +179,10 @@ function setTab(t) {
 document.querySelectorAll('.nav-tab').forEach(btn =>
   btn.addEventListener('click', () => setTab(btn.dataset.nav))
 );
+// Top bar nav
+document.getElementById('notis-chip').addEventListener('click', () => setTab('notis'));
+document.getElementById('profile-av').addEventListener('click', () => setTab('me'));
+// Back buttons
 document.querySelectorAll('[data-back]').forEach(b =>
   b.addEventListener('click', () => setTab('home'))
 );
@@ -309,6 +313,7 @@ async function setMyStatus(st) {
 
 function renderHome() {
   updateNotisBadge();
+  updateProfileAv();
   renderStrip();
   renderRoster();
   placeBall(SNAP[homeState], false);
@@ -318,12 +323,26 @@ function renderHome() {
 
 function updateNotisBadge() {
   const u = pings.filter(p => p.unread).length;
-  const badge = document.getElementById('nav-badge');
+  // Bottom nav badge
+  const navBadge = document.getElementById('nav-badge');
   if (u > 0) {
-    badge.textContent = u;
-    badge.style.display = 'flex';
+    navBadge.textContent = u;
+    navBadge.style.display = 'flex';
   } else {
-    badge.style.display = 'none';
+    navBadge.style.display = 'none';
+  }
+  // Top bar badge
+  document.getElementById('notis-badge').textContent = u;
+}
+
+function updateProfileAv() {
+  const av = document.getElementById('profile-av');
+  if (profile) {
+    av.textContent = profile.name.slice(0, 1).toUpperCase() + profile.name.slice(1, 2).toUpperCase();
+    av.style.background = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
+  } else {
+    av.textContent = '?';
+    av.style.background = '';
   }
 }
 
