@@ -1039,7 +1039,15 @@ function renderMe() {
 
   // Notifications toggle
   document.getElementById('sr-notif-link').addEventListener('click', async () => {
-    if (!('Notification' in window)) { toast('not supported'); return; }
+    if (!('Notification' in window)) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      if (isIOS && !window.navigator.standalone) {
+        toast('tap Share → Add to Home Screen first, then enable notifications');
+      } else {
+        toast('notifications not supported in this browser');
+      }
+      return;
+    }
     const tog = document.getElementById('notif-tog');
     if (Notification.permission === 'granted') {
       const nowOn = tog.classList.contains('on');
