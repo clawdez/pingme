@@ -124,8 +124,7 @@ const rp = document.getElementById('right-paddle');
 window.addEventListener('load', boot);
 
 async function boot() {
-  // T6: hide tooltip if already seen
-  if (localStorage.getItem('pm_tooltip_seen')) hideTooltip();
+  // T6: eyebrow tag always visible now
 
   // T2A: admin reseed route
   if (location.pathname === '/admin/reseed') {
@@ -496,17 +495,8 @@ document.querySelectorAll('.c-lbl').forEach(b =>
 lp.addEventListener('click', () => { if (!dragging) { dismissTooltip(); snapTo('down'); } });
 rp.addEventListener('click', () => { if (!dragging) { dismissTooltip(); snapTo('playing'); } });
 
-/* ── T6: TOOLTIP ── */
-function hideTooltip() {
-  const tip = document.querySelector('.court-eyebrow');
-  if (tip) tip.style.display = 'none';
-}
-function dismissTooltip() {
-  if (!localStorage.getItem('pm_tooltip_seen')) {
-    localStorage.setItem('pm_tooltip_seen', '1');
-    hideTooltip();
-  }
-}
+/* ── T6: TOOLTIP (always visible) ── */
+function dismissTooltip() { /* no-op — eyebrow stays visible */ }
 
 /* ── STATE ── */
 function setHomeState(st) {
