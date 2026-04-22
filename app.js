@@ -124,7 +124,10 @@ const rp = document.getElementById('right-paddle');
 window.addEventListener('load', boot);
 
 async function boot() {
-  // T6: eyebrow tag always visible now
+  // Request persistent storage to prevent iOS from wiping data after 7 days
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
 
   // T2A: admin reseed route
   if (location.pathname === '/admin/reseed') {
@@ -986,6 +989,7 @@ function renderMe() {
     '</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
+    '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '</div>';
 
@@ -1069,6 +1073,16 @@ function renderMe() {
     }
   });
 
+  // Link email — show only for anonymous users
+  const linkEmailBtn = document.getElementById('sr-link-email');
+  sb.auth.getSession().then(({ data: { session } }) => {
+    if (session && !session.user.email) linkEmailBtn.style.display = '';
+  });
+  linkEmailBtn.addEventListener('click', () => {
+    document.getElementById('me-settings-dd').classList.remove('open');
+    showLinkEmail();
+  });
+
   // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
 
@@ -1089,6 +1103,43 @@ function renderMe() {
     toast('signed out');
     document.getElementById('sheet-me').classList.remove('open');
     renderHome();
+  });
+}
+
+function showLinkEmail() {
+  const modal = document.querySelector('#sheet-me .modal-center');
+  const meWrap = document.getElementById('me-wrap');
+  meWrap.innerHTML =
+    '<div style="padding:20px 0">' +
+    '<h2 class="setup-h2">link your email</h2>' +
+    '<div class="setup-check-sub" style="margin-bottom:16px">save your account so you can log in on other devices</div>' +
+    '<input class="setup-name-input" id="link-email-input" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
+    '<button class="setup-primary" id="link-email-go" style="margin-top:12px">send code</button>' +
+    '<button class="setup-skip" id="link-email-cancel">cancel</button>' +
+    '</div>';
+
+  setTimeout(() => document.getElementById('link-email-input').focus(), 80);
+
+  document.getElementById('link-email-cancel').addEventListener('click', () => renderMe());
+
+  document.getElementById('link-email-go').addEventListener('click', async () => {
+    const email = document.getElementById('link-email-input').value.trim();
+    if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
+    const btn = document.getElementById('link-email-go');
+    btn.textContent = 'sending...'; btn.disabled = true;
+
+    const { error } = await sb.auth.updateUser({ email });
+    if (error) { toast('failed: ' + error.message); btn.textContent = 'send code'; btn.disabled = false; return; }
+
+    meWrap.innerHTML =
+      '<div style="padding:20px 0">' +
+      '<div class="setup-check-icon">&#9993;</div>' +
+      '<h2 class="setup-h2">check your inbox</h2>' +
+      '<div class="setup-check-sub">tap the confirmation link sent to <b>' + esc(email) + '</b></div>' +
+      '<button class="setup-skip" id="link-email-done">done</button>' +
+      '</div>';
+
+    document.getElementById('link-email-done').addEventListener('click', () => renderMe());
   });
 }
 
@@ -1192,7 +1243,7 @@ function showSetup() {
 
   document.getElementById('s1-in').addEventListener('click', () => {
     if (!sb) { toast('not connected'); return; }
-    showSetupEmail();
+    showSetupScreen2(null, null, '');
   });
 }
 window.showSetup = showSetup;
@@ -1314,7 +1365,12 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     } else {
       // Anon path — sign in first then create profile
       const { data: { user: anonUser }, error: authErr } = await sb.auth.signInAnonymously();
-      if (authErr || !anonUser) { toast('error signing in'); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+      if (authErr || !anonUser) {
+        toast('trying email sign-in instead');
+        btn.textContent = 'let\'s rally'; btn.disabled = false;
+        showSetupEmail();
+        return;
+      }
       const { data, error } = await sb.from('profiles').insert({
         id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined'
       }).select().single();
