@@ -1,4 +1,4 @@
-const CACHE = 'pingme-v4';
+const CACHE = 'pingme-v5';
 const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -32,6 +32,8 @@ self.addEventListener('push', e => {
   const data = e.data ? e.data.json() : {};
   e.waitUntil(self.registration.showNotification(data.title || 'pingme', {
     body: data.body || 'Someone wants to play ping pong!',
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     tag: 'pingme-match',
     renotify: true,
     vibrate: [200, 100, 200]
