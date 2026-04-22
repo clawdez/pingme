@@ -10,7 +10,7 @@ catch (e) { console.error('Supabase failed to load:', e); }
 const VENUES = [
   { id: 'sub', name: 'the sub', desc: 'Student Union' },
   { id: 'rec', name: 'the rec', desc: 'Rec Center' },
-  { id: 'fuddruckers', name: 'Fuddruckers', desc: '4th & Frankford' }
+  { id: 'maggie', name: 'Maggie Trejo', desc: 'Supercenter' }
 ];
 let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
 function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0]; }
