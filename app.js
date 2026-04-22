@@ -524,7 +524,7 @@ async function setMyStatus(st) {
   if (st === 'playing') {
     updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = null;
   } else if (st === 'down') {
-    updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = null;
+    updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = getVenueName();
     // Set exact expiry timer
     const expiryMs = downDur * 60000;
     downExpiryTimer = setTimeout(() => {
@@ -667,9 +667,9 @@ function renderRoster() {
     let sub = '';
     if (r.status === 'playing') {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-      sub = m + 'm';
+      sub = (r.venue ? r.venue + ' · ' : '') + m + 'm';
     } else if (r.status === 'down') {
-      sub = timeLeft(r) + ' left';
+      sub = (r.venue ? r.venue + ' · ' : '') + timeLeft(r) + ' left';
     } else {
       sub = '';
     }
