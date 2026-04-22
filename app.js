@@ -89,6 +89,7 @@ let currentPct = 50;
 let pingsSubscribed = false;
 let showOffRaidersState = false; // T5
 let downExpiryTimer = null; // exact client-side expiry for "down" status
+let playingExpiryTimer = null; // 90-min auto-expire for "playing" status
 let downReminderTimer = null; // 5-min warning before expiry
 let lastPingTime = 0; // rate limit pings (ms)
 const PING_COOLDOWN = 10000; // 10 seconds between pings
@@ -251,6 +252,17 @@ async function loadOrCreateProfile(user) {
         await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
       }
     }
+    // Restore expiry timer if returning as "playing"
+    if (existing.status === 'playing' && existing.started_at) {
+      const msLeft = (90 * 60000) - (Date.now() - new Date(existing.started_at).getTime());
+      if (msLeft > 0) {
+        playingExpiryTimer = setTimeout(() => { toast('playing session expired after 90 min'); snapTo('off'); }, msLeft);
+      } else {
+        homeState = 'off';
+        profile.status = 'off';
+        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
+      }
+    }
     return;
   }
   // T2B: don't default to 'anon' — use empty string so nameless users are filtered
@@ -384,7 +396,7 @@ document.querySelectorAll('[data-dismiss]').forEach(el =>
     const wrap = el.closest('.sheet-wrap');
     wrap.classList.remove('open');
     // If ping confirm dismissed, revert to previous state
-    if (wrap.id === 'sheet-ping-confirm' && homeState === 'down' && profile && profile.status !== 'down') {
+    if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
       homeState = profile.status || 'off';
       app.dataset.homeState = homeState;
       placeBall(SNAP[homeState], true);
@@ -519,10 +531,16 @@ async function setMyStatus(st) {
   // Clear any existing expiry / reminder timers
   if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
   if (downReminderTimer) { clearTimeout(downReminderTimer); downReminderTimer = null; }
+  if (playingExpiryTimer) { clearTimeout(playingExpiryTimer); playingExpiryTimer = null; }
 
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
-    updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = null;
+    updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = 90;
+    // 90-min auto-expire
+    playingExpiryTimer = setTimeout(() => {
+      toast('playing session expired after 90 min');
+      snapTo('off');
+    }, 90 * 60000);
   } else if (st === 'down') {
     updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = getVenueName();
     // Set exact expiry timer
@@ -617,11 +635,13 @@ async function pingEveryone() {
 
 /* ── T2: MERGED RAIDERS (real + seed) ── */
 function allRaiders() {
-  // T2B: filter out unnamed / 'anon' real users
-  const real = roster.filter(r => r.name && r.name !== 'anon');
-  // Only show seed users when roster is sparse (< 3 real users)
+  // Always include yourself even if name is 'anon'
+  const real = roster.filter(r => {
+    if (profile && r.id === profile.id) return true;
+    return r.name && r.name !== 'anon';
+  });
+  // Hide seed users once there are 3+ real users
   if (real.length < 3) {
-    // Show fewer seeds when not logged in to avoid looking fake
     const maxSeeds = profile ? seedUsers.length : 5;
     return [...real, ...seedUsers.slice(0, maxSeeds)];
   }
@@ -843,11 +863,6 @@ function openRaiderSheet(r) {
     document.getElementById('rs-msg-btn').onclick = () => openChat(r);
   }
 
-  // Wire close button
-  modal.querySelector('.modal-close').addEventListener('click', () => {
-    document.getElementById('sheet-raider').classList.remove('open');
-  });
-
   document.getElementById('sheet-raider').classList.add('open');
 }
 
@@ -914,7 +929,8 @@ function renderNotis() {
       // "on my way" sets your status to down automatically
       if (action === 'on my way' && profile && homeState !== 'down' && homeState !== 'playing') {
         downDur = 60;
-        await setMyStatus('down');
+        const ok = await setMyStatus('down');
+        if (!ok) { toast('failed to update status'); renderNotis(); return; }
         homeState = 'down';
         app.dataset.homeState = 'down';
         document.getElementById('sheet-me').classList.remove('open');
@@ -1062,6 +1078,7 @@ function renderMe() {
   document.getElementById('sr-signout').addEventListener('click', async () => {
     if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
     if (downReminderTimer) { clearTimeout(downReminderTimer); downReminderTimer = null; }
+    if (playingExpiryTimer) { clearTimeout(playingExpiryTimer); playingExpiryTimer = null; }
     if (profile) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
