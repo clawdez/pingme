@@ -1321,11 +1321,10 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-2">' +
-    '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
-    '<h2 class="setup-h2">what do people call you?</h2>' +
+    '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
-    '<button class="setup-primary" id="s2-rally">let\'s rally</button>' +
+    '<button class="setup-primary" id="s2-rally">continue</button>' +
     '<div class="setup-disclaimer">you can change this anytime</div>' +
     '</div>' +
     '</div>';
@@ -1352,14 +1351,14 @@ async function showSetupScreen2(user, existingProfile, prefill) {
         const { data, error } = await sb.from('profiles')
           .update({ name: n, color })
           .eq('id', user.id).select().single();
-        if (error) { toast('error saving name'); console.error(error); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+        if (error) { toast('error saving name'); console.error(error); btn.textContent = 'continue'; btn.disabled = false; return; }
         newProfile = data;
       } else {
         // Create fresh profile
         const { data, error } = await sb.from('profiles').insert({
           id: user.id, name: n, color, status: 'off', ambient: 'just joined'
         }).select().single();
-        if (error) { toast('error creating profile'); console.error(error); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+        if (error) { toast('error creating profile'); console.error(error); btn.textContent = 'continue'; btn.disabled = false; return; }
         newProfile = data;
       }
     } else {
@@ -1367,14 +1366,14 @@ async function showSetupScreen2(user, existingProfile, prefill) {
       const { data: { user: anonUser }, error: authErr } = await sb.auth.signInAnonymously();
       if (authErr || !anonUser) {
         toast('trying email sign-in instead');
-        btn.textContent = 'let\'s rally'; btn.disabled = false;
+        btn.textContent = 'continue'; btn.disabled = false;
         showSetupEmail();
         return;
       }
       const { data, error } = await sb.from('profiles').insert({
         id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined'
       }).select().single();
-      if (error) { toast('error creating profile'); btn.textContent = 'let\'s rally'; btn.disabled = false; return; }
+      if (error) { toast('error creating profile'); btn.textContent = 'continue'; btn.disabled = false; return; }
       newProfile = data;
     }
 
