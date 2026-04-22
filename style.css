@@ -404,8 +404,9 @@ button { font: inherit; color: inherit; }
 .table-title {
   font-family: 'Permanent Marker'; font-size: 24px;
   transform: rotate(-1.5deg);
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 8px;
 }
+.tt-icon { flex: 0 0 auto; overflow: visible; }
 /* ── Table subtitle ── */
 .table-sub {
   font-family: 'Space Grotesk'; font-weight: 500;
