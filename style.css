@@ -131,7 +131,7 @@ button { font: inherit; color: inherit; }
 
 .court-wrap {
   position: relative;
-  height: 120px;
+  height: 148px;
   user-select: none;
   touch-action: pan-y;
   margin: 0 4px;
@@ -407,11 +407,9 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; gap: 8px;
 }
 .tt-icon { flex: 0 0 auto; overflow: visible; }
-/* ── Table subtitle — now the primary heading ── */
 .table-sub {
-  font-family: 'Space Grotesk'; font-weight: 700;
-  font-size: 16px; color: var(--ink);
-  display: block;
+  font-family: 'Space Grotesk'; font-weight: 600;
+  font-size: 13px; color: var(--muted);
 }
 .table-sections { display: flex; flex-direction: column; gap: 20px; }
 .table-section { }
