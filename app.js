@@ -947,24 +947,24 @@ function renderMe() {
 
   const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
-  // Layout: compact card (avatar + name + edit) → notis feed → settings footer
+  // Layout: avatar + name + gear → notis feed
   w.innerHTML =
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
     '<div class="me-hero-text">' +
     '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
     '</div>' +
+    '<button class="me-gear" id="me-gear">&#9881;</button>' +
     '</div>' +
 
-    '<div class="me-rule"></div>' +
-
-    '<div class="me-settings-row">' +
-    '<button class="me-setting-link" id="sr-notif-link">' +
+    '<div class="me-settings-dropdown" id="me-settings-dd">' +
+    '<button class="me-dd-item" id="sr-notif-link">' +
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
       ' notifications' +
     '</button>' +
-    '<button class="me-setting-link" id="sr-invite">share link</button>' +
-    '<button class="me-setting-link me-setting-danger" id="sr-signout">sign out</button>' +
+    '<button class="me-dd-item" id="sr-invite">share link</button>' +
+    '<button class="me-dd-item" id="sr-name-change">change name</button>' +
+    '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '</div>';
 
   // Avatar: tap cycles color
@@ -977,6 +977,17 @@ function renderMe() {
     profile.color = newColor;
     updateProfileAv();
     if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
+  });
+
+  // Gear toggle
+  document.getElementById('me-gear').addEventListener('click', () => {
+    document.getElementById('me-settings-dd').classList.toggle('open');
+  });
+
+  // Name change from dropdown
+  document.getElementById('sr-name-change').addEventListener('click', () => {
+    document.getElementById('me-settings-dd').classList.remove('open');
+    startNameChange();
   });
 
   // Name change — tap name
