@@ -1203,7 +1203,6 @@ function showSetupEmail() {
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
-    '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
     '<h2 class="setup-h2">enter your email</h2>' +
     '<input class="setup-name-input" id="setup-email" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
