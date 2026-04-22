@@ -739,68 +739,97 @@ function clearOffExpand() {
 }
 
 function openRaiderSheet(r) {
-  const av = document.getElementById('rs-av');
+  const modal = document.querySelector('#sheet-raider .modal-center');
   const ini = r.ini || r.name.slice(0, 2).toUpperCase();
-  av.style.background = r.color || '#E8502A';
-  av.style.color = '#F4EDDC';
-  av.textContent = ini;
-  document.getElementById('rs-name').textContent = r.name;
+  const isMe = profile && r.id === profile.id;
+  const canAct = profile && !isMe && !r._seed;
 
-  const s = document.getElementById('rs-status');
+  // Status info
+  let statusText = '', statusClass = 'rs-away', contextLine = '';
   if (r.status === 'playing') {
     const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-    s.innerHTML = '&#128994; playing &middot; ' + (r.venue || getVenueName()) + ' &middot; ' + m + ' min in';
-    s.style.background = 'var(--peach)';
+    statusText = 'playing';
+    statusClass = 'rs-playing';
+    contextLine = 'at ' + (r.venue || getVenueName()) + ' \u00b7 ' + m + ' min in';
   } else if (r.status === 'down') {
-    s.innerHTML = '&#128993; down &middot; ' + timeLeft(r) + ' left';
-    s.style.background = 'var(--straw)';
+    statusText = 'down to play';
+    statusClass = 'rs-down';
+    contextLine = timeLeft(r) + ' left on their window';
   } else {
-    s.innerHTML = 'away';
-    s.style.background = 'var(--cream)';
+    statusText = 'away';
+    statusClass = 'rs-away';
+    const ago = r.updated_at ? timeAgo(r.updated_at) : '';
+    contextLine = ago ? 'last seen ' + ago : '';
   }
 
-  document.getElementById('rs-ambient').textContent = r.ambient || '';
+  // Build the modal content
+  let html =
+    // Top row: avatar + name + status
+    '<div class="rs-top">' +
+    '<div class="rs-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+    '<div class="rs-info">' +
+    '<div class="rs-name">' + esc(r.name) + (isMe ? ' <span class="rs-you">you</span>' : '') + '</div>' +
+    '<div class="rs-status ' + statusClass + '"><span class="rs-dot"></span>' + statusText + '</div>' +
+    '</div>' +
+    (canAct ? '<button class="rs-fav-icon" id="rs-fav-icon">' + (isFavorite(r.id) ? '\u2605' : '\u2606') + '</button>' : '') +
+    '</div>';
 
-  const pingBtn = document.getElementById('rs-ping-btn');
-  const favBtn = document.getElementById('rs-fav-btn');
+  // Context line
+  if (contextLine) {
+    html += '<div class="rs-context">' + contextLine + '</div>';
+  }
 
-  const msgBtn = document.getElementById('rs-msg-btn');
+  // Ambient / activity
+  if (r.ambient) {
+    html += '<div class="rs-ambient">' + esc(r.ambient) + '</div>';
+  }
 
-  // Favorite + message buttons — only for real (non-seed) other users
-  if (profile && r.id !== profile.id && !r._seed) {
-    favBtn.style.display = 'block';
-    const starred = isFavorite(r.id);
-    favBtn.textContent = starred ? '\u2605 favorited' : '\u2606 favorite';
-    favBtn.className = 'fav-user-btn' + (starred ? ' fav-active' : '');
-    favBtn.onclick = () => {
-      const added = toggleFavorite(r.id);
-      favBtn.textContent = added ? '\u2605 favorited' : '\u2606 favorite';
-      favBtn.className = 'fav-user-btn' + (added ? ' fav-active' : '');
-      toast(added ? esc(r.name) + ' added to favorites' : esc(r.name) + ' removed');
-    };
+  // Action buttons — ping is primary, message is secondary
+  if (canAct) {
+    html +=
+      '<div class="rs-actions">' +
+      '<button class="rs-ping-btn" id="rs-ping-btn">&#127955; ping ' + esc(r.name) + '</button>' +
+      '<button class="rs-msg-btn" id="rs-msg-btn">&#128172;</button>' +
+      '</div>';
+  }
 
-    msgBtn.style.display = 'block';
-    msgBtn.onclick = () => openChat(r);
+  modal.innerHTML = html;
 
-    pingBtn.style.display = 'block';
-    pingBtn.onclick = async () => {
+  // Wire actions
+  if (canAct) {
+    // Favorite toggle
+    const favIcon = document.getElementById('rs-fav-icon');
+    if (favIcon) {
+      favIcon.onclick = () => {
+        const added = toggleFavorite(r.id);
+        favIcon.textContent = added ? '\u2605' : '\u2606';
+        favIcon.classList.toggle('rs-fav-active', added);
+        toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
+      };
+      favIcon.classList.toggle('rs-fav-active', isFavorite(r.id));
+    }
+
+    // Ping
+    document.getElementById('rs-ping-btn').onclick = async () => {
       const now = Date.now();
-      if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
+      if (now - lastPingTime < PING_COOLDOWN) { toast('slow down \u2014 wait a sec'); return; }
       lastPingTime = now;
+      const btn = document.getElementById('rs-ping-btn');
+      btn.textContent = 'sent!';
+      btn.classList.add('rs-ping-sent');
       await sb.from('pings').insert({
         from_id: profile.id, to_id: r.id,
         verb: 'wants to play',
         msg: profile.name + ' pinged you!',
         unread: true
       });
-      pingBtn.textContent = 'sent!';
-      pingBtn.style.background = 'var(--sage)';
-      setTimeout(() => { pingBtn.textContent = '&#127955; ping'; pingBtn.style.background = ''; }, 1500);
+      setTimeout(() => {
+        document.getElementById('sheet-raider').classList.remove('open');
+      }, 800);
     };
-  } else {
-    pingBtn.style.display = 'none';
-    favBtn.style.display = 'none';
-    msgBtn.style.display = 'none';
+
+    // Message
+    document.getElementById('rs-msg-btn').onclick = () => openChat(r);
   }
 
   document.getElementById('sheet-raider').classList.add('open');

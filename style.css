@@ -597,55 +597,108 @@ button { font: inherit; color: inherit; }
 .modal-center .opt:nth-child(2) { transform: rotate(.3deg); }
 .modal-center .opt:nth-child(3) { transform: rotate(-.3deg); }
 
-/* Player profile in modal */
-.modal-center .r-av {
-  width: 72px; height: 72px; border-radius: 50%;
-  border: 3px solid var(--ink);
+/* ── Redesigned player profile modal ── */
+.rs-top {
+  display: flex; align-items: center; gap: 14px;
+}
+.rs-top .rs-av {
+  width: 56px; height: 56px; border-radius: 50%;
+  border: 2.5px solid var(--ink);
   display: grid; place-items: center;
-  font-family: 'Permanent Marker'; font-size: 26px;
-  box-shadow: 4px 4px 0 var(--ink);
-  margin: 0 auto 14px;
+  font-family: 'Permanent Marker'; font-size: 20px;
+  color: var(--cream);
+  box-shadow: 3px 3px 0 var(--ink);
+  flex: 0 0 auto;
 }
-.modal-center .r-name {
+.rs-info { flex: 1; min-width: 0; }
+.rs-name {
   font-family: 'Permanent Marker';
-  font-size: 28px; text-align: center; line-height: 1;
+  font-size: 24px; line-height: 1;
 }
-.r-status-wrap {
-  display: flex; justify-content: center;
-  margin-top: 10px;
-}
-.r-status {
-  font-family: 'Space Grotesk'; font-weight: 600;
-  font-size: 14px; color: var(--ink);
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 7px 14px;
-  border: 2px solid var(--ink);
-  background: var(--peach);
-  border-radius: 999px;
-  box-shadow: 2px 2px 0 var(--ink);
-}
-.modal-center .r-ambient {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1.5px dashed var(--muted);
-  text-align: center;
+.rs-you {
   font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 16px; color: var(--muted);
+  font-size: 13px; color: var(--cobalt);
+  margin-left: 4px;
+}
+.rs-status {
+  font-family: 'Space Grotesk'; font-weight: 600;
+  font-size: 13px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 6px;
+}
+.rs-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  display: inline-block; flex: 0 0 auto;
+}
+.rs-playing .rs-dot { background: var(--sage); animation: blink 1.3s ease-in-out infinite; }
+.rs-down .rs-dot { background: var(--mustard); }
+.rs-away .rs-dot { background: var(--muted-2); }
+.rs-playing { color: var(--ink); }
+.rs-down { color: var(--ink); }
+
+/* Fav icon — top right */
+.rs-fav-icon {
+  background: none; border: none;
+  font-size: 24px; color: var(--muted-2);
+  cursor: pointer; padding: 4px;
+  flex: 0 0 auto;
+  transition: transform .15s, color .15s;
+}
+.rs-fav-icon:active { transform: scale(1.3); }
+.rs-fav-icon.rs-fav-active { color: var(--mustard); }
+
+/* Context line */
+.rs-context {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 15px; color: var(--muted);
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(20,18,16,.04);
+  border-radius: 12px;
+  line-height: 1.3;
 }
 
-.ping-user-btn {
-  display: block; width: 100%;
+/* Ambient */
+.rs-ambient {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 13px; color: var(--muted);
+  margin-top: 8px;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Action buttons — ping primary, message secondary */
+.rs-actions {
+  display: flex; gap: 10px;
   margin-top: 16px;
+}
+.rs-ping-btn {
+  flex: 1;
   border: 2.5px solid var(--ink);
-  border-radius: 14px;
+  border-radius: 16px;
   padding: 14px;
-  font-family: 'Permanent Marker'; font-size: 20px;
+  font-family: 'Permanent Marker'; font-size: 18px;
   background: var(--flame); color: var(--cream);
   box-shadow: 3px 3px 0 var(--ink);
   cursor: pointer;
-  transition: transform .16s, box-shadow .16s;
+  transition: transform .14s, box-shadow .14s, background .2s;
+  text-align: center;
 }
-.ping-user-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.rs-ping-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.rs-ping-btn.rs-ping-sent { background: var(--sage); color: var(--ink); }
+.rs-msg-btn {
+  width: 50px; flex: 0 0 auto;
+  border: 2.5px solid var(--ink);
+  border-radius: 16px;
+  padding: 14px 0;
+  font-size: 20px;
+  background: var(--cobalt); color: var(--cream);
+  box-shadow: 3px 3px 0 var(--ink);
+  cursor: pointer;
+  transition: transform .14s, box-shadow .14s;
+  display: grid; place-items: center;
+}
+.rs-msg-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
 
 /* Profile modal content */
 .modal-center .me-wrap {
@@ -977,20 +1030,7 @@ button { font: inherit; color: inherit; }
   z-index: 1;
   filter: drop-shadow(0 1px 0 var(--ink));
 }
-.fav-user-btn {
-  display: block; width: 100%;
-  margin-top: 10px;
-  border: 2.5px solid var(--ink);
-  border-radius: 14px;
-  padding: 12px;
-  font-family: 'Space Grotesk'; font-weight: 700; font-size: 14px;
-  background: var(--cream); color: var(--ink);
-  box-shadow: 3px 3px 0 var(--ink);
-  cursor: pointer;
-  transition: transform .16s, box-shadow .16s;
-}
-.fav-user-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
-.fav-user-btn.fav-active { background: var(--straw); }
+/* fav-user-btn removed — replaced by rs-fav-icon */
 
 /* compact settings row — inline links */
 .me-settings-row {
