@@ -222,7 +222,7 @@ async function boot() {
 async function signInWithMagicLink(email) {
   const { error } = await sb.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin }
+    options: { emailRedirectTo: 'https://pingme-iota.vercel.app' }
   });
   if (error) { toast('sign in failed: ' + error.message); return false; }
   return true;
