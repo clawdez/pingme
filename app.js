@@ -38,45 +38,6 @@ function renderVenuePicker() {
 }
 const VAPID_PUBLIC = 'BDbHU5XWUWFF1p1n6uAO_4pIWhf0fb6c8cilk0ExCOafQKDsGa1QpNkvyqrUHBzC6WTybuNjO7GwBCWRG3tjiFM';
 
-/* ── TASK 2A: SEED USERS ── */
-const SEED_DEFS = [
-  { id:'seed-jake',   name:'jake',   ini:'JM', color:'#BFA8E0', status:'playing', playMins: 18 },
-  { id:'seed-maya',   name:'maya',   ini:'MK', color:'#2544D6', status:'playing', playMins: 34 },
-  { id:'seed-leo',    name:'leo',    ini:'LO', color:'#E8502A', status:'down',    dur:60,  elapsed:15 },
-  { id:'seed-alex',   name:'alex',   ini:'AW', color:'#E8B84A', status:'down',    dur:60,  elapsed:30 },
-  { id:'seed-tessa',  name:'tessa',  ini:'TR', color:'#6FD27B', status:'down',    dur:120, elapsed:70 },
-  { id:'seed-devon',  name:'devon',  ini:'DC', color:'#FF9AA2', status:'off', hoursAgo:1.2, displayStatus:'away' },
-  { id:'seed-priya',  name:'priya',  ini:'PS', color:'#B5EAD7', status:'off', hoursAgo:2.5, displayStatus:'away' },
-  { id:'seed-marcus', name:'marcus', ini:'MB', color:'#BFA8E0', status:'off', hoursAgo:0.7, displayStatus:'away' },
-  { id:'seed-sam',    name:'sam',    ini:'SL', color:'#2544D6', status:'off', hoursAgo:3.1, displayStatus:'away' },
-  { id:'seed-noor',   name:'noor',   ini:'NA', color:'#E8B84A', status:'off', hoursAgo:1.8, displayStatus:'away' },
-  { id:'seed-riley',  name:'riley',  ini:'RF', color:'#6FD27B', status:'off', hoursAgo:4.2, displayStatus:'away' },
-  { id:'seed-caleb',  name:'caleb',  ini:'CH', color:'#E8502A', status:'off', hoursAgo:0.4, displayStatus:'away' },
-];
-
-function buildSeedUsers() {
-  const now = Date.now();
-  return SEED_DEFS.map(d => {
-    const u = { id: d.id, name: d.name, ini: d.ini, color: d.color, status: d.status, _seed: true, ambient: '' };
-    if (d.status === 'playing') {
-      u.started_at = new Date(now - d.playMins * 60000).toISOString();
-      u.venue = getVenueName();
-      u.updated_at = u.started_at;
-      u.duration = null;
-    } else if (d.status === 'down') {
-      u.duration = d.dur;
-      u.started_at = new Date(now - d.elapsed * 60000).toISOString();
-      u.updated_at = u.started_at;
-      u.venue = null;
-    } else {
-      u.updated_at = new Date(now - d.hoursAgo * 3600000).toISOString();
-      u.duration = null; u.started_at = null; u.venue = null;
-    }
-    return u;
-  });
-}
-
-let seedUsers = buildSeedUsers();
 
 /* ── STATE ── */
 let profile = null;
@@ -127,17 +88,6 @@ async function boot() {
   // Request persistent storage to prevent iOS from wiping data after 7 days
   if (navigator.storage && navigator.storage.persist) {
     navigator.storage.persist().catch(() => {});
-  }
-
-  // T2A: admin reseed route
-  if (location.pathname === '/admin/reseed') {
-    seedUsers = buildSeedUsers();
-    document.body.innerHTML =
-      '<div style="font-family:monospace;padding:40px;background:#F4EDDC;min-height:100vh">' +
-      '<h2 style="font-family:sans-serif">✓ seed regenerated</h2>' +
-      '<p style="margin:12px 0">' + seedUsers.length + ' mock raiders rebuilt.</p>' +
-      '<a href="/" style="color:#2544D6">← back to app</a></div>';
-    return;
   }
 
   if (!sb) {
@@ -385,6 +335,16 @@ function setTab(t) {
   if (t === 'home') renderHome();
 }
 
+// Share button → native share or QR fallback
+document.getElementById('top-share').addEventListener('click', () => {
+  const url = location.origin;
+  if (navigator.share) {
+    navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
+  } else {
+    showQrShare();
+  }
+});
+
 // Avatar → open combined profile + notis modal
 document.getElementById('profile-av').addEventListener('click', () => {
   renderMe();
@@ -393,19 +353,21 @@ document.getElementById('profile-av').addEventListener('click', () => {
 });
 
 /* ── SHEETS ── */
-document.querySelectorAll('[data-dismiss]').forEach(el =>
-  el.addEventListener('click', () => {
-    const wrap = el.closest('.sheet-wrap');
-    wrap.classList.remove('open');
-    // If ping confirm dismissed, revert to previous state
-    if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
-      homeState = profile.status || 'off';
-      app.dataset.homeState = homeState;
-      placeBall(SNAP[homeState], true);
-      renderRoster();
-    }
-  })
-);
+// Use event delegation so dynamically-added [data-dismiss] buttons also work
+document.addEventListener('click', e => {
+  const el = e.target.closest('[data-dismiss]');
+  if (!el) return;
+  const wrap = el.closest('.sheet-wrap');
+  if (!wrap) return;
+  wrap.classList.remove('open');
+  // If ping confirm dismissed, revert to previous state
+  if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
+    homeState = profile.status || 'off';
+    app.dataset.homeState = homeState;
+    placeBall(SNAP[homeState], true);
+    renderRoster();
+  }
+});
 
 // Ping confirm buttons
 document.getElementById('confirm-ping').addEventListener('click', async () => {
@@ -626,19 +588,12 @@ async function pingEveryone() {
 }
 
 
-/* ── T2: MERGED RAIDERS (real + seed) ── */
+/* ── T2: ALL RAIDERS ── */
 function allRaiders() {
-  // Always include yourself even if name is 'anon'
-  const real = roster.filter(r => {
+  return roster.filter(r => {
     if (profile && r.id === profile.id) return true;
     return r.name && r.name !== 'anon';
   });
-  // Hide seed users once there are 3+ real users
-  if (real.length < 3) {
-    const maxSeeds = profile ? seedUsers.length : 5;
-    return [...real, ...seedUsers.slice(0, maxSeeds)];
-  }
-  return real;
 }
 
 /* ── ROSTER — T2, T3, T5 ── */
@@ -689,11 +644,10 @@ function renderRoster() {
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
       ? profile.name : r.name;
     const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
-    const showDemoBadge = r._seed && r.status === 'off';
-    return '<button class="rbub ' + stClass + (r._seed ? ' rbub-seed' : '') + '" data-id="' + r.id + '">' +
+    return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
       '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
-      (isMe ? '<span class="rbub-you">you</span>' : (showDemoBadge ? '<span class="rbub-demo">demo</span>' : '')) +
+      (isMe ? '<span class="rbub-you">you</span>' : '') +
       '</div>' +
       '<div class="rbub-name">' + esc(displayName) + '</div>' +
       (sub ? '<div class="rbub-sub">' + sub + '</div>' : '') +
@@ -766,7 +720,7 @@ function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
   const ini = r.ini || r.name.slice(0, 2).toUpperCase();
   const isMe = profile && r.id === profile.id;
-  const canAct = profile && !isMe && !r._seed;
+  const canAct = profile && !isMe;
 
   // Status info
   let statusText = '', statusClass = 'rs-away', contextLine = '';
@@ -987,6 +941,7 @@ function renderMe() {
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
       ' notifications' +
     '</button>' +
+    '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
     '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
@@ -1008,6 +963,22 @@ function renderMe() {
   // Gear toggle
   document.getElementById('me-gear').addEventListener('click', () => {
     document.getElementById('me-settings-dd').classList.toggle('open');
+  });
+
+  // Test notification
+  document.getElementById('sr-test-notif').addEventListener('click', () => {
+    document.getElementById('me-settings-dd').classList.remove('open');
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      toast('enable notifications first');
+      return;
+    }
+    new Notification('pingme', {
+      body: (profile.name || 'someone') + ' wants to play!',
+      icon: '/icon-192.png',
+      tag: 'pm-test',
+      renotify: true
+    });
+    toast('check your notification');
   });
 
   // Name change from dropdown
@@ -1454,7 +1425,7 @@ function showSetupScreen3() {
     yesBtn.addEventListener('click', async () => {
       const p = await Notification.requestPermission();
       if (p === 'granted') {
-        new Notification('pingme', { body: "you\'ll get pinged when raiders are down &#127955;" });
+        new Notification('pingme', { body: "you'll get pinged when raiders are down", icon: '/icon-192.png' });
       }
       done();
     });
@@ -1476,7 +1447,7 @@ window.reqNotif = function () {
   Notification.requestPermission().then(p => {
     if (p === 'granted') {
       toast('pings are on');
-      new Notification('pingme', { body: "you'll get pinged when someone wants to play" });
+      new Notification('pingme', { body: "you'll get pinged when someone wants to play", icon: '/icon-192.png' });
     } else toast('check browser settings');
   });
 };
@@ -1542,7 +1513,7 @@ function chatRoomId(a, b) {
 }
 
 async function openChat(raider) {
-  if (!profile || !raider || raider._seed) return;
+  if (!profile || !raider) return;
   chatWith = raider;
   const roomId = chatRoomId(profile.id, raider.id);
 
@@ -1628,7 +1599,7 @@ document.querySelector('#sheet-chat [data-dismiss]').addEventListener('click', (
 async function expireStale() {
   try { await sb.rpc('expire_stale_profiles'); } catch (_) {
     let changed = false;
-    const expireList = [...roster, ...seedUsers];
+    const expireList = roster;
     expireList.forEach(r => {
       if (r.status === 'down' && r.started_at && r.duration) {
         if ((Date.now() - new Date(r.started_at).getTime()) / 60000 >= r.duration) {
@@ -1689,6 +1660,6 @@ function toast(msg, dur) {
 }
 function maybeNotify(body) {
   if ('Notification' in window && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off')) {
-    new Notification('pingme', { body, tag: 'pm-update', renotify: true });
+    new Notification('pingme', { body, icon: '/icon-192.png', tag: 'pm-update', renotify: true });
   }
 }

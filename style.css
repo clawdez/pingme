@@ -70,6 +70,18 @@ button { font: inherit; color: inherit; }
 
 .top-actions { display: flex; align-items: center; gap: 10px; }
 
+.share-btn {
+  width: 38px; height: 38px;
+  background: var(--cream); color: var(--ink);
+  border: 2.5px solid var(--ink);
+  border-radius: 50%;
+  display: grid; place-items: center;
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+  transition: transform .15s, box-shadow .15s;
+}
+.share-btn:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+
 .profile-av {
   position: relative;
   width: 38px; height: 38px;
@@ -1301,18 +1313,6 @@ button { font: inherit; color: inherit; }
 }
 .show-off-btn:hover { color: var(--ink); }
 
-/* Seed / demo user badges — only dim away seeds */
-.rbub-seed.bub-away { opacity: .55; }
-.rbub-demo {
-  position: absolute;
-  top: -2px; right: -8px;
-  font-family: 'Caveat', cursive; font-weight: 700;
-  font-size: 9px; color: var(--cream);
-  background: var(--muted);
-  padding: 1px 5px; border-radius: 999px;
-  border: 1.5px solid var(--ink);
-  z-index: 1;
-}
 /* T5: away bubbles dimmed via .bub-away .rbub-av */
 
 /* ============ T7: NOTIS WELCOME CARD ============ */
