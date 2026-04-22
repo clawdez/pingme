@@ -1206,8 +1206,8 @@ function showSetupEmail() {
     '<div class="setup-wm-sm">ping<span class="swm-me">me!</span></div>' +
     '<h2 class="setup-h2">enter your email</h2>' +
     '<input class="setup-name-input" id="setup-email" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
-    '<button class="setup-primary" id="s-email-go">send me a link</button>' +
-    '<div class="setup-disclaimer">we\'ll send a magic link — no password needed</div>' +
+    '<button class="setup-primary" id="s-email-go">send me a code</button>' +
+    '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '</div>' +
     '</div>';
 
@@ -1223,18 +1223,43 @@ function showSetupEmail() {
     const ok = await signInWithMagicLink(email);
     if (!ok) { btn.textContent = 'send me a link'; btn.disabled = false; return; }
 
-    // Show "check your inbox" screen
+    // Show "enter code" screen
     const root = document.getElementById('setup-root');
     root.innerHTML =
       '<div class="setup-fs">' +
       '<div class="setup-page s-slide-in">' +
       '<div class="setup-check-icon">&#9993;</div>' +
       '<h2 class="setup-h2">check your inbox</h2>' +
-      '<div class="setup-check-sub">we sent a magic link to <b>' + esc(email) + '</b></div>' +
-      '<div class="setup-check-sub">tap the link to get in</div>' +
+      '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
+      '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+      '<button class="setup-primary" id="s-otp-go">verify</button>' +
       '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
       '</div>' +
       '</div>';
+
+    const otpInp = document.getElementById('setup-otp');
+    setTimeout(() => otpInp.focus(), 80);
+
+    document.getElementById('s-otp-go').addEventListener('click', async () => {
+      const code = otpInp.value.trim();
+      if (code.length !== 6) { toast('enter the 6-digit code'); return; }
+      const verifyBtn = document.getElementById('s-otp-go');
+      verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+      if (error) {
+        toast('invalid code — try again');
+        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        return;
+      }
+      // Auth succeeded — onAuthStateChange will handle the rest
+    });
+
+    // Auto-submit when 6 digits entered
+    otpInp.addEventListener('input', () => {
+      if (otpInp.value.trim().length === 6) {
+        document.getElementById('s-otp-go').click();
+      }
+    });
 
     document.getElementById('s-email-retry').addEventListener('click', showSetupEmail);
   });
