@@ -19,12 +19,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css"/>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <script>
-// Force-kill old service workers that cache stale code
+// Register service worker for push notifications + offline
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(r => r.unregister());
-  });
+  navigator.serviceWorker.register('/sw.js').catch(e => console.error('SW registration failed:', e));
 }
 </script>
 </head>
@@ -149,6 +148,7 @@ if ('serviceWorker' in navigator) {
     <div class="modal-center">
       <h3>rally the table?</h3>
       <div class="ping-confirm-sub">everyone gets a ping that you're down to play</div>
+      <div class="venue-picker" id="venue-picker"></div>
       <button class="ping-confirm-btn" id="confirm-ping">serve it up</button>
     </div>
   </div>
@@ -162,6 +162,7 @@ if ('serviceWorker' in navigator) {
       <div class="r-status-wrap"><div class="r-status" id="rs-status"></div></div>
       <div class="r-ambient" id="rs-ambient"></div>
       <button class="fav-user-btn" id="rs-fav-btn">&#9734; favorite</button>
+      <button class="msg-user-btn" id="rs-msg-btn">&#128172; message</button>
       <button class="ping-user-btn" id="rs-ping-btn">&#127955; ping</button>
     </div>
   </div>
@@ -178,6 +179,30 @@ if ('serviceWorker' in navigator) {
           <span class="notis-sub" id="notis-sub"></span>
         </div>
         <div class="ping-list" id="ping-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- QR share modal -->
+  <div class="sheet-wrap" id="sheet-qr">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center">
+      <h3>share pingme</h3>
+      <div class="qr-wrap" id="qr-canvas-wrap"></div>
+      <div class="qr-url" id="qr-url-text"></div>
+      <button class="setup-primary" id="qr-copy" style="font-size:18px;padding:14px">copy link</button>
+    </div>
+  </div>
+
+  <!-- Chat modal -->
+  <div class="sheet-wrap" id="sheet-chat">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center modal-tall">
+      <div class="chat-header" id="chat-header"></div>
+      <div class="chat-messages" id="chat-messages"></div>
+      <div class="chat-input-wrap">
+        <input class="chat-input" id="chat-input" type="text" placeholder="say something..." maxlength="200" autocomplete="off"/>
+        <button class="chat-send" id="chat-send">&#10148;</button>
       </div>
     </div>
   </div>

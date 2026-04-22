@@ -7,8 +7,36 @@ let sb = null;
 try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON); }
 catch (e) { console.error('Supabase failed to load:', e); }
 
-const PLACE = 'the sub';
+const VENUES = [
+  { id: 'sub', name: 'the sub', desc: 'Student Union' },
+  { id: 'rec', name: 'the rec', desc: 'Rec Center' },
+  { id: 'fuddruckers', name: 'Fuddruckers', desc: '4th & Frankford' }
+];
+let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
+function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0]; }
+function getVenueName() { return getVenue().name; }
+
 const AV_COLORS = ['#E8502A','#2544D6','#6FD27B','#E8B84A','#BFA8E0','#FFD3B6','#FF9AA2','#B5EAD7'];
+
+function renderVenuePicker() {
+  const el = document.getElementById('venue-picker');
+  if (!el) return;
+  el.innerHTML = VENUES.map(v =>
+    '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '">' +
+    '<span class="vp-name">' + esc(v.name) + '</span>' +
+    '<span class="vp-desc">' + esc(v.desc) + '</span>' +
+    '</button>'
+  ).join('');
+  el.querySelectorAll('.venue-pill').forEach(btn =>
+    btn.addEventListener('click', () => {
+      selectedVenue = btn.dataset.venue;
+      localStorage.setItem('pm_venue', selectedVenue);
+      el.querySelectorAll('.venue-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    })
+  );
+}
+const VAPID_PUBLIC = 'BDbHU5XWUWFF1p1n6uAO_4pIWhf0fb6c8cilk0ExCOafQKDsGa1QpNkvyqrUHBzC6WTybuNjO7GwBCWRG3tjiFM';
 
 /* ── TASK 2A: SEED USERS ── */
 const SEED_DEFS = [
@@ -32,7 +60,7 @@ function buildSeedUsers() {
     const u = { id: d.id, name: d.name, ini: d.ini, color: d.color, status: d.status, _seed: true, ambient: '' };
     if (d.status === 'playing') {
       u.started_at = new Date(now - d.playMins * 60000).toISOString();
-      u.venue = PLACE;
+      u.venue = getVenueName();
       u.updated_at = u.started_at;
       u.duration = null;
     } else if (d.status === 'down') {
@@ -156,6 +184,7 @@ async function boot() {
         await loadPings();
         subscribePings();
         renderHome();
+        registerPushSubscription();
         toast('welcome back, ' + profile.name);
       } else {
         // New user — continue onboarding at name screen
@@ -232,6 +261,41 @@ async function loadOrCreateProfile(user) {
   }).select().single();
   if (error) { toast('profile error'); console.error(error); return; }
   profile = newProfile; homeState = 'off';
+}
+
+/* ── WEB PUSH ── */
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function registerPushSubscription() {
+  if (!profile || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') return;
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
+      });
+    }
+    // Store subscription in Supabase
+    const subJson = sub.toJSON();
+    await sb.from('push_subscriptions').upsert({
+      user_id: profile.id,
+      endpoint: subJson.endpoint,
+      keys_p256dh: subJson.keys.p256dh,
+      keys_auth: subJson.keys.auth,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' });
+  } catch (e) { console.error('Push sub failed:', e); }
 }
 
 /* ── DATA ── */
@@ -434,6 +498,7 @@ function setHomeState(st) {
   homeState = st;
   app.dataset.homeState = st;
   if (st === 'down') {
+    renderVenuePicker();
     document.getElementById('sheet-ping-confirm').classList.add('open');
   } else {
     setMyStatus(st);
@@ -450,7 +515,7 @@ async function setMyStatus(st) {
 
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
-    updates.venue = PLACE; updates.started_at = new Date().toISOString(); updates.duration = null;
+    updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = null;
   } else if (st === 'down') {
     updates.duration = downDur; updates.started_at = new Date().toISOString(); updates.venue = null;
     // Set exact expiry timer
@@ -517,7 +582,7 @@ function renderLiveZone() {
     timer.innerHTML =
       '<div class="ct-pill">' +
       '<span class="ct-dot"></span>' +
-      'live &middot; ' + mins + 'm &middot; @ ' + PLACE +
+      'live &middot; ' + mins + 'm &middot; @ ' + getVenueName() +
       '</div>';
   } else {
     timer.innerHTML = '';
@@ -664,7 +729,7 @@ function openRaiderSheet(r) {
   const s = document.getElementById('rs-status');
   if (r.status === 'playing') {
     const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-    s.innerHTML = '&#128994; playing &middot; ' + (r.venue || PLACE) + ' &middot; ' + m + ' min in';
+    s.innerHTML = '&#128994; playing &middot; ' + (r.venue || getVenueName()) + ' &middot; ' + m + ' min in';
     s.style.background = 'var(--peach)';
   } else if (r.status === 'down') {
     s.innerHTML = '&#128993; down &middot; ' + timeLeft(r) + ' left';
@@ -679,7 +744,9 @@ function openRaiderSheet(r) {
   const pingBtn = document.getElementById('rs-ping-btn');
   const favBtn = document.getElementById('rs-fav-btn');
 
-  // Favorite button — only for real (non-seed) other users
+  const msgBtn = document.getElementById('rs-msg-btn');
+
+  // Favorite + message buttons — only for real (non-seed) other users
   if (profile && r.id !== profile.id && !r._seed) {
     favBtn.style.display = 'block';
     const starred = isFavorite(r.id);
@@ -691,6 +758,9 @@ function openRaiderSheet(r) {
       favBtn.className = 'fav-user-btn' + (added ? ' fav-active' : '');
       toast(added ? esc(r.name) + ' added to favorites' : esc(r.name) + ' removed');
     };
+
+    msgBtn.style.display = 'block';
+    msgBtn.onclick = () => openChat(r);
 
     pingBtn.style.display = 'block';
     pingBtn.onclick = async () => {
@@ -710,6 +780,7 @@ function openRaiderSheet(r) {
   } else {
     pingBtn.style.display = 'none';
     favBtn.style.display = 'none';
+    msgBtn.style.display = 'none';
   }
 
   document.getElementById('sheet-raider').classList.add('open');
@@ -783,7 +854,7 @@ function renderNotis() {
         app.dataset.homeState = 'down';
         document.getElementById('sheet-me').classList.remove('open');
         renderHome();
-        toast('you\'re down — heading to ' + PLACE);
+        toast('you\'re down — heading to ' + getVenueName());
         return;
       }
       renderNotis();
@@ -813,7 +884,7 @@ function renderMe() {
   let nowIc = '&#9898;', nowHd = "you're away", nowSub = 'drag the ball to change your status';
   if (me.status === 'playing') {
     nowIc = '&#127955;';
-    nowHd = 'playing at ' + (me.venue || PLACE);
+    nowHd = 'playing at ' + (me.venue || getVenueName());
     const m = me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
     nowSub = 'since ' + timeStr() + ' &middot; ' + m + ' min in';
   } else if (me.status === 'down') {
@@ -830,7 +901,7 @@ function renderMe() {
   w.innerHTML =
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
-    '<div class="me-name-min">' + esc(profile.name) + '</div>' +
+    '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
     '<div class="me-tag-min">here to play</div>' +
     '</div>' +
 
@@ -852,6 +923,10 @@ function renderMe() {
     '<div class="me-rule"></div>' +
 
     '<div class="settings-group">' +
+    '<div class="setting-row" id="sr-name">' +
+    '<div class="sr-label">change name</div>' +
+    '<div class="sr-val">' + esc(profile.name) + ' &#8250;</div>' +
+    '</div>' +
     '<div class="setting-row" id="sr-notif">' +
     '<div class="sr-label">notifications</div>' +
     '<div class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><div class="knob"></div></div>' +
@@ -880,6 +955,32 @@ function renderMe() {
     if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
   });
 
+  // Name change — tap name or settings row
+  function startNameChange() {
+    const nameEl = document.getElementById('me-name-display');
+    nameEl.innerHTML = '<input class="me-name-input" id="me-name-inp" value="' + esc(profile.name) + '" maxlength="30" autofocus/>';
+    const inp = document.getElementById('me-name-inp');
+    inp.focus(); inp.select();
+    inp.addEventListener('blur', saveName);
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); inp.blur(); } });
+  }
+  async function saveName() {
+    const inp = document.getElementById('me-name-inp');
+    if (!inp) return;
+    const n = inp.value.trim().toLowerCase().slice(0, 30);
+    if (!n || n === profile.name) { renderMe(); return; }
+    profile.name = n;
+    const me = roster.find(r => r.id === profile.id);
+    if (me) me.name = n;
+    if (sb) await sb.from('profiles').update({ name: n }).eq('id', profile.id);
+    updateProfileAv();
+    renderMe();
+    renderNotis();
+    toast('name updated');
+  }
+  document.getElementById('me-name-display').addEventListener('click', startNameChange);
+  document.getElementById('sr-name').addEventListener('click', startNameChange);
+
   // Notifications inline toggle
   document.getElementById('notif-tog').addEventListener('click', async () => {
     if (!('Notification' in window)) { toast('not supported'); return; }
@@ -905,18 +1006,9 @@ function renderMe() {
     }
   });
 
-  // T1: "invite a raider" — native share with preset message
-  document.getElementById('sr-invite').addEventListener('click', () => {
-    const url = location.origin;
-    const text = '\uD83C\uDFD3 come play ping pong. \u2192 ' + url;
-    if (navigator.share) {
-      navigator.share({ title: 'pingme', text, url }).catch(() => {});
-    } else {
-      navigator.clipboard.writeText(text)
-        .then(() => toast('invite copied'))
-        .catch(() => toast('share not supported'));
-    }
-  });
+  // Invite — show QR code modal
+  document.getElementById('sr-invite').addEventListener('click', showQrShare);
+  document.getElementById('sr-invite').querySelector('.sr-label').textContent = 'share QR code';
 
   // Sign out
   document.getElementById('sr-signout').addEventListener('click', async () => {
@@ -1211,6 +1303,7 @@ function showSetupScreen3() {
   const done = () => {
     root.innerHTML = '';
     renderHome();
+    registerPushSubscription();
     toast('welcome, ' + (profile?.name || 'raider'));
   };
 
@@ -1248,6 +1341,149 @@ window.reqNotif = function () {
     } else toast('check browser settings');
   });
 };
+
+/* ── QR SHARE ── */
+function showQrShare() {
+  const url = location.origin;
+  const wrap = document.getElementById('qr-canvas-wrap');
+  wrap.innerHTML = '';
+
+  if (typeof qrcode !== 'undefined') {
+    const qr = qrcode(0, 'M');
+    qr.addData(url);
+    qr.make();
+    // Create styled QR with the retro theme
+    const size = 200;
+    const modules = qr.getModuleCount();
+    const cellSize = Math.floor(size / modules);
+    const canvas = document.createElement('canvas');
+    canvas.width = cellSize * modules;
+    canvas.height = cellSize * modules;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#F4EDDC';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#141210';
+    for (let r = 0; r < modules; r++) {
+      for (let c = 0; c < modules; c++) {
+        if (qr.isDark(r, c)) {
+          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+    canvas.style.width = '200px';
+    canvas.style.height = '200px';
+    canvas.style.borderRadius = '14px';
+    canvas.style.border = '2.5px solid #141210';
+    canvas.style.boxShadow = '4px 4px 0 #141210';
+    wrap.appendChild(canvas);
+  } else {
+    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
+  }
+
+  document.getElementById('qr-url-text').textContent = url;
+
+  document.getElementById('qr-copy').onclick = () => {
+    navigator.clipboard.writeText(url)
+      .then(() => { toast('link copied'); })
+      .catch(() => toast('copy failed'));
+  };
+
+  // Close profile modal, open QR
+  document.getElementById('sheet-me').classList.remove('open');
+  document.getElementById('sheet-qr').classList.add('open');
+}
+
+/* ── CHAT ── */
+let chatWith = null; // profile object of the person we're chatting with
+let chatMessages = [];
+let chatChannel = null;
+
+function chatRoomId(a, b) {
+  return [a, b].sort().join('_');
+}
+
+async function openChat(raider) {
+  if (!profile || !raider || raider._seed) return;
+  chatWith = raider;
+  const roomId = chatRoomId(profile.id, raider.id);
+
+  // Close other modals
+  document.getElementById('sheet-raider').classList.remove('open');
+
+  // Render header
+  const ini = raider.ini || raider.name.slice(0, 2).toUpperCase();
+  document.getElementById('chat-header').innerHTML =
+    '<div class="chat-av" style="background:' + (raider.color || '#E8502A') + '">' + ini + '</div>' +
+    '<div class="chat-with">' + esc(raider.name) + '</div>';
+
+  // Load messages
+  const { data } = await sb.from('messages')
+    .select('*')
+    .eq('room_id', roomId)
+    .order('created_at', { ascending: true })
+    .limit(50);
+  chatMessages = data || [];
+  renderChatMessages();
+
+  // Subscribe to new messages
+  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
+  chatChannel = sb.channel('chat-' + roomId)
+    .on('postgres_changes', {
+      event: 'INSERT', schema: 'public', table: 'messages',
+      filter: 'room_id=eq.' + roomId
+    }, (payload) => {
+      chatMessages.push(payload.new);
+      renderChatMessages();
+    })
+    .subscribe();
+
+  document.getElementById('sheet-chat').classList.add('open');
+  setTimeout(() => document.getElementById('chat-input').focus(), 200);
+}
+
+function renderChatMessages() {
+  const el = document.getElementById('chat-messages');
+  if (chatMessages.length === 0) {
+    el.innerHTML = '<div class="chat-empty">no messages yet — say hi!</div>';
+    return;
+  }
+  el.innerHTML = chatMessages.map(m => {
+    const isMe = profile && m.sender_id === profile.id;
+    return '<div class="chat-msg ' + (isMe ? 'chat-me' : 'chat-them') + '">' +
+      '<div class="chat-bubble">' + esc(m.body) + '</div>' +
+      '<div class="chat-time">' + timeAgo(m.created_at) + '</div>' +
+      '</div>';
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendChatMessage() {
+  if (!profile || !chatWith) return;
+  const inp = document.getElementById('chat-input');
+  const body = inp.value.trim();
+  if (!body) return;
+  inp.value = '';
+
+  const roomId = chatRoomId(profile.id, chatWith.id);
+  await sb.from('messages').insert({
+    room_id: roomId,
+    sender_id: profile.id,
+    receiver_id: chatWith.id,
+    body: body.slice(0, 200)
+  });
+}
+
+// Wire chat send
+document.getElementById('chat-send').addEventListener('click', sendChatMessage);
+document.getElementById('chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
+});
+
+// Clean up chat channel when closing
+document.querySelector('#sheet-chat [data-dismiss]').addEventListener('click', () => {
+  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
+  chatWith = null;
+});
 
 /* ── EXPIRY ── */
 async function expireStale() {
