@@ -665,11 +665,11 @@ function renderRoster() {
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
       ? profile.name : r.name;
     const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
-    const seedBadge = r._seed ? '<span class="rbub-demo">demo</span>' : '';
+    const showDemoBadge = r._seed && r.status === 'off';
     return '<button class="rbub ' + stClass + (r._seed ? ' rbub-seed' : '') + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
       '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
-      (isMe ? '<span class="rbub-you">you</span>' : seedBadge) +
+      (isMe ? '<span class="rbub-you">you</span>' : (showDemoBadge ? '<span class="rbub-demo">demo</span>' : '')) +
       '</div>' +
       '<div class="rbub-name">' + esc(displayName) + '</div>' +
       (sub ? '<div class="rbub-sub">' + sub + '</div>' : '') +
@@ -889,11 +889,13 @@ function renderMe() {
 
   if (!profile) {
     w.innerHTML =
-      '<div style="text-align:center;padding:40px 0">' +
-      '<h2 style="font-family:Permanent Marker;font-size:28px;margin-bottom:12px">set up your profile</h2>' +
-      '<p style="color:var(--muted);margin-bottom:20px">sign in to get started</p>' +
-      '<button class="setup-btn" style="max-width:280px;margin:0 auto" onclick="showSetup()">let\'s go</button>' +
-      '</div>';
+      '<div class="me-hero-min">' +
+      '<div class="me-av-tap" style="background:var(--muted-2);font-size:20px;width:52px;height:52px">?</div>' +
+      '<div class="me-hero-text">' +
+      '<div class="me-name-min" style="font-size:20px">not signed in</div>' +
+      '</div>' +
+      '</div>' +
+      '<button class="setup-primary" style="font-size:20px;padding:14px;border-radius:16px" onclick="showSetup()">sign in to play</button>';
     return;
   }
 
