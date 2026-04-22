@@ -396,10 +396,10 @@ document.querySelectorAll('[data-dismiss]').forEach(el =>
 // Ping confirm buttons
 document.getElementById('confirm-ping').addEventListener('click', async () => {
   document.getElementById('sheet-ping-confirm').classList.remove('open');
-  downDur = 60;
-  const ok = await setMyStatus('down');
+  const targetState = homeState; // 'down' or 'playing'
+  if (targetState === 'down') downDur = 60;
+  const ok = await setMyStatus(targetState);
   if (!ok) {
-    // Revert UI on failure
     homeState = profile?.status || 'off';
     app.dataset.homeState = homeState;
     placeBall(SNAP[homeState], true);
@@ -407,8 +407,12 @@ document.getElementById('confirm-ping').addEventListener('click', async () => {
     return;
   }
   renderHome();
-  await pingEveryone();
-  toast('pinged the squad');
+  if (targetState === 'down') {
+    await pingEveryone();
+    toast('pinged the squad');
+  } else {
+    toast('you\'re playing at ' + getVenueName());
+  }
 });
 
 /* ── BALL DRAG ── */
@@ -498,6 +502,9 @@ function setHomeState(st) {
   homeState = st;
   app.dataset.homeState = st;
   if (st === 'down') {
+    renderVenuePicker();
+    document.getElementById('sheet-ping-confirm').classList.add('open');
+  } else if (st === 'playing') {
     renderVenuePicker();
     document.getElementById('sheet-ping-confirm').classList.add('open');
   } else {
@@ -613,7 +620,11 @@ function allRaiders() {
   // T2B: filter out unnamed / 'anon' real users
   const real = roster.filter(r => r.name && r.name !== 'anon');
   // Only show seed users when roster is sparse (< 3 real users)
-  if (real.length < 3) return [...real, ...seedUsers];
+  if (real.length < 3) {
+    // Show fewer seeds when not logged in to avoid looking fake
+    const maxSeeds = profile ? seedUsers.length : 5;
+    return [...real, ...seedUsers.slice(0, maxSeeds)];
+  }
   return real;
 }
 
@@ -658,7 +669,7 @@ function renderRoster() {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
       sub = m + 'm';
     } else if (r.status === 'down') {
-      sub = timeLeft(r);
+      sub = timeLeft(r) + ' left';
     } else {
       sub = '';
     }
@@ -793,7 +804,7 @@ function openRaiderSheet(r) {
       '</div>';
   }
 
-  modal.innerHTML = html;
+  modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;
 
   // Wire actions
   if (canAct) {
@@ -832,6 +843,11 @@ function openRaiderSheet(r) {
     document.getElementById('rs-msg-btn').onclick = () => openChat(r);
   }
 
+  // Wire close button
+  modal.querySelector('.modal-close').addEventListener('click', () => {
+    document.getElementById('sheet-raider').classList.remove('open');
+  });
+
   document.getElementById('sheet-raider').classList.add('open');
 }
 
@@ -854,7 +870,7 @@ function renderNotis() {
       '<div class="nw-item">&middot; when someone starts playing</div>' +
       '<div class="nw-item">&middot; before your time runs out</div>' +
       '</div>' +
-      '<div class="nw-coming">coming soon: message players directly</div>' +
+      '<div class="nw-coming">tap a player to ping or message them</div>' +
       '</div>';
     return;
   }

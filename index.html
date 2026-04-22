@@ -114,9 +114,8 @@ if ('serviceWorker' in navigator) {
     <!-- the table (calling screen integrates here when down) -->
     <div class="the-table" id="the-table">
       <div class="table-head">
-        <span class="table-title"><svg class="tt-icon" width="24" height="24" viewBox="0 0 40 40" filter="url(#wobble)"><path d="M26 4 C 34 5 38 14 36 22 C 34 30 26 34 18 31 C 16 32 14 34 13 36 C 12 38 10 38 9 37 C 8 36 9 34 11 33 C 13 32 14 30 14 28 C 10 24 9 16 12 10 C 15 4 21 2 26 4 Z" fill="#E8502A" stroke="#141210" stroke-width="2"/><circle cx="30" cy="12" r="2.6" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg> ping pong</span>
+        <span class="table-sub" id="table-sub">2 playing · 3 down</span>
       </div>
-      <span class="table-sub" id="table-sub">2 playing · 3 down</span>
       <div class="table-sections">
         <div class="table-section" id="section-playing">
           <div class="section-label playing-label"><span class="s-dot green"></span> playing <span class="section-count" id="count-playing"></span></div>
@@ -146,6 +145,7 @@ if ('serviceWorker' in navigator) {
   <div class="sheet-wrap" id="sheet-ping-confirm">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
+      <button class="modal-close" data-dismiss>&times;</button>
       <h3>rally the table?</h3>
       <div class="ping-confirm-sub">everyone gets a ping that you're down to play</div>
       <div class="venue-picker" id="venue-picker"></div>
@@ -156,13 +156,14 @@ if ('serviceWorker' in navigator) {
   <!-- Player profile modal -->
   <div class="sheet-wrap" id="sheet-raider">
     <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center"></div>
+    <div class="modal-center"><button class="modal-close" data-dismiss>&times;</button></div>
   </div>
 
   <!-- Combined profile + notis modal -->
   <div class="sheet-wrap" id="sheet-me">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-tall">
+      <button class="modal-close" data-dismiss>&times;</button>
       <div class="me-wrap" id="me-wrap"></div>
       <div class="me-notis-section" id="me-notis-section">
         <div class="me-rule"></div>
@@ -179,6 +180,7 @@ if ('serviceWorker' in navigator) {
   <div class="sheet-wrap" id="sheet-qr">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
+      <button class="modal-close" data-dismiss>&times;</button>
       <h3>share pingme</h3>
       <div class="qr-wrap" id="qr-canvas-wrap"></div>
       <div class="qr-url" id="qr-url-text"></div>
@@ -190,6 +192,7 @@ if ('serviceWorker' in navigator) {
   <div class="sheet-wrap" id="sheet-chat">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-tall">
+      <button class="modal-close" data-dismiss>&times;</button>
       <div class="chat-header" id="chat-header"></div>
       <div class="chat-messages" id="chat-messages"></div>
       <div class="chat-input-wrap">
