@@ -676,6 +676,26 @@ function renderRoster() {
       '</button>';
   }
 
+  // Favorites pinned at top of roster
+  const favIds = getFavorites();
+  let favSection = document.getElementById('section-favorites');
+  if (favIds.length > 0 && profile) {
+    const favUsers = favIds.map(id => all.find(r => r.id === id)).filter(Boolean);
+    if (favUsers.length > 0) {
+      if (!favSection) {
+        favSection = document.createElement('div');
+        favSection.id = 'section-favorites';
+        favSection.className = 'table-section';
+        const sections = document.querySelector('.table-sections');
+        sections.insertBefore(favSection, sections.firstChild);
+      }
+      favSection.innerHTML =
+        '<div class="section-label fav-label"><span style="font-size:12px">&#9733;</span> favorites <span class="section-count">' + favUsers.length + '</span></div>' +
+        '<div class="bub-grid">' + favUsers.map(renderBubble).join('') + '</div>';
+      favSection.style.display = 'block';
+    } else if (favSection) { favSection.style.display = 'none'; }
+  } else if (favSection) { favSection.style.display = 'none'; }
+
   playingSection.style.display = playing.length ? 'block' : 'none';
   downSection.style.display = down.length ? 'block' : 'none';
   document.getElementById('count-playing').textContent = playing.length || '';
@@ -896,52 +916,25 @@ function renderMe() {
 
   const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
-  // T1: no week strip, no stats, no rally-grade badge
-  // Layout: avatar (centered, tappable) → name → tag → divider → status → divider → settings → divider → footer
+  // Layout: compact card (avatar + name + edit) → notis feed → settings footer
   w.innerHTML =
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
+    '<div class="me-hero-text">' +
     '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
-    '<div class="me-tag-min">here to play</div>' +
+    '</div>' +
     '</div>' +
 
     '<div class="me-rule"></div>' +
 
-    '<div class="section-title" style="padding:0 4px 8px">what\'s happening</div>' +
-    '<div class="now-card">' +
-    '<div class="now-ic">' + nowIc + '</div>' +
-    '<div class="now-body">' +
-    '<div class="now-hd">' + nowHd + '</div>' +
-    '<div class="now-sub">' + nowSub + '</div>' +
-    '</div></div>' +
-
-    '<div class="me-rule"></div>' +
-
-    '<div class="section-title" style="padding:0 4px 8px">favorites</div>' +
-    '<div id="me-favorites" class="me-favorites"></div>' +
-
-    '<div class="me-rule"></div>' +
-
-    '<div class="settings-group">' +
-    '<div class="setting-row" id="sr-name">' +
-    '<div class="sr-label">change name</div>' +
-    '<div class="sr-val">' + esc(profile.name) + ' &#8250;</div>' +
-    '</div>' +
-    '<div class="setting-row" id="sr-notif">' +
-    '<div class="sr-label">notifications</div>' +
-    '<div class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><div class="knob"></div></div>' +
-    '</div>' +
-    '<div class="setting-row" id="sr-invite">' +
-    '<div class="sr-label">invite someone</div>' +
-    '<div class="sr-val">&#8250;</div>' +
-    '</div>' +
-    '<div class="setting-row" id="sr-signout">' +
-    '<div class="sr-label">sign out</div>' +
-    '<div class="sr-val danger">&#8250;</div>' +
-    '</div>' +
-    '</div>' +
-
-    '';
+    '<div class="me-settings-row">' +
+    '<button class="me-setting-link" id="sr-notif-link">' +
+      '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
+      ' notifications' +
+    '</button>' +
+    '<button class="me-setting-link" id="sr-invite">share link</button>' +
+    '<button class="me-setting-link me-setting-danger" id="sr-signout">sign out</button>' +
+    '</div>';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -955,7 +948,7 @@ function renderMe() {
     if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
   });
 
-  // Name change — tap name or settings row
+  // Name change — tap name
   function startNameChange() {
     const nameEl = document.getElementById('me-name-display');
     nameEl.innerHTML = '<input class="me-name-input" id="me-name-inp" value="' + esc(profile.name) + '" maxlength="30" autofocus/>';
@@ -968,7 +961,7 @@ function renderMe() {
     const inp = document.getElementById('me-name-inp');
     if (!inp) return;
     const n = inp.value.trim().toLowerCase().slice(0, 30);
-    if (!n || n === profile.name) { renderMe(); return; }
+    if (!n || n === profile.name) { renderMe(); renderNotis(); return; }
     profile.name = n;
     const me = roster.find(r => r.id === profile.id);
     if (me) me.name = n;
@@ -979,14 +972,12 @@ function renderMe() {
     toast('name updated');
   }
   document.getElementById('me-name-display').addEventListener('click', startNameChange);
-  document.getElementById('sr-name').addEventListener('click', startNameChange);
 
-  // Notifications inline toggle
-  document.getElementById('notif-tog').addEventListener('click', async () => {
+  // Notifications toggle
+  document.getElementById('sr-notif-link').addEventListener('click', async () => {
     if (!('Notification' in window)) { toast('not supported'); return; }
     const tog = document.getElementById('notif-tog');
     if (Notification.permission === 'granted') {
-      // Already granted — toggle local preference
       const nowOn = tog.classList.contains('on');
       tog.classList.toggle('on');
       localStorage.setItem('pm_notif_off', nowOn ? '1' : '');
@@ -1006,9 +997,8 @@ function renderMe() {
     }
   });
 
-  // Invite — show QR code modal
+  // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
-  document.getElementById('sr-invite').querySelector('.sr-label').textContent = 'share QR code';
 
   // Sign out
   document.getElementById('sr-signout').addEventListener('click', async () => {
@@ -1027,9 +1017,6 @@ function renderMe() {
     document.getElementById('sheet-me').classList.remove('open');
     renderHome();
   });
-
-  // Render favorites list
-  renderFavoritesList();
 }
 
 function renderFavoritesList() {
