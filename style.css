@@ -118,7 +118,7 @@ button { font: inherit; color: inherit; }
 
 .court-eyebrow {
   position: absolute;
-  top: -12px; left: 18px;
+  top: 8px; left: 18px;
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 14px;
   background: var(--ink); color: var(--cream);
