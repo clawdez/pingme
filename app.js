@@ -346,14 +346,9 @@ function setTab(t) {
   if (t === 'home') renderHome();
 }
 
-// Share button → native share or QR fallback
+// Share button → always show QR modal (with share link option)
 document.getElementById('top-share').addEventListener('click', () => {
-  const url = getShareUrl();
-  if (navigator.share) {
-    navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
-  } else {
-    showQrShare();
-  }
+  showQrShare();
 });
 
 // Avatar → open combined profile + notis modal
@@ -1010,10 +1005,6 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
     '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
-    '</div>' +
-    '<div class="me-link-banner" id="me-link-banner" style="display:none">' +
-    '<div class="mlb-text">link your email so you don\'t lose your account</div>' +
-    '<button class="mlb-btn" id="mlb-link">link email</button>' +
     '</div>';
 
   // Avatar: tap cycles color
@@ -1112,20 +1103,15 @@ function renderMe() {
     }
   });
 
-  // Link email — show for anonymous users (banner + settings item)
+  // Link email — show for anonymous users (in settings dropdown)
   const linkEmailBtn = document.getElementById('sr-link-email');
-  const linkBanner = document.getElementById('me-link-banner');
   sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) {
-      linkEmailBtn.style.display = '';
-      linkBanner.style.display = '';
-    }
+    if (session && !session.user.email) linkEmailBtn.style.display = '';
   });
   linkEmailBtn.addEventListener('click', () => {
     document.getElementById('me-settings-dd').classList.remove('open');
     showLinkEmail();
   });
-  document.getElementById('mlb-link').addEventListener('click', () => showLinkEmail());
 
   // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
@@ -1572,13 +1558,22 @@ function showQrShare() {
     wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
   }
 
-  document.getElementById('qr-url-text').textContent = url;
-
   document.getElementById('qr-copy').onclick = () => {
     navigator.clipboard.writeText(url)
       .then(() => { toast('link copied'); })
       .catch(() => toast('copy failed'));
   };
+
+  // Show native share button if supported
+  const shareBtn = document.getElementById('qr-share-native');
+  if (navigator.share) {
+    shareBtn.style.display = '';
+    shareBtn.onclick = () => {
+      navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
+    };
+  } else {
+    shareBtn.style.display = 'none';
+  }
 
   // Close profile modal, open QR
   document.getElementById('sheet-me').classList.remove('open');

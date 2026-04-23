@@ -192,8 +192,10 @@ if ('serviceWorker' in navigator) {
       <button class="modal-close" data-dismiss>&times;</button>
       <h3>share pingme</h3>
       <div class="qr-wrap" id="qr-canvas-wrap"></div>
-      <div class="qr-url" id="qr-url-text"></div>
-      <button class="setup-primary" id="qr-copy" style="font-size:18px;padding:14px">copy link</button>
+      <div class="qr-share-actions">
+        <button class="qr-action-btn" id="qr-copy">copy link</button>
+        <button class="qr-action-btn qr-share-native" id="qr-share-native" style="display:none">share link</button>
+      </div>
     </div>
   </div>
 
