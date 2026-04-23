@@ -36,7 +36,7 @@ function renderVenuePicker() {
     })
   );
 }
-const VAPID_PUBLIC = 'BDbHU5XWUWFF1p1n6uAO_4pIWhf0fb6c8cilk0ExCOafQKDsGa1QpNkvyqrUHBzC6WTybuNjO7GwBCWRG3tjiFM';
+const VAPID_PUBLIC = 'BL_BNqvydfkgV7pGo0T9gYToFkih9PEMirDsTGNjl8DFAUrK2eQP53NCQ1eH-BjpZRcLjXpDjmaQ56ZY2VCuqTQ';
 
 
 /* ── REFERRAL ── */
@@ -581,6 +581,14 @@ function renderLiveZone() {
 }
 function renderStrip() { renderLiveZone(); }
 
+async function sendPushNotification(toId, fromId, msg) {
+  try {
+    await sb.functions.invoke('send-push', {
+      body: { to_id: toId, from_id: fromId, msg }
+    });
+  } catch (e) { console.error('Push failed:', e); }
+}
+
 async function pingEveryone() {
   if (!profile) return;
   const now = Date.now();
@@ -595,6 +603,8 @@ async function pingEveryone() {
   }));
   if (rows.length) {
     await sb.from('pings').insert(rows);
+    // Fire push notifications (don't await — fire and forget)
+    rows.forEach(r => sendPushNotification(r.to_id, r.from_id, r.msg));
   }
 }
 
@@ -728,6 +738,17 @@ function renderLeaderboard() {
   if (leaders.length === 0) { section.style.display = 'none'; return; }
   section.style.display = 'block';
 
+  // Wire toggle
+  const toggle = document.getElementById('lb-toggle');
+  const arrow = document.getElementById('lb-arrow');
+  if (toggle && !toggle._wired) {
+    toggle._wired = true;
+    toggle.addEventListener('click', () => {
+      list.classList.toggle('lb-collapsed');
+      arrow.classList.toggle('lb-open');
+    });
+  }
+
   const medals = ['&#129351;', '&#129352;', '&#129353;'];
   list.innerHTML = leaders.map((r, i) => {
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
@@ -836,12 +857,14 @@ function openRaiderSheet(r) {
       const btn = document.getElementById('rs-ping-btn');
       btn.textContent = 'sent!';
       btn.classList.add('rs-ping-sent');
+      const pingMsg = profile.name + ' pinged you!';
       await sb.from('pings').insert({
         from_id: profile.id, to_id: r.id,
         verb: 'wants to play',
-        msg: profile.name + ' pinged you!',
+        msg: pingMsg,
         unread: true
       });
+      sendPushNotification(r.id, profile.id, pingMsg);
       setTimeout(() => {
         document.getElementById('sheet-raider').classList.remove('open');
       }, 800);
@@ -987,6 +1010,10 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
     '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
+    '</div>' +
+    '<div class="me-link-banner" id="me-link-banner" style="display:none">' +
+    '<div class="mlb-text">link your email so you don\'t lose your account</div>' +
+    '<button class="mlb-btn" id="mlb-link">link email</button>' +
     '</div>';
 
   // Avatar: tap cycles color
@@ -1085,15 +1112,20 @@ function renderMe() {
     }
   });
 
-  // Link email — show only for anonymous users
+  // Link email — show for anonymous users (banner + settings item)
   const linkEmailBtn = document.getElementById('sr-link-email');
+  const linkBanner = document.getElementById('me-link-banner');
   sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) linkEmailBtn.style.display = '';
+    if (session && !session.user.email) {
+      linkEmailBtn.style.display = '';
+      linkBanner.style.display = '';
+    }
   });
   linkEmailBtn.addEventListener('click', () => {
     document.getElementById('me-settings-dd').classList.remove('open');
     showLinkEmail();
   });
+  document.getElementById('mlb-link').addEventListener('click', () => showLinkEmail());
 
   // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
