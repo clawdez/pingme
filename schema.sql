@@ -34,6 +34,17 @@ create table if not exists pings (
   created_at timestamptz default now()
 );
 
+-- Push subscriptions: one per user for Web Push notifications
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(id) on delete cascade,
+  endpoint text not null,
+  keys_p256dh text not null,
+  keys_auth text not null,
+  created_at timestamptz default now(),
+  unique(user_id)
+);
+
 -- Venues (reference data)
 create table if not exists venues (
   id uuid primary key default gen_random_uuid(),
@@ -49,6 +60,7 @@ create index if not exists idx_profiles_status on profiles(status);
 create index if not exists idx_profiles_updated on profiles(updated_at desc);
 create index if not exists idx_pings_to_id on pings(to_id);
 create index if not exists idx_pings_created on pings(created_at desc);
+create index if not exists idx_push_subs_user on push_subscriptions(user_id);
 
 -- ═══════════════════════════════════════════
 -- ROW LEVEL SECURITY
@@ -56,6 +68,7 @@ create index if not exists idx_pings_created on pings(created_at desc);
 
 alter table profiles enable row level security;
 alter table pings enable row level security;
+alter table push_subscriptions enable row level security;
 alter table venues enable row level security;
 
 -- Profiles: anyone can read, users manage their own
@@ -75,6 +88,16 @@ create policy "Authenticated users can send pings"
   on pings for insert with check (auth.uid() = from_id);
 create policy "Users can update own received pings"
   on pings for update using (to_id = auth.uid());
+
+-- Push subscriptions: users manage their own
+create policy "Users can view own push subscription"
+  on push_subscriptions for select using (auth.uid() = user_id);
+create policy "Users can insert own push subscription"
+  on push_subscriptions for insert with check (auth.uid() = user_id);
+create policy "Users can update own push subscription"
+  on push_subscriptions for update using (auth.uid() = user_id);
+create policy "Users can delete own push subscription"
+  on push_subscriptions for delete using (auth.uid() = user_id);
 
 -- Venues: public read
 create policy "Anyone can view venues"
