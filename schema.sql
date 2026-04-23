@@ -18,6 +18,8 @@ create table if not exists profiles (
   duration int,              -- minutes (for 'down' status)
   started_at timestamptz,    -- when user went down/playing
   ambient text,              -- flavor text ("played 3x this week")
+  referred_by uuid references profiles(id) on delete set null,
+  referral_count int not null default 0,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -137,6 +139,18 @@ begin
   where status = 'playing'
     and started_at is not null
     and started_at + interval '90 minutes' < now();
+end;
+$$;
+
+-- Increment referral count atomically
+create or replace function increment_referral(referrer_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update profiles set referral_count = referral_count + 1
+  where id = referrer_id;
 end;
 $$;
 

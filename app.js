@@ -39,6 +39,17 @@ function renderVenuePicker() {
 const VAPID_PUBLIC = 'BDbHU5XWUWFF1p1n6uAO_4pIWhf0fb6c8cilk0ExCOafQKDsGa1QpNkvyqrUHBzC6WTybuNjO7GwBCWRG3tjiFM';
 
 
+/* ── REFERRAL ── */
+function getRefParam() {
+  try { return new URLSearchParams(location.search).get('ref'); } catch { return null; }
+}
+function clearRefParam() {
+  try { const u = new URL(location.href); u.searchParams.delete('ref'); history.replaceState(null, '', u.pathname); } catch {}
+}
+function getShareUrl() {
+  return profile ? location.origin + '?ref=' + profile.id : location.origin;
+}
+
 /* ── STATE ── */
 let profile = null;
 let roster = [];
@@ -337,7 +348,7 @@ function setTab(t) {
 
 // Share button → native share or QR fallback
 document.getElementById('top-share').addEventListener('click', () => {
-  const url = location.origin;
+  const url = getShareUrl();
   if (navigator.share) {
     navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
   } else {
@@ -644,10 +655,12 @@ function renderRoster() {
     const displayName = (isMe && profile && profile.name && profile.name !== 'anon')
       ? profile.name : r.name;
     const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
+    const refs = r.referral_count || 0;
     return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
       '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
       (isMe ? '<span class="rbub-you">you</span>' : '') +
+      (refs > 0 ? '<span class="rbub-refs">' + refs + '</span>' : '') +
       '</div>' +
       '<div class="rbub-name">' + esc(displayName) + '</div>' +
       (sub ? '<div class="rbub-sub">' + sub + '</div>' : '') +
@@ -691,6 +704,7 @@ function renderRoster() {
   }
   clearOffExpand();
   updateTableSub();
+  renderLeaderboard();
 
   // Wire bubble clicks
   document.querySelectorAll('.section-list .rbub').forEach(bub =>
@@ -699,6 +713,33 @@ function renderRoster() {
       if (r) openRaiderSheet(r);
     })
   );
+}
+
+function renderLeaderboard() {
+  const section = document.getElementById('section-leaderboard');
+  const list = document.getElementById('lb-list');
+  if (!section || !list) return;
+
+  const leaders = allRaiders()
+    .filter(r => (r.referral_count || 0) > 0)
+    .sort((a, b) => (b.referral_count || 0) - (a.referral_count || 0))
+    .slice(0, 10);
+
+  if (leaders.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+
+  const medals = ['&#129351;', '&#129352;', '&#129353;'];
+  list.innerHTML = leaders.map((r, i) => {
+    const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
+    const isMe = profile && r.id === profile.id;
+    const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
+    return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
+      '<span class="lb-medal">' + medal + '</span>' +
+      '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<span class="lb-name">' + esc(r.name) + (isMe ? ' <span class="lb-you">(you)</span>' : '') + '</span>' +
+      '<span class="lb-count">' + r.referral_count + ' invited</span>' +
+      '</div>';
+  }).join('');
 }
 
 function getOrCreateOffExpand() {
@@ -1326,11 +1367,15 @@ async function showSetupScreen2(user, existingProfile, prefill) {
         newProfile = data;
       } else {
         // Create fresh profile
-        const { data, error } = await sb.from('profiles').insert({
-          id: user.id, name: n, color, status: 'off', ambient: 'just joined'
-        }).select().single();
+        const refId = getRefParam();
+        const insert = { id: user.id, name: n, color, status: 'off', ambient: 'just joined' };
+        if (refId && refId !== user.id) insert.referred_by = refId;
+        const { data, error } = await sb.from('profiles').insert(insert).select().single();
         if (error) { toast('error creating profile'); console.error(error); btn.textContent = 'continue'; btn.disabled = false; return; }
         newProfile = data;
+        if (refId && refId !== user.id) {
+          sb.rpc('increment_referral', { referrer_id: refId }).then(() => {}).catch(() => {});
+        }
       }
     } else {
       // Anon path — sign in first then create profile
@@ -1341,15 +1386,20 @@ async function showSetupScreen2(user, existingProfile, prefill) {
         showSetupEmail();
         return;
       }
-      const { data, error } = await sb.from('profiles').insert({
-        id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined'
-      }).select().single();
+      const refId = getRefParam();
+      const insert = { id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined' };
+      if (refId && refId !== anonUser.id) insert.referred_by = refId;
+      const { data, error } = await sb.from('profiles').insert(insert).select().single();
       if (error) { toast('error creating profile'); btn.textContent = 'continue'; btn.disabled = false; return; }
       newProfile = data;
+      if (refId && refId !== anonUser.id) {
+        sb.rpc('increment_referral', { referrer_id: refId }).then(() => {}).catch(() => {});
+      }
     }
 
     profile = newProfile;
     homeState = 'off';
+    clearRefParam();
     if (!roster.find(r => r.id === newProfile.id)) roster.push(newProfile);
     await loadRoster();
     subscribePings();
@@ -1454,7 +1504,7 @@ window.reqNotif = function () {
 
 /* ── QR SHARE ── */
 function showQrShare() {
-  const url = location.origin;
+  const url = getShareUrl();
   const wrap = document.getElementById('qr-canvas-wrap');
   wrap.innerHTML = '';
 
