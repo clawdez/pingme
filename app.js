@@ -1203,16 +1203,43 @@ function showLinkEmail() {
     const btn = document.getElementById('link-email-go');
     btn.textContent = 'sending...'; btn.disabled = true;
 
-    const { error } = await sb.auth.updateUser({ email });
+    // Send OTP to the email (links it to current anonymous account)
+    const { error } = await sb.auth.signInWithOtp({ email });
     if (error) { toast('failed: ' + error.message); btn.textContent = 'send code'; btn.disabled = false; return; }
 
     meWrap.innerHTML =
       '<div style="padding:16px 0">' +
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
-      '<h3 class="link-email-h">check your inbox</h3>' +
-      '<div class="link-email-sub">tap the confirmation link sent to <b>' + esc(email) + '</b></div>' +
-      '<button class="link-email-go-back" id="link-email-done">done</button>' +
+      '<h3 class="link-email-h">enter your code</h3>' +
+      '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
+      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="code" autocomplete="one-time-code" style="letter-spacing:4px" autofocus/>' +
+      '<button class="link-email-btn" id="link-email-verify">verify</button>' +
+      '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
+
+    setTimeout(() => document.getElementById('link-email-otp').focus(), 80);
+
+    document.getElementById('link-email-verify').addEventListener('click', async () => {
+      const code = document.getElementById('link-email-otp').value.trim();
+      if (!code) { toast('enter the code'); return; }
+      const verifyBtn = document.getElementById('link-email-verify');
+      verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      const { error: vErr } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+      if (vErr) {
+        toast('invalid code — try again');
+        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        return;
+      }
+      toast('email linked!');
+      if (notisSection) notisSection.style.display = '';
+      renderMe();
+      updateLinkEmailDot();
+    });
+
+    // Auto-submit when full code entered
+    document.getElementById('link-email-otp').addEventListener('input', (e) => {
+      if (e.target.value.trim().length >= 6) document.getElementById('link-email-verify').click();
+    });
 
     document.getElementById('link-email-done').addEventListener('click', () => {
       if (notisSection) notisSection.style.display = '';
