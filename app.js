@@ -1203,8 +1203,8 @@ function showLinkEmail() {
     const btn = document.getElementById('link-email-go');
     btn.textContent = 'sending...'; btn.disabled = true;
 
-    // Send OTP to the email (links it to current anonymous account)
-    const { error } = await sb.auth.signInWithOtp({ email });
+    // Link email to current anonymous account (sends OTP via email_change)
+    const { error } = await sb.auth.updateUser({ email });
     if (error) { toast('failed: ' + error.message); btn.textContent = 'send code'; btn.disabled = false; return; }
 
     meWrap.innerHTML =
@@ -1224,7 +1224,7 @@ function showLinkEmail() {
       if (!code) { toast('enter the code'); return; }
       const verifyBtn = document.getElementById('link-email-verify');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
-      const { error: vErr } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
+      const { error: vErr } = await sb.auth.verifyOtp({ email, token: code, type: 'email_change' });
       if (vErr) {
         toast('invalid code — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
