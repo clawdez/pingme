@@ -1048,7 +1048,8 @@ function renderMe() {
     '</div>' +
 
     '<button class="me-link-acct-banner" id="me-link-acct" style="display:none">' +
-    '&#9993; link email (save account)</button>';
+    '&#9993; link email (save account)</button>' +
+    '<div class="me-linked-email" id="me-linked-email" style="display:none"></div>';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -1146,10 +1147,16 @@ function renderMe() {
     }
   });
 
-  // Link email — show blue banner for anonymous users
+  // Link email — show blue banner for anonymous users, or show linked email
   const linkAcctBanner = document.getElementById('me-link-acct');
+  const linkedEmailEl = document.getElementById('me-linked-email');
   sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) linkAcctBanner.style.display = '';
+    if (session && !session.user.email) {
+      linkAcctBanner.style.display = '';
+    } else if (session && session.user.email) {
+      linkedEmailEl.style.display = '';
+      linkedEmailEl.textContent = '✓ linked to ' + session.user.email;
+    }
   });
   linkAcctBanner.addEventListener('click', () => showLinkEmail());
 
@@ -1247,8 +1254,18 @@ function showLinkEmail() {
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
+      // Delete system nudge pings
+      const sysPings = pings.filter(p => p.verb === 'system');
+      for (const sp of sysPings) {
+        await sb.from('pings').delete().eq('id', sp.id);
+      }
+      pings = pings.filter(p => p.verb !== 'system');
+      // Refresh session to pick up new email
+      await sb.auth.refreshSession();
       toast('email linked!');
       if (notisSection) notisSection.style.display = '';
+      updateNotisBadge();
+      renderNotis();
       renderMe();
       updateLinkEmailDot();
     });

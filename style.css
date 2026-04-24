@@ -1353,6 +1353,12 @@ button { font: inherit; color: inherit; }
   text-align: center;
 }
 .me-link-acct-banner:active { opacity: .85; }
+.me-linked-email {
+  font-family: 'Space Grotesk'; font-weight: 600;
+  font-size: 13px; color: var(--muted);
+  text-align: center;
+  margin-top: 10px;
+}
 
 /* T9: PWA install instructions */
 .setup-pwa-icon {
