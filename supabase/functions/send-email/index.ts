@@ -106,6 +106,107 @@ serve(async (req: Request) => {
       })
     }
 
+    // ── SIGN-IN FLOW ──
+    if (action === 'signin-send') {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+      // Find user by email
+      const { data: { users }, error: listErr } = await sb.auth.admin.listUsers()
+      const existingUser = users?.find((u: any) => u.email === email)
+      if (!existingUser) {
+        return new Response(JSON.stringify({ ok: false, error: 'no account found with that email' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Generate a 6-digit code
+      const otp = String(Math.floor(100000 + Math.random() * 900000))
+
+      const { error: upsertErr } = await sb.from('email_otps').upsert({
+        user_id: existingUser.id,
+        email,
+        code: otp,
+        expires_at: new Date(Date.now() + 10 * 60000).toISOString()
+      }, { onConflict: 'user_id' })
+      if (upsertErr) {
+        return new Response(JSON.stringify({ error: 'failed to store code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Send via Resend
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${RESEND_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          from: 'pingme <play@usepingme.com>',
+          to: email,
+          subject: 'your pingme sign-in code',
+          html: `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px;text-align:center">
+            <h2 style="font-size:22px;margin:0 0 8px">pingme</h2>
+            <p style="color:#666;font-size:15px;margin:0 0 20px">here's your code to sign in</p>
+            <div style="font-size:32px;font-weight:700;letter-spacing:6px;background:#f5f0e8;border-radius:12px;padding:16px;margin:0 0 20px">${otp}</div>
+            <p style="color:#999;font-size:13px">this code expires in 10 minutes.<br>if you didn't request this, just ignore it.</p>
+          </div>`
+        })
+      })
+
+      return new Response(JSON.stringify({ sent: true, user_id: existingUser.id }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
+    if (action === 'signin-verify') {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+      // Find user by email
+      const { data: { users } } = await sb.auth.admin.listUsers()
+      const existingUser = users?.find((u: any) => u.email === email)
+      if (!existingUser) {
+        return new Response(JSON.stringify({ ok: false, error: 'no account found' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const { data: otp } = await sb.from('email_otps')
+        .select('*')
+        .eq('user_id', existingUser.id)
+        .eq('email', email)
+        .eq('code', code)
+        .gt('expires_at', new Date().toISOString())
+        .single()
+
+      if (!otp) {
+        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Generate a magic link to extract the token
+      const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({
+        type: 'magiclink',
+        email
+      })
+
+      if (linkErr || !linkData) {
+        return new Response(JSON.stringify({ ok: false, error: 'failed to generate session' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Clean up OTP
+      await sb.from('email_otps').delete().eq('user_id', existingUser.id)
+
+      // Return the hashed token for client-side verification
+      const tokenHash = linkData.properties?.hashed_token
+      return new Response(JSON.stringify({ verified: true, token_hash: tokenHash }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
+    }
+
     return new Response(JSON.stringify({ error: 'unknown action' }), {
       status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })

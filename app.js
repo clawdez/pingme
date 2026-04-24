@@ -182,13 +182,17 @@ async function boot() {
 }
 
 /* ── AUTH ── */
-async function signInWithMagicLink(email) {
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: 'https://pingme-iota.vercel.app' }
-  });
-  if (error) { toast('sign in failed: ' + error.message); return false; }
-  return true;
+async function signInSendCode(email) {
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+      body: JSON.stringify({ action: 'signin-send', email })
+    });
+    const result = await r.json();
+    if (result.error) { toast(result.error); return false; }
+    return true;
+  } catch (e) { toast('sign in failed: ' + e.message); return false; }
 }
 
 async function loadOrCreateProfile(user) {
@@ -1392,14 +1396,14 @@ function showSetup() {
 }
 window.showSetup = showSetup;
 
-// Screen 1b — Email input for magic link
+// Screen 1b — Email sign-in via custom OTP
 function showSetupEmail() {
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
     '<h2 class="setup-h2">enter your email</h2>' +
-    '<input class="setup-name-input" id="setup-email" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
+    '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '</div>' +
@@ -1414,8 +1418,8 @@ function showSetupEmail() {
     const btn = document.getElementById('s-email-go');
     btn.textContent = 'sending...'; btn.disabled = true;
 
-    const ok = await signInWithMagicLink(email);
-    if (!ok) { btn.textContent = 'send me a link'; btn.disabled = false; return; }
+    const ok = await signInSendCode(email);
+    if (!ok) { btn.textContent = 'send me a code'; btn.disabled = false; return; }
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
@@ -1439,13 +1443,36 @@ function showSetupEmail() {
       if (code.length !== 6) { toast('enter the 6-digit code'); return; }
       const verifyBtn = document.getElementById('s-otp-go');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
-      const { data, error } = await sb.auth.verifyOtp({ email, token: code, type: 'email' });
-      if (error) {
-        toast('invalid code — try again');
+
+      try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 15000);
+        const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+          body: JSON.stringify({ action: 'signin-verify', email, code }),
+          signal: ctrl.signal
+        });
+        const result = await r.json();
+        if (result.error) {
+          toast(result.error);
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          return;
+        }
+        if (result.token_hash) {
+          // Use the token to sign in via Supabase client
+          const { data, error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+          if (error) {
+            toast('sign in failed — try again');
+            verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+            return;
+          }
+          // Auth succeeded — onAuthStateChange will handle the rest
+        }
+      } catch (e) {
+        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
-        return;
       }
-      // Auth succeeded — onAuthStateChange will handle the rest
     });
 
     // Auto-submit when 6 digits entered
