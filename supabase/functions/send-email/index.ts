@@ -88,8 +88,9 @@ serve(async (req: Request) => {
         })
       }
 
-      // Clean up OTP
+      // Clean up OTP and system nudge pings
       await sb.from('email_otps').delete().eq('user_id', user_id)
+      await sb.from('pings').delete().eq('to_id', user_id).eq('verb', 'system')
 
       return new Response(JSON.stringify({ verified: true }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }

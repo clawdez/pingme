@@ -1254,11 +1254,7 @@ function showLinkEmail() {
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
-      // Delete system nudge pings
-      const sysPings = pings.filter(p => p.verb === 'system');
-      for (const sp of sysPings) {
-        await sb.from('pings').delete().eq('id', sp.id);
-      }
+      // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session to pick up new email
       await sb.auth.refreshSession();
