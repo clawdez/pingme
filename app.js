@@ -124,7 +124,10 @@ async function boot() {
           session = refreshed.session;
         }
       }
-      if (session) await loadOrCreateProfile(session.user);
+      if (session) {
+        await loadOrCreateProfile(session.user);
+        registerPushSubscription(); // ensure push sub is registered on every boot
+      }
     }
   } catch (e) { console.error('Auth check failed:', e); toast('connecting...'); }
 
@@ -354,8 +357,7 @@ async function registerPushSubscription() {
       user_id: profile.id,
       endpoint: subJson.endpoint,
       keys_p256dh: subJson.keys.p256dh,
-      keys_auth: subJson.keys.auth,
-      updated_at: new Date().toISOString()
+      keys_auth: subJson.keys.auth
     }, { onConflict: 'user_id' });
   } catch (e) { console.error('Push sub failed:', e); }
 }
