@@ -1316,12 +1316,17 @@ function showSetup() {
 
     '<button class="setup-primary" id="s1-in">i\'m in</button>' +
     '<div class="setup-disclaimer">you\'ll hear when someone\'s looking for a game. free, no spam.</div>' +
+    '<button class="setup-skip" id="s1-signin">already have an account? sign in</button>' +
     '</div>' + // end s-page-1
     '</div>'; // end setup-fs
 
   document.getElementById('s1-in').addEventListener('click', () => {
     if (!sb) { toast('not connected'); return; }
     showSetupScreen2(null, null, '');
+  });
+  document.getElementById('s1-signin').addEventListener('click', () => {
+    if (!sb) { toast('not connected'); return; }
+    showSetupEmail();
   });
 }
 window.showSetup = showSetup;
