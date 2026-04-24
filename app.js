@@ -1185,7 +1185,7 @@ function showLinkEmail() {
     '<div style="padding:16px 0">' +
     '<h3 class="link-email-h">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
-    '<input class="link-email-input" id="link-email-input" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
+    '<input class="link-email-input" id="link-email-input" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
@@ -1216,7 +1216,7 @@ function showLinkEmail() {
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
       '<h3 class="link-email-h">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
-      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="letter-spacing:6px" autofocus/>' +
+      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" style="letter-spacing:4px" autofocus/>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
@@ -1229,16 +1229,22 @@ function showLinkEmail() {
       const verifyBtn = document.getElementById('link-email-verify');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
       try {
-        const res = await sb.functions.invoke('send-email', {
+        const { data, error } = await sb.functions.invoke('send-email', {
           body: { action: 'verify', email, code, user_id: profile.id }
         });
-        if (res.error || (res.data && res.data.error)) {
-          toast('invalid code — try again');
+        if (error) {
+          const errBody = await error.context?.json?.() || {};
+          toast(errBody.error || 'invalid code — try again');
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          return;
+        }
+        if (data && data.error) {
+          toast(data.error || 'invalid code — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
       } catch (e) {
-        toast('invalid code — try again');
+        toast('failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
