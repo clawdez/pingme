@@ -1233,15 +1233,19 @@ function showLinkEmail() {
     setTimeout(() => document.getElementById('link-email-otp').focus(), 80);
 
     document.getElementById('link-email-verify').addEventListener('click', async () => {
+      const verifyBtn = document.getElementById('link-email-verify');
+      if (verifyBtn.disabled) return; // prevent double-click
       const code = document.getElementById('link-email-otp').value.trim();
       if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
-      const verifyBtn = document.getElementById('link-email-verify');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
       try {
+        const ctrl = new AbortController();
+        setTimeout(() => ctrl.abort(), 15000);
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
-          body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id })
+          body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
+          signal: ctrl.signal
         });
         const result = await r.json();
         if (!r.ok || result.error) {
@@ -1250,7 +1254,7 @@ function showLinkEmail() {
           return;
         }
       } catch (e) {
-        toast('failed — try again');
+        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
