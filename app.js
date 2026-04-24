@@ -1140,11 +1140,11 @@ function showLinkEmail() {
   const modal = document.querySelector('#sheet-me .modal-center');
   const meWrap = document.getElementById('me-wrap');
   meWrap.innerHTML =
-    '<div style="padding:20px 0">' +
-    '<h2 class="setup-h2">link your email</h2>' +
-    '<div class="setup-check-sub" style="margin-bottom:16px">save your account so you can log in on other devices</div>' +
-    '<input class="setup-name-input" id="link-email-input" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
-    '<button class="setup-primary" id="link-email-go" style="margin-top:12px">send code</button>' +
+    '<div style="padding:16px 0">' +
+    '<h3 class="link-email-h">link your email</h3>' +
+    '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
+    '<input class="link-email-input" id="link-email-input" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
+    '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="setup-skip" id="link-email-cancel">cancel</button>' +
     '</div>';
 
@@ -1162,10 +1162,10 @@ function showLinkEmail() {
     if (error) { toast('failed: ' + error.message); btn.textContent = 'send code'; btn.disabled = false; return; }
 
     meWrap.innerHTML =
-      '<div style="padding:20px 0">' +
-      '<div class="setup-check-icon">&#9993;</div>' +
-      '<h2 class="setup-h2">check your inbox</h2>' +
-      '<div class="setup-check-sub">tap the confirmation link sent to <b>' + esc(email) + '</b></div>' +
+      '<div style="padding:16px 0">' +
+      '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
+      '<h3 class="link-email-h">check your inbox</h3>' +
+      '<div class="link-email-sub">tap the confirmation link sent to <b>' + esc(email) + '</b></div>' +
       '<button class="setup-skip" id="link-email-done">done</button>' +
       '</div>';
 

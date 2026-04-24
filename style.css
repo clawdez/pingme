@@ -1277,6 +1277,47 @@ button { font: inherit; color: inherit; }
 }
 .setup-check-sub b { font-weight: 700; color: var(--ink); }
 
+/* Compact link-email (in-profile, not onboarding) */
+.link-email-h {
+  font-family: 'Permanent Marker';
+  font-size: 18px; text-align: center;
+  margin: 0 0 4px;
+}
+.link-email-sub {
+  font-family: 'Space Grotesk'; font-weight: 500;
+  font-size: 13px; color: var(--muted);
+  text-align: center; line-height: 1.4;
+  margin-bottom: 12px;
+}
+.link-email-sub b { font-weight: 700; color: var(--ink); }
+.link-email-input {
+  width: 100%;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-family: 'Space Grotesk'; font-weight: 600; font-size: 15px;
+  text-align: center; background: var(--bg);
+  box-sizing: border-box;
+}
+.link-email-input:focus {
+  border-color: var(--flame);
+  box-shadow: 2px 2px 0 var(--flame);
+  outline: none;
+}
+.link-email-input::placeholder { color: var(--muted-2); }
+.link-email-btn {
+  width: 100%;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 10px;
+  font-family: 'Permanent Marker'; font-size: 16px;
+  background: var(--flame); color: #fff;
+  cursor: pointer; margin-top: 8px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.link-email-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.link-email-btn:disabled { opacity: .6; pointer-events: none; }
+
 /* T9: PWA install instructions */
 .setup-pwa-icon {
   font-size: 52px; line-height: 1;
