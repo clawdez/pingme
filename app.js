@@ -215,6 +215,16 @@ async function loadOrCreateProfile(user) {
         await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
       }
     }
+    // Nudge anonymous users to link email (once)
+    if (!user.email && !localStorage.getItem('pm_link_nudge')) {
+      localStorage.setItem('pm_link_nudge', '1');
+      sb.from('pings').insert({
+        from_id: user.id, to_id: user.id,
+        verb: 'system',
+        msg: '🔒 link your email to keep your account — tap your profile pic!',
+        unread: true
+      }).then(() => updateNotisBadge());
+    }
     // Restore expiry timer if returning as "playing"
     if (existing.status === 'playing' && existing.started_at) {
       const msLeft = (90 * 60000) - (Date.now() - new Date(existing.started_at).getTime());
@@ -912,14 +922,17 @@ function renderNotis() {
 
   pingList.innerHTML = pings.map(p => {
     const from = p.from || {};
-    const avText = (from.name || '??').slice(0, 2).toUpperCase();
-    const color = from.color || '#E8502A';
-    const who = from.name || 'someone';
+    const isSystem = p.verb === 'system';
+    const avText = isSystem ? '&#9993;' : (from.name || '??').slice(0, 2).toUpperCase();
+    const color = isSystem ? '#2563eb' : (from.color || '#E8502A');
+    const who = isSystem ? 'pingme' : (from.name || 'someone');
     const ago = timeAgo(p.created_at);
     const acted = p.action_taken;
 
     let actions = '';
-    if (!acted) {
+    if (isSystem) {
+      actions = '';
+    } else if (!acted) {
       actions = '<div class="ping-actions">' +
         '<button class="pa-btn primary" data-ping="' + p.id + '" data-action="on my way">on my way</button>' +
         '<button class="pa-btn" data-ping="' + p.id + '" data-action="maybe">maybe</button>' +
@@ -932,7 +945,7 @@ function renderNotis() {
     return '<div class="ping-card ' + (p.unread ? 'unread' : '') + '" data-id="' + p.id + '">' +
       '<div class="pc-av" style="background:' + color + ';color:#F4EDDC">' + avText + '</div>' +
       '<div class="pc-body">' +
-      '<div class="pc-who">' + esc(who) + ' <span class="pc-verb">' + esc(p.verb || '') + '</span></div>' +
+      '<div class="pc-who">' + esc(who) + (isSystem ? '' : ' <span class="pc-verb">' + esc(p.verb || '') + '</span>') + '</div>' +
       '<div class="pc-msg">' + esc(p.msg || '') + '</div>' +
       '<div class="pc-time">' + ago + '</div>' +
       actions + '</div></div>';
