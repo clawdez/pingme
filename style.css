@@ -3,14 +3,23 @@
 /* Disable native pull-to-refresh so custom one works */
 html, body { overscroll-behavior-y: contain; }
 
-/* Pull-to-refresh indicator */
-.ptr-indicator {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+/* Pull-to-refresh */
+.ptr {
+  position: fixed; top: -50px; left: 50%; z-index: 9999;
+  margin-left: -20px; width: 40px; height: 40px;
   display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 600; color: #141210; background: var(--cream, #F4EDDC);
-  height: 0; overflow: hidden; transition: opacity .15s;
-  font-family: 'Space Grotesk', sans-serif;
+  background: #fff; border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(20,18,16,.18);
+  opacity: 0; will-change: transform, opacity;
+  pointer-events: none;
 }
+.ptr-snapping { transition: transform .3s ease, opacity .3s ease; }
+.ptr-spinner { color: #141210; display: flex; transition: transform .1s linear; }
+.ptr-ready .ptr-spinner { color: var(--flame, #E8502A); }
+.ptr-refreshing .ptr-spinner {
+  animation: ptr-spin .7s linear infinite;
+}
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
 
 :root {
   --cream: #F4EDDC;

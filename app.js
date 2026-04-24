@@ -207,53 +207,73 @@ async function boot() {
 
 /* ── PULL TO REFRESH ── */
 function initPullToRefresh() {
+  const THRESHOLD = 80;
+  const MAX_PULL = 120;
   let startY = 0;
   let pulling = false;
-  let activated = false;
-  let indicator = null;
+  let refreshing = false;
+  let el = null;
+
+  // Create persistent indicator element
+  el = document.createElement('div');
+  el.className = 'ptr';
+  el.innerHTML = '<div class="ptr-spinner"><svg viewBox="0 0 24 24" width="24" height="24"><path d="M17.65 6.35A7.96 7.96 0 0012 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0112 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" fill="currentColor"/></svg></div>';
+  document.body.prepend(el);
 
   document.addEventListener('touchstart', e => {
+    if (refreshing) return;
     if (window.scrollY <= 0 && e.touches.length === 1) {
       startY = e.touches[0].clientY;
       pulling = true;
-      activated = false;
+      el.classList.remove('ptr-snapping', 'ptr-refreshing');
     }
   }, { passive: true });
 
   document.addEventListener('touchmove', e => {
-    if (!pulling) return;
+    if (!pulling || refreshing) return;
     const dy = e.touches[0].clientY - startY;
-    if (dy > 10 && window.scrollY <= 0) {
-      e.preventDefault(); // block native pull-to-refresh
-      if (!indicator) {
-        indicator = document.createElement('div');
-        indicator.className = 'ptr-indicator';
-        document.body.prepend(indicator);
-      }
-      const progress = Math.min(dy / 100, 1);
-      indicator.style.height = Math.min(dy * 0.5, 60) + 'px';
-      indicator.style.opacity = progress;
-      activated = progress >= 1;
-      indicator.textContent = activated ? '↻ release to refresh' : '↓ pull to refresh';
+    if (dy > 5 && window.scrollY <= 0) {
+      e.preventDefault();
+      const pull = Math.min(dy * 0.5, MAX_PULL);
+      const progress = Math.min(pull / THRESHOLD, 1);
+      el.style.transform = 'translateY(' + pull + 'px)';
+      el.style.opacity = progress;
+      // Rotate spinner based on pull progress
+      const spin = el.querySelector('.ptr-spinner');
+      spin.style.transform = 'rotate(' + (progress * 360) + 'deg)';
+      el.classList.toggle('ptr-ready', progress >= 1);
     }
-  }, { passive: false }); // passive: false so preventDefault works
+  }, { passive: false });
 
   document.addEventListener('touchend', async () => {
-    if (!pulling) return;
+    if (!pulling || refreshing) return;
     pulling = false;
-    if (!indicator) return;
-    if (activated) {
-      indicator.textContent = '↻ refreshing...';
+    const current = parseFloat(el.style.transform?.match(/translateY\((.+?)px\)/)?.[1] || 0);
+    if (current >= THRESHOLD) {
+      // Snap to loading position
+      refreshing = true;
+      el.classList.add('ptr-snapping', 'ptr-refreshing');
+      el.style.transform = 'translateY(50px)';
+      el.style.opacity = '1';
       try {
         await loadRoster();
         if (profile) await loadPings();
         if (document.querySelector('[data-screen="home"].active')) renderHome();
-        toast('refreshed');
       } catch {}
+      // Brief pause so spinner is visible
+      await new Promise(r => setTimeout(r, 400));
+      el.classList.add('ptr-snapping');
+      el.classList.remove('ptr-refreshing');
+      el.style.transform = 'translateY(0px)';
+      el.style.opacity = '0';
+      setTimeout(() => { refreshing = false; el.classList.remove('ptr-snapping', 'ptr-ready'); }, 300);
+    } else {
+      // Snap back
+      el.classList.add('ptr-snapping');
+      el.style.transform = 'translateY(0px)';
+      el.style.opacity = '0';
+      setTimeout(() => el.classList.remove('ptr-snapping', 'ptr-ready'), 300);
     }
-    indicator.remove();
-    indicator = null;
-    activated = false;
   });
 }
 
