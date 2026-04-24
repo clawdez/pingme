@@ -1003,12 +1003,11 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
-    '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '</div>' +
 
     '<button class="me-link-acct-banner" id="me-link-acct" style="display:none">' +
-    '&#9993; link acct with email</button>';
+    '&#9993; link email (save account)</button>';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -1106,18 +1105,10 @@ function renderMe() {
     }
   });
 
-  // Link email — show for anonymous users (in settings dropdown + blue banner)
-  const linkEmailBtn = document.getElementById('sr-link-email');
+  // Link email — show blue banner for anonymous users
   const linkAcctBanner = document.getElementById('me-link-acct');
   sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) {
-      linkEmailBtn.style.display = '';
-      linkAcctBanner.style.display = '';
-    }
-  });
-  linkEmailBtn.addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.remove('open');
-    showLinkEmail();
+    if (session && !session.user.email) linkAcctBanner.style.display = '';
   });
   linkAcctBanner.addEventListener('click', () => showLinkEmail());
 
