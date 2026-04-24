@@ -109,8 +109,23 @@ async function boot() {
   }
 
   try {
-    const { data: { session } } = await sb.auth.getSession();
-    if (session) await loadOrCreateProfile(session.user);
+    // getSession() returns cached session without validating — if access token is expired,
+    // we need to refresh it so the user doesn't get silently logged out
+    let { data: { session } } = await sb.auth.getSession();
+    if (session) {
+      // Check if access token is expired or about to expire (within 60s)
+      const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
+      if (exp * 1000 < Date.now() + 60000) {
+        const { data: refreshed, error: refreshErr } = await sb.auth.refreshSession();
+        if (refreshErr || !refreshed.session) {
+          console.warn('Session expired and refresh failed:', refreshErr);
+          session = null;
+        } else {
+          session = refreshed.session;
+        }
+      }
+      if (session) await loadOrCreateProfile(session.user);
+    }
   } catch (e) { console.error('Auth check failed:', e); toast('connecting...'); }
 
   sb.auth.onAuthStateChange(async (event, session) => {
@@ -182,6 +197,57 @@ async function boot() {
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
   }, 15000);
+
+  // Pull-to-refresh
+  initPullToRefresh();
+}
+
+/* ── PULL TO REFRESH ── */
+function initPullToRefresh() {
+  let startY = 0;
+  let pulling = false;
+  let indicator = null;
+
+  document.addEventListener('touchstart', e => {
+    if (window.scrollY === 0 && e.touches.length === 1) {
+      startY = e.touches[0].clientY;
+      pulling = true;
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e => {
+    if (!pulling) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 10 && window.scrollY === 0) {
+      if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.className = 'ptr-indicator';
+        indicator.textContent = '';
+        document.body.prepend(indicator);
+      }
+      const progress = Math.min(dy / 120, 1);
+      indicator.style.height = Math.min(dy * 0.5, 60) + 'px';
+      indicator.style.opacity = progress;
+      indicator.textContent = progress >= 1 ? '↻ release to refresh' : '↓ pull to refresh';
+    }
+  }, { passive: true });
+
+  document.addEventListener('touchend', async () => {
+    if (!pulling || !indicator) { pulling = false; return; }
+    const h = parseFloat(indicator.style.height);
+    if (h >= 55) {
+      indicator.textContent = '↻ refreshing...';
+      try {
+        await loadRoster();
+        if (profile) await loadPings();
+        if (document.querySelector('[data-screen="home"].active')) renderHome();
+        toast('refreshed');
+      } catch {}
+    }
+    indicator.remove();
+    indicator = null;
+    pulling = false;
+  });
 }
 
 /* ── AUTH ── */

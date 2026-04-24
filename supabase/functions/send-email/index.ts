@@ -110,9 +110,12 @@ serve(async (req: Request) => {
     if (action === 'signin-send') {
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-      // Find user by email
-      const { data: { users }, error: listErr } = await sb.auth.admin.listUsers()
-      const existingUser = users?.find((u: any) => u.email === email)
+      // Find user by email — use GoTrue admin API directly to avoid listUsers pagination limits
+      const findRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1&filter=${encodeURIComponent(email)}`, {
+        headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'apikey': SUPABASE_SERVICE_KEY }
+      })
+      const findData = await findRes.json()
+      const existingUser = findData.users?.find((u: any) => u.email === email)
       if (!existingUser) {
         return new Response(JSON.stringify({ ok: false, error: 'no account found with that email' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -162,9 +165,12 @@ serve(async (req: Request) => {
     if (action === 'signin-verify') {
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-      // Find user by email
-      const { data: { users } } = await sb.auth.admin.listUsers()
-      const existingUser = users?.find((u: any) => u.email === email)
+      // Find user by email — use GoTrue admin API directly to avoid listUsers pagination limits
+      const findRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1&filter=${encodeURIComponent(email)}`, {
+        headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'apikey': SUPABASE_SERVICE_KEY }
+      })
+      const findData = await findRes.json()
+      const existingUser = findData.users?.find((u: any) => u.email === email)
       if (!existingUser) {
         return new Response(JSON.stringify({ ok: false, error: 'no account found' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
