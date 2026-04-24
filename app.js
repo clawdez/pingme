@@ -582,6 +582,7 @@ function updateProfileAv() {
 function updateLinkEmailDot() {
   const dot = document.getElementById('link-email-dot');
   if (!dot) return;
+  if (localStorage.getItem('pm_linked_email')) { dot.style.display = 'none'; return; }
   sb.auth.getSession().then(({ data: { session } }) => {
     dot.style.display = (session && !session.user.email) ? '' : 'none';
   });
@@ -1154,17 +1155,20 @@ function renderMe() {
   // Link email — show blue banner for anonymous users, or show linked email
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  const cachedEmail = profile && profile._linkedEmail;
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
   if (cachedEmail) {
     linkedEmailEl.style.display = '';
     linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
+    linkAcctBanner.style.display = 'none';
   } else {
     sb.auth.getSession().then(({ data: { session } }) => {
-      if (session && !session.user.email) {
-        linkAcctBanner.style.display = '';
-      } else if (session && session.user.email) {
+      if (session && session.user.email) {
         linkedEmailEl.style.display = '';
         linkedEmailEl.textContent = '✓ linked to ' + session.user.email;
+        linkAcctBanner.style.display = 'none';
+        localStorage.setItem('pm_linked_email', session.user.email);
+      } else if (session && !session.user.email) {
+        linkAcctBanner.style.display = '';
       }
     });
   }
@@ -1184,6 +1188,7 @@ function renderMe() {
       }).eq('id', profile.id);
     }
     await sb.auth.signOut();
+    localStorage.removeItem('pm_linked_email');
     profile = null; homeState = 'off';
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
@@ -1272,7 +1277,8 @@ function showLinkEmail() {
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)
       sb.auth.refreshSession().catch(() => {});
-      // Store linked email so renderMe can show it immediately (session may be stale)
+      // Persist linked email in localStorage so it survives refresh
+      localStorage.setItem('pm_linked_email', email);
       profile._linkedEmail = email;
       toast('email linked!');
       if (notisSection) notisSection.style.display = '';
@@ -1414,11 +1420,13 @@ function showSetupEmail() {
     '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
+    '<button class="setup-skip" id="s-email-back">go back</button>' +
     '</div>' +
     '</div>';
 
   const inp = document.getElementById('setup-email');
   setTimeout(() => inp.focus(), 80);
+  document.getElementById('s-email-back').addEventListener('click', showSetup);
 
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim();
