@@ -1,5 +1,8 @@
 /* pingme — exact prototype design · full-screen PWA */
 
+/* Disable native pull-to-refresh so custom one works */
+html, body { overscroll-behavior-y: contain; }
+
 /* Pull-to-refresh indicator */
 .ptr-indicator {
   position: fixed; top: 0; left: 0; right: 0; z-index: 9999;

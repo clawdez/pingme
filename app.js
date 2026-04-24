@@ -206,36 +206,40 @@ async function boot() {
 function initPullToRefresh() {
   let startY = 0;
   let pulling = false;
+  let activated = false;
   let indicator = null;
 
   document.addEventListener('touchstart', e => {
-    if (window.scrollY === 0 && e.touches.length === 1) {
+    if (window.scrollY <= 0 && e.touches.length === 1) {
       startY = e.touches[0].clientY;
       pulling = true;
+      activated = false;
     }
   }, { passive: true });
 
   document.addEventListener('touchmove', e => {
     if (!pulling) return;
     const dy = e.touches[0].clientY - startY;
-    if (dy > 10 && window.scrollY === 0) {
+    if (dy > 10 && window.scrollY <= 0) {
+      e.preventDefault(); // block native pull-to-refresh
       if (!indicator) {
         indicator = document.createElement('div');
         indicator.className = 'ptr-indicator';
-        indicator.textContent = '';
         document.body.prepend(indicator);
       }
-      const progress = Math.min(dy / 120, 1);
+      const progress = Math.min(dy / 100, 1);
       indicator.style.height = Math.min(dy * 0.5, 60) + 'px';
       indicator.style.opacity = progress;
-      indicator.textContent = progress >= 1 ? '↻ release to refresh' : '↓ pull to refresh';
+      activated = progress >= 1;
+      indicator.textContent = activated ? '↻ release to refresh' : '↓ pull to refresh';
     }
-  }, { passive: true });
+  }, { passive: false }); // passive: false so preventDefault works
 
   document.addEventListener('touchend', async () => {
-    if (!pulling || !indicator) { pulling = false; return; }
-    const h = parseFloat(indicator.style.height);
-    if (h >= 55) {
+    if (!pulling) return;
+    pulling = false;
+    if (!indicator) return;
+    if (activated) {
       indicator.textContent = '↻ refreshing...';
       try {
         await loadRoster();
@@ -246,7 +250,7 @@ function initPullToRefresh() {
     }
     indicator.remove();
     indicator = null;
-    pulling = false;
+    activated = false;
   });
 }
 
@@ -372,8 +376,14 @@ async function loadPings() {
   if (!error && data) pings = data;
 }
 
+let profilesChannel = null;
 function subscribeRealtime() {
-  sb.channel('profiles-realtime')
+  // Clean up existing channel before re-subscribing
+  if (profilesChannel) {
+    sb.removeChannel(profilesChannel);
+    profilesChannel = null;
+  }
+  profilesChannel = sb.channel('profiles-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
       if (payload.eventType === 'INSERT') {
         const exists = roster.find(r => r.id === payload.new.id);
@@ -384,10 +394,13 @@ function subscribeRealtime() {
         if (r) Object.assign(r, payload.new);
         else roster.push(payload.new);
         if (profile && payload.new.id !== profile.id) {
-          if (payload.new.status === 'playing' && payload.old?.status !== 'playing')
+          if (payload.new.status === 'playing' && payload.old?.status !== 'playing') {
             maybeNotify(payload.new.name + ' just started playing');
-          else if (payload.new.status === 'down' && payload.old?.status !== 'down')
+            sendPushToFavorites(payload.new.name + ' just started playing');
+          } else if (payload.new.status === 'down' && payload.old?.status !== 'down') {
             maybeNotify(payload.new.name + ' is down to play');
+            sendPushToFavorites(payload.new.name + ' is down to play');
+          }
         }
       } else if (payload.eventType === 'DELETE') {
         roster = roster.filter(r => r.id !== payload.old.id);
@@ -397,11 +410,31 @@ function subscribeRealtime() {
     .subscribe((status, err) => {
       console.log('profiles-realtime:', status, err || '');
       if (status === 'CHANNEL_ERROR') {
-        // Retry after 3s
         setTimeout(subscribeRealtime, 3000);
       }
     });
   subscribePings();
+}
+
+// Re-subscribe + refresh when tab comes back into focus
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && sb) {
+    await loadRoster();
+    if (profile) await loadPings();
+    if (document.querySelector('[data-screen="home"].active')) renderHome();
+    // Re-subscribe realtime in case connection went stale
+    subscribeRealtime();
+  }
+});
+
+async function sendPushToFavorites(msg) {
+  // Send push notification to all users who have this person as a favorite
+  // (fire-and-forget, best-effort)
+  if (!profile) return;
+  const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
+  others.forEach(r => {
+    sendPushNotification(r.id, profile.id, msg).catch(() => {});
+  });
 }
 
 function subscribePings() {
