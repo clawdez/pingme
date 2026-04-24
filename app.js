@@ -1203,16 +1203,20 @@ function showLinkEmail() {
     const btn = document.getElementById('link-email-go');
     btn.textContent = 'sending...'; btn.disabled = true;
 
-    // Link email to current anonymous account (sends OTP via email_change)
-    const { error } = await sb.auth.updateUser({ email });
-    if (error) { toast('failed: ' + error.message); btn.textContent = 'send code'; btn.disabled = false; return; }
+    // Send OTP via our edge function (bypasses Supabase SMTP entirely)
+    try {
+      const res = await sb.functions.invoke('send-email', {
+        body: { action: 'send', email, user_id: profile.id }
+      });
+      if (res.error) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
+    } catch (e) { toast('failed: ' + e.message); btn.textContent = 'send code'; btn.disabled = false; return; }
 
     meWrap.innerHTML =
       '<div style="padding:16px 0">' +
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
       '<h3 class="link-email-h">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
-      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="code" autocomplete="one-time-code" style="letter-spacing:4px" autofocus/>' +
+      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="letter-spacing:6px" autofocus/>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
@@ -1221,11 +1225,19 @@ function showLinkEmail() {
 
     document.getElementById('link-email-verify').addEventListener('click', async () => {
       const code = document.getElementById('link-email-otp').value.trim();
-      if (!code) { toast('enter the code'); return; }
+      if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
       const verifyBtn = document.getElementById('link-email-verify');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
-      const { error: vErr } = await sb.auth.verifyOtp({ email, token: code, type: 'email_change' });
-      if (vErr) {
+      try {
+        const res = await sb.functions.invoke('send-email', {
+          body: { action: 'verify', email, code, user_id: profile.id }
+        });
+        if (res.error || (res.data && res.data.error)) {
+          toast('invalid code — try again');
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          return;
+        }
+      } catch (e) {
         toast('invalid code — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
