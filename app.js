@@ -177,8 +177,11 @@ async function boot() {
 
   setInterval(async () => {
     await expireStale();
+    // Polling fallback — refresh roster in case realtime missed updates
+    await loadRoster();
+    if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-  }, 45000);
+  }, 15000);
 }
 
 /* ── AUTH ── */
@@ -325,7 +328,13 @@ function subscribeRealtime() {
       }
       if (document.querySelector('[data-screen="home"].active')) renderHome();
     })
-    .subscribe();
+    .subscribe((status, err) => {
+      console.log('profiles-realtime:', status, err || '');
+      if (status === 'CHANNEL_ERROR') {
+        // Retry after 3s
+        setTimeout(subscribeRealtime, 3000);
+      }
+    });
   subscribePings();
 }
 
@@ -341,7 +350,9 @@ function subscribePings() {
       updateNotisBadge();
       maybeNotify('new ping!');
     })
-    .subscribe();
+    .subscribe((status, err) => {
+      console.log('pings-realtime:', status, err || '');
+    });
 }
 
 /* ── TABLE SUBTITLE (dynamic counts) ── */
