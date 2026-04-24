@@ -394,13 +394,10 @@ function subscribeRealtime() {
         if (r) Object.assign(r, payload.new);
         else roster.push(payload.new);
         if (profile && payload.new.id !== profile.id) {
-          if (payload.new.status === 'playing' && payload.old?.status !== 'playing') {
+          if (payload.new.status === 'playing' && payload.old?.status !== 'playing')
             maybeNotify(payload.new.name + ' just started playing');
-            sendPushToFavorites(payload.new.name + ' just started playing');
-          } else if (payload.new.status === 'down' && payload.old?.status !== 'down') {
+          else if (payload.new.status === 'down' && payload.old?.status !== 'down')
             maybeNotify(payload.new.name + ' is down to play');
-            sendPushToFavorites(payload.new.name + ' is down to play');
-          }
         }
       } else if (payload.eventType === 'DELETE') {
         roster = roster.filter(r => r.id !== payload.old.id);
@@ -427,14 +424,11 @@ document.addEventListener('visibilitychange', async () => {
   }
 });
 
-async function sendPushToFavorites(msg) {
-  // Send push notification to all users who have this person as a favorite
-  // (fire-and-forget, best-effort)
+// Notify all other users via push notification (called by the person changing status)
+async function pushStatusChange(msg) {
   if (!profile) return;
   const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
-  others.forEach(r => {
-    sendPushNotification(r.id, profile.id, msg).catch(() => {});
-  });
+  others.forEach(r => sendPushNotification(r.id, profile.id, msg));
 }
 
 function subscribePings() {
@@ -516,7 +510,8 @@ document.getElementById('confirm-ping').addEventListener('click', async () => {
   if (targetState === 'down') {
     await pingEveryone();
     toast('pinged the squad');
-  } else {
+  } else if (targetState === 'playing') {
+    pushStatusChange(profile.name + ' is playing at ' + getVenueName());
     toast('you\'re playing at ' + getVenueName());
   }
 });
