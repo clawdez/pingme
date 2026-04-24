@@ -5,19 +5,27 @@ html, body { overscroll-behavior-y: contain; }
 
 /* Pull-to-refresh */
 .ptr {
-  position: fixed; top: -50px; left: 50%; z-index: 9999;
-  margin-left: -20px; width: 40px; height: 40px;
+  position: fixed; top: 0; left: 50%; z-index: 9999;
+  width: 36px; height: 36px;
   display: flex; align-items: center; justify-content: center;
   background: #fff; border-radius: 50%;
-  box-shadow: 0 2px 8px rgba(20,18,16,.18);
+  box-shadow: 0 1px 6px rgba(20,18,16,.2);
   opacity: 0; will-change: transform, opacity;
   pointer-events: none;
+  transform: translateX(-50%) translateY(0);
 }
-.ptr-snapping { transition: transform .3s ease, opacity .3s ease; }
-.ptr-spinner { color: #141210; display: flex; transition: transform .1s linear; }
-.ptr-ready .ptr-spinner { color: var(--flame, #E8502A); }
-.ptr-refreshing .ptr-spinner {
-  animation: ptr-spin .7s linear infinite;
+.ptr-spinner {
+  width: 22px; height: 22px;
+  border: 2.5px solid #e0ddd6;
+  border-top-color: #141210;
+  border-radius: 50%;
+  opacity: 0;
+}
+.ptr-ready .ptr-spinner { border-top-color: var(--flame, #E8502A); }
+.ptr-loading .ptr-spinner {
+  animation: ptr-spin .6s linear infinite;
+  opacity: 1 !important;
+  transform: none !important;
 }
 @keyframes ptr-spin { to { transform: rotate(360deg); } }
 
