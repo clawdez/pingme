@@ -533,6 +533,7 @@ async function setMyStatus(st) {
 function renderHome() {
   updateNotisBadge();
   updateProfileAv();
+  updateLinkEmailDot();
   renderLiveZone();
   renderRoster();
   placeBall(SNAP[homeState], false);
@@ -551,12 +552,25 @@ function updateNotisBadge() {
 
 function updateProfileAv() {
   const av = document.getElementById('profile-av');
+  // Preserve badge & dot spans
+  const badge = document.getElementById('notis-badge');
+  const dot = document.getElementById('link-email-dot');
   if (profile) {
     av.textContent = profile.name.slice(0, 1).toUpperCase() + profile.name.slice(1, 2).toUpperCase();
     av.style.background = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
   } else {
     av.textContent = '?'; av.style.background = '';
   }
+  if (badge) av.appendChild(badge);
+  if (dot) av.appendChild(dot);
+}
+
+function updateLinkEmailDot() {
+  const dot = document.getElementById('link-email-dot');
+  if (!dot) return;
+  sb.auth.getSession().then(({ data: { session } }) => {
+    dot.style.display = (session && !session.user.email) ? '' : 'none';
+  });
 }
 
 /* ── COURT TIMER — only for playing state ── */
