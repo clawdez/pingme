@@ -546,8 +546,11 @@ async function setMyStatus(st) {
   } else {
     updates.venue = null; updates.duration = null; updates.started_at = null;
   }
-  const { error } = await sb.from('profiles').update(updates).eq('id', profile.id);
-  if (error) { toast('update failed'); console.error(error); return false; }
+  console.log('setMyStatus:', st, 'profile.id:', profile.id, 'updates:', JSON.stringify(updates));
+  const { data, error, count } = await sb.from('profiles').update(updates).eq('id', profile.id).select();
+  console.log('setMyStatus result:', { data, error, count });
+  if (error) { toast('update failed: ' + error.message); console.error(error); return false; }
+  if (!data || data.length === 0) { toast('update missed — no rows matched'); console.error('No rows updated for id:', profile.id); return false; }
   Object.assign(profile, updates);
   const me = roster.find(r => r.id === profile.id);
   if (me) Object.assign(me, updates);
