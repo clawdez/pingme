@@ -221,7 +221,7 @@ async function loadOrCreateProfile(user) {
       sb.from('pings').insert({
         from_id: user.id, to_id: user.id,
         verb: 'system',
-        msg: '🔒 link your email to keep your account — tap your profile pic!',
+        msg: 'your account will disappear if you log out or switch devices. connect your email now to save it.',
         unread: true
       }).then(() => updateNotisBadge());
     }
@@ -931,7 +931,9 @@ function renderNotis() {
 
     let actions = '';
     if (isSystem) {
-      actions = '';
+      actions = '<div class="ping-actions">' +
+        '<button class="pa-btn primary system-link-email" data-ping="' + p.id + '">connect email</button>' +
+        '</div>';
     } else if (!acted) {
       actions = '<div class="ping-actions">' +
         '<button class="pa-btn primary" data-ping="' + p.id + '" data-action="on my way">on my way</button>' +
@@ -951,7 +953,19 @@ function renderNotis() {
       actions + '</div></div>';
   }).join('') + '<div class="empty-hint">that\'s the lot. go play.</div>';
 
-  pingList.querySelectorAll('.pa-btn[data-ping]').forEach(btn =>
+  // System "connect email" button → opens link email flow
+  pingList.querySelectorAll('.system-link-email').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      const pingId = btn.dataset.ping;
+      await sb.from('pings').update({ unread: false, action_taken: 'linked' }).eq('id', pingId);
+      const p = pings.find(x => x.id === pingId);
+      if (p) { p.unread = false; p.action_taken = 'linked'; }
+      updateNotisBadge();
+      showLinkEmail();
+    })
+  );
+
+  pingList.querySelectorAll('.pa-btn[data-ping]:not(.system-link-email)').forEach(btn =>
     btn.addEventListener('click', async () => {
       const pingId = btn.dataset.ping;
       const action = btn.dataset.action;
