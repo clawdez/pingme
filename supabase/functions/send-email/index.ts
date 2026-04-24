@@ -24,12 +24,18 @@ serve(async (req: Request) => {
 
       // Store code in a simple table (expires in 10 min)
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
-      await sb.from('email_otps').upsert({
+      const { error: upsertErr } = await sb.from('email_otps').upsert({
         user_id,
         email,
         code: otp,
         expires_at: new Date(Date.now() + 10 * 60000).toISOString()
       }, { onConflict: 'user_id' })
+      if (upsertErr) {
+        console.error('Upsert error:', upsertErr)
+        return new Response(JSON.stringify({ error: 'failed to store code: ' + upsertErr.message }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
 
       // Send via Resend HTTP API
       const res = await fetch('https://api.resend.com/emails', {
@@ -81,10 +87,13 @@ serve(async (req: Request) => {
       }
 
       // Link email to user via admin API
-      const { error } = await sb.auth.admin.updateUserById(user_id, { email, email_confirm: true })
+      const { data: updatedUser, error } = await sb.auth.admin.updateUserById(user_id, { email, email_confirm: true })
       if (error) {
-        return new Response(JSON.stringify({ error: error.message }), {
-          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        const msg = error.message?.includes('unique') || error.message?.includes('duplicate') || error.message?.includes('already')
+          ? 'this email is already linked to another account'
+          : 'failed to link email — try a different one';
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
