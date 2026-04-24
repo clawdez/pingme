@@ -210,10 +210,9 @@ function initPullToRefresh() {
   const THRESHOLD = 70;
   const HOLD_POS = 56;
   let startY = 0;
-  let pulling = false;
+  let isPulling = false;
   let refreshing = false;
 
-  // Spinner element
   const el = document.createElement('div');
   el.className = 'ptr';
   el.innerHTML = '<div class="ptr-spinner"></div>';
@@ -222,46 +221,53 @@ function initPullToRefresh() {
   const appEl = document.getElementById('app');
   const spinner = el.querySelector('.ptr-spinner');
 
+  // The move handler — only attached when a pull gesture starts
+  function onTouchMove(e) {
+    if (!isPulling || refreshing) return;
+    const dy = e.touches[0].clientY - startY;
+    if (dy > 5 && window.scrollY <= 0) {
+      e.preventDefault();
+      const pull = dy < THRESHOLD ? dy * 0.5 : THRESHOLD * 0.5 + (dy - THRESHOLD) * 0.15;
+      const progress = Math.min(dy / THRESHOLD, 1);
+      appEl.style.transform = 'translateY(' + pull + 'px)';
+      el.style.opacity = progress;
+      el.style.transform = 'translateX(-50%) translateY(' + (pull * 0.4) + 'px)';
+      spinner.style.transform = 'rotate(' + (dy * 2) + 'deg)';
+      spinner.style.opacity = progress;
+      el.classList.toggle('ptr-ready', progress >= 1);
+    } else if (dy < 0 || window.scrollY > 0) {
+      // Scrolling up or page already scrolled — cancel pull, let browser handle it
+      cleanup();
+    }
+  }
+
+  function cleanup() {
+    document.removeEventListener('touchmove', onTouchMove);
+    isPulling = false;
+  }
+
+  // touchstart is passive — doesn't block anything
   document.addEventListener('touchstart', e => {
     if (refreshing) return;
     if (window.scrollY <= 0 && e.touches.length === 1) {
       startY = e.touches[0].clientY;
-      pulling = true;
+      isPulling = true;
       el.style.transition = 'none';
       appEl.style.transition = 'none';
+      // Only now attach the non-passive move handler
+      document.addEventListener('touchmove', onTouchMove, { passive: false });
     }
   }, { passive: true });
 
-  document.addEventListener('touchmove', e => {
-    if (!pulling || refreshing) return;
-    const dy = e.touches[0].clientY - startY;
-    if (dy > 5 && window.scrollY <= 0) {
-      e.preventDefault();
-      // Rubber-band effect — diminishing returns past threshold
-      const pull = dy < THRESHOLD ? dy * 0.5 : THRESHOLD * 0.5 + (dy - THRESHOLD) * 0.15;
-      const progress = Math.min(dy / THRESHOLD, 1);
-      // Move page content down + show spinner
-      appEl.style.transform = 'translateY(' + pull + 'px)';
-      el.style.opacity = progress;
-      el.style.transform = 'translateX(-50%) translateY(' + (pull * 0.4) + 'px)';
-      // Rotate proportionally to pull distance
-      spinner.style.transform = 'rotate(' + (dy * 2) + 'deg)';
-      spinner.style.opacity = progress;
-      el.classList.toggle('ptr-ready', progress >= 1);
-    }
-  }, { passive: false });
-
   document.addEventListener('touchend', async () => {
-    if (!pulling || refreshing) return;
-    pulling = false;
+    if (!isPulling || refreshing) { cleanup(); return; }
+    cleanup();
     const dy = parseFloat(appEl.style.transform?.match(/translateY\((.+?)px\)/)?.[1] || 0);
 
-    // Smooth transition for snap
     el.style.transition = 'transform .3s ease, opacity .3s ease';
     appEl.style.transition = 'transform .3s ease';
 
     if (dy >= THRESHOLD * 0.5) {
-      // Activated — hold in loading position with spinning animation
       refreshing = true;
       el.classList.add('ptr-loading');
       appEl.style.transform = 'translateY(' + HOLD_POS + 'px)';
@@ -274,10 +280,8 @@ function initPullToRefresh() {
         if (document.querySelector('[data-screen="home"].active')) renderHome();
       } catch {}
 
-      // Minimum visible spin time so user sees it worked
       await new Promise(r => setTimeout(r, 500));
 
-      // Slide everything back up
       el.classList.remove('ptr-loading');
       appEl.style.transform = 'translateY(0)';
       el.style.transform = 'translateX(-50%) translateY(0)';
@@ -289,7 +293,6 @@ function initPullToRefresh() {
         appEl.style.transform = '';
       }, 300);
     } else {
-      // Not enough pull — snap back
       appEl.style.transform = 'translateY(0)';
       el.style.transform = 'translateX(-50%) translateY(0)';
       el.style.opacity = '0';
