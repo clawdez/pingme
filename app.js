@@ -460,22 +460,28 @@ function subscribeRealtime() {
   subscribePings();
 }
 
-// Re-subscribe + refresh when tab comes back into focus
+// Refresh roster when tab comes back into focus (don't re-subscribe every time — too heavy)
+let lastVisibilityRefresh = 0;
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && sb) {
+    // Debounce — skip if we refreshed less than 5s ago
+    if (Date.now() - lastVisibilityRefresh < 5000) return;
+    lastVisibilityRefresh = Date.now();
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-    // Re-subscribe realtime in case connection went stale
-    subscribeRealtime();
   }
 });
 
 // Notify all other users via push notification (called by the person changing status)
-async function pushStatusChange(msg) {
+// Fire-and-forget — don't block the UI
+function pushStatusChange(msg) {
   if (!profile) return;
   const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
-  others.forEach(r => sendPushNotification(r.id, profile.id, msg));
+  // Batch in background — don't await
+  setTimeout(() => {
+    others.forEach(r => sendPushNotification(r.id, profile.id, msg));
+  }, 0);
 }
 
 function subscribePings() {
@@ -699,15 +705,20 @@ async function setMyStatus(st) {
 }
 
 /* ── RENDER HOME ── */
+let renderHomeTimer = null;
 function renderHome() {
-  updateNotisBadge();
-  updateProfileAv();
-  updateLinkEmailDot();
-  renderLiveZone();
-  renderRoster();
-  placeBall(SNAP[homeState], false);
-  app.dataset.homeState = homeState;
-  setTimeout(() => { if (!dragging) ball.classList.add('at-rest'); }, 100);
+  if (renderHomeTimer) return; // already scheduled
+  renderHomeTimer = requestAnimationFrame(() => {
+    renderHomeTimer = null;
+    updateNotisBadge();
+    updateProfileAv();
+    updateLinkEmailDot();
+    renderLiveZone();
+    renderRoster();
+    placeBall(SNAP[homeState], false);
+    app.dataset.homeState = homeState;
+    setTimeout(() => { if (!dragging) ball.classList.add('at-rest'); }, 100);
+  });
 }
 
 function updateNotisBadge() {

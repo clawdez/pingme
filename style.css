@@ -47,6 +47,7 @@ html, body { overscroll-behavior-y: contain; }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
+button, .c-lbl, .rbub, .profile-av, .setup-primary, .setup-skip { touch-action: manipulation; }
 html, body { margin: 0; padding: 0; height: 100%; }
 
 body {
