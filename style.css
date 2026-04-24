@@ -47,7 +47,13 @@ html, body { overscroll-behavior-y: contain; }
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
-button, .c-lbl, .rbub, .profile-av, .setup-primary, .setup-skip { touch-action: manipulation; }
+button, .c-lbl, .rbub, .profile-av, .setup-primary, .setup-skip,
+.venue-pill, .ping-confirm-btn, .modal-close, .opt, .share-btn,
+.show-more, .lb-toggle, .chat-send, .qr-action-btn { touch-action: manipulation; }
+
+/* GPU-accelerate interactive elements so transitions don't trigger layout */
+.rbub, .share-btn, .profile-av, .venue-pill, .ping-confirm-btn,
+.modal-close, .c-lbl, .opt { will-change: transform; }
 html, body { margin: 0; padding: 0; height: 100%; }
 
 body {
@@ -108,9 +114,9 @@ button { font: inherit; color: inherit; }
   display: grid; place-items: center;
   box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
-  transition: transform .15s, box-shadow .15s;
+  transition: transform .1s;
 }
-.share-btn:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+.share-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 
 .profile-av {
   position: relative;
@@ -124,9 +130,9 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
   transform: rotate(-3deg);
   flex: 0 0 auto;
-  transition: transform .15s, box-shadow .15s;
+  transition: transform .1s;
 }
-.profile-av:active { transform: translate(1px,1px) rotate(-3deg); box-shadow: 0 0 0 var(--ink); }
+.profile-av:active { transform: translate(2px,2px) rotate(-3deg); box-shadow: 1px 1px 0 var(--ink); }
 
 /* Badge on avatar */
 .av-badge {
@@ -368,10 +374,10 @@ button { font: inherit; color: inherit; }
   background: var(--cream); color: var(--ink);
   box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
-  transition: transform .14s, background .14s, box-shadow .14s;
+  transition: transform .08s;
   display: flex; flex-direction: column; align-items: center; gap: 2px;
 }
-.venue-pill:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+.venue-pill:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 .venue-pill.active { background: var(--ink); color: var(--cream); }
 .vp-name {
   font-family: 'Permanent Marker'; font-size: 14px; line-height: 1.1;
@@ -391,10 +397,10 @@ button { font: inherit; color: inherit; }
   background: var(--flame); color: var(--cream);
   box-shadow: 4px 4px 0 var(--ink);
   cursor: pointer;
-  transition: transform .14s, box-shadow .14s;
+  transition: transform .08s;
   text-align: center;
 }
-.ping-confirm-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.ping-confirm-btn:active { transform: translate(3px,3px); box-shadow: 1px 1px 0 var(--ink); }
 .ping-confirm-skip {
   display: block; width: 100%;
   margin-top: 10px;
@@ -507,10 +513,9 @@ button { font: inherit; color: inherit; }
   gap: 4px; width: 56px;
   background: none; border: none;
   cursor: pointer; padding: 4px 0;
-  transition: transform .15s ease;
+  transition: transform .08s ease;
 }
-.rbub:hover { transform: translateY(-2px); }
-.rbub:active { transform: scale(.95); }
+.rbub:active { transform: scale(.92); }
 
 .rbub-av-wrap { position: relative; }
 .rbub-av {
@@ -629,9 +634,9 @@ button { font: inherit; color: inherit; }
   color: var(--ink);
   cursor: pointer; z-index: 5;
   box-shadow: 2px 2px 0 var(--ink);
-  transition: transform .12s, box-shadow .12s;
+  transition: transform .08s;
 }
-.modal-close:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
+.modal-close:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
 
 /* Tall variant for notis + profile */
 .modal-center.modal-tall {

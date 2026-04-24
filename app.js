@@ -906,13 +906,6 @@ function renderRoster() {
   updateTableSub();
   renderLeaderboard();
 
-  // Wire bubble clicks
-  document.querySelectorAll('.section-list .rbub').forEach(bub =>
-    bub.addEventListener('click', () => {
-      const r = allRaiders().find(x => x.id === bub.dataset.id);
-      if (r) openRaiderSheet(r);
-    })
-  );
 }
 
 function renderLeaderboard() {
@@ -967,6 +960,14 @@ function clearOffExpand() {
   const el = document.getElementById('off-expand-link');
   if (el) el.innerHTML = '';
 }
+
+// Event delegation for roster bubble clicks — wired once, not on every render
+document.querySelector('.table-sections').addEventListener('click', e => {
+  const bub = e.target.closest('.rbub');
+  if (!bub) return;
+  const r = allRaiders().find(x => x.id === bub.dataset.id);
+  if (r) openRaiderSheet(r);
+});
 
 function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
