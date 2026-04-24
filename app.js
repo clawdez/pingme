@@ -1248,8 +1248,8 @@ function showLinkEmail() {
           signal: ctrl.signal
         });
         const result = await r.json();
-        if (!r.ok || result.error) {
-          toast(result.error || 'invalid code — try again');
+        if (result.error) {
+          toast(result.error);
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }

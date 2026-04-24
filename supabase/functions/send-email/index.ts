@@ -81,8 +81,8 @@ serve(async (req: Request) => {
         .single()
 
       if (!otp) {
-        return new Response(JSON.stringify({ error: 'invalid or expired code' }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
@@ -92,8 +92,8 @@ serve(async (req: Request) => {
         const msg = error.message?.includes('unique') || error.message?.includes('duplicate') || error.message?.includes('already')
           ? 'this email is already linked to another account'
           : 'failed to link email — try a different one';
-        return new Response(JSON.stringify({ error: msg }), {
-          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        return new Response(JSON.stringify({ ok: false, error: msg }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
