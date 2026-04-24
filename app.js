@@ -1154,14 +1154,20 @@ function renderMe() {
   // Link email — show blue banner for anonymous users, or show linked email
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) {
-      linkAcctBanner.style.display = '';
-    } else if (session && session.user.email) {
-      linkedEmailEl.style.display = '';
-      linkedEmailEl.textContent = '✓ linked to ' + session.user.email;
-    }
-  });
+  const cachedEmail = profile && profile._linkedEmail;
+  if (cachedEmail) {
+    linkedEmailEl.style.display = '';
+    linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
+  } else {
+    sb.auth.getSession().then(({ data: { session } }) => {
+      if (session && !session.user.email) {
+        linkAcctBanner.style.display = '';
+      } else if (session && session.user.email) {
+        linkedEmailEl.style.display = '';
+        linkedEmailEl.textContent = '✓ linked to ' + session.user.email;
+      }
+    });
+  }
   linkAcctBanner.addEventListener('click', () => showLinkEmail());
 
   // Share link
@@ -1266,6 +1272,8 @@ function showLinkEmail() {
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)
       sb.auth.refreshSession().catch(() => {});
+      // Store linked email so renderMe can show it immediately (session may be stale)
+      profile._linkedEmail = email;
       toast('email linked!');
       if (notisSection) notisSection.style.display = '';
       updateNotisBadge();
