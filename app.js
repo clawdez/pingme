@@ -1205,10 +1205,12 @@ function showLinkEmail() {
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
     try {
-      const res = await sb.functions.invoke('send-email', {
-        body: { action: 'send', email, user_id: profile.id }
+      const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+        body: JSON.stringify({ action: 'send', email, user_id: profile.id })
       });
-      if (res.error) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
+      if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
     } catch (e) { toast('failed: ' + e.message); btn.textContent = 'send code'; btn.disabled = false; return; }
 
     meWrap.innerHTML =
@@ -1229,17 +1231,14 @@ function showLinkEmail() {
       const verifyBtn = document.getElementById('link-email-verify');
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
       try {
-        const { data, error } = await sb.functions.invoke('send-email', {
-          body: { action: 'verify', email, code, user_id: profile.id }
+        const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+          body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id })
         });
-        if (error) {
-          const errBody = await error.context?.json?.() || {};
-          toast(errBody.error || 'invalid code — try again');
-          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
-          return;
-        }
-        if (data && data.error) {
-          toast(data.error || 'invalid code — try again');
+        const result = await r.json();
+        if (!r.ok || result.error) {
+          toast(result.error || 'invalid code — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
