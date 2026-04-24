@@ -1260,8 +1260,8 @@ function showLinkEmail() {
       }
       // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
-      // Refresh session to pick up new email
-      await sb.auth.refreshSession();
+      // Refresh session (don't block on it)
+      sb.auth.refreshSession().catch(() => {});
       toast('email linked!');
       if (notisSection) notisSection.style.display = '';
       updateNotisBadge();
