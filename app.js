@@ -1005,7 +1005,10 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
     '<button class="me-dd-item" id="sr-link-email" style="display:none">link email (save account)</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
-    '</div>';
+    '</div>' +
+
+    '<button class="me-link-acct-banner" id="me-link-acct" style="display:none">' +
+    '&#9993; link acct with email</button>';
 
   // Avatar: tap cycles color
   let colorIdx = AV_COLORS.indexOf(col);
@@ -1103,15 +1106,20 @@ function renderMe() {
     }
   });
 
-  // Link email — show for anonymous users (in settings dropdown)
+  // Link email — show for anonymous users (in settings dropdown + blue banner)
   const linkEmailBtn = document.getElementById('sr-link-email');
+  const linkAcctBanner = document.getElementById('me-link-acct');
   sb.auth.getSession().then(({ data: { session } }) => {
-    if (session && !session.user.email) linkEmailBtn.style.display = '';
+    if (session && !session.user.email) {
+      linkEmailBtn.style.display = '';
+      linkAcctBanner.style.display = '';
+    }
   });
   linkEmailBtn.addEventListener('click', () => {
     document.getElementById('me-settings-dd').classList.remove('open');
     showLinkEmail();
   });
+  linkAcctBanner.addEventListener('click', () => showLinkEmail());
 
   // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
@@ -1139,18 +1147,23 @@ function renderMe() {
 function showLinkEmail() {
   const modal = document.querySelector('#sheet-me .modal-center');
   const meWrap = document.getElementById('me-wrap');
+  const notisSection = document.getElementById('me-notis-section');
+  if (notisSection) notisSection.style.display = 'none';
   meWrap.innerHTML =
     '<div style="padding:16px 0">' +
     '<h3 class="link-email-h">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
     '<input class="link-email-input" id="link-email-input" type="email" placeholder="you@school.edu" autocomplete="email" autofocus/>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
-    '<button class="setup-skip" id="link-email-cancel">cancel</button>' +
+    '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
 
   setTimeout(() => document.getElementById('link-email-input').focus(), 80);
 
-  document.getElementById('link-email-cancel').addEventListener('click', () => renderMe());
+  document.getElementById('link-email-cancel').addEventListener('click', () => {
+    if (notisSection) notisSection.style.display = '';
+    renderMe();
+  });
 
   document.getElementById('link-email-go').addEventListener('click', async () => {
     const email = document.getElementById('link-email-input').value.trim();
@@ -1166,10 +1179,13 @@ function showLinkEmail() {
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
       '<h3 class="link-email-h">check your inbox</h3>' +
       '<div class="link-email-sub">tap the confirmation link sent to <b>' + esc(email) + '</b></div>' +
-      '<button class="setup-skip" id="link-email-done">done</button>' +
+      '<button class="link-email-go-back" id="link-email-done">done</button>' +
       '</div>';
 
-    document.getElementById('link-email-done').addEventListener('click', () => renderMe());
+    document.getElementById('link-email-done').addEventListener('click', () => {
+      if (notisSection) notisSection.style.display = '';
+      renderMe();
+    });
   });
 }
 

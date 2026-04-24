@@ -1317,6 +1317,29 @@ button { font: inherit; color: inherit; }
 }
 .link-email-btn:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
 .link-email-btn:disabled { opacity: .6; pointer-events: none; }
+.link-email-go-back {
+  background: none; border: none;
+  font-family: 'Space Grotesk'; font-weight: 600;
+  font-size: 14px; color: var(--muted);
+  cursor: pointer; margin-top: 8px;
+  display: block; width: 100%; text-align: center;
+}
+
+/* Blue banner: link acct with email */
+.me-link-acct-banner {
+  width: 100%;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-family: 'Space Grotesk'; font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  margin-top: 10px;
+  text-align: center;
+}
+.me-link-acct-banner:active { opacity: .85; }
 
 /* T9: PWA install instructions */
 .setup-pwa-icon {
