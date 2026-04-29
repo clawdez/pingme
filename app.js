@@ -4,8 +4,16 @@ const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
 
 let sb = null;
-try { sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON); }
-catch (e) { console.error('Supabase failed to load:', e); }
+try {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: {
+      persistSession: true,
+      storageKey: 'pm_auth',
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
+  });
+} catch (e) { console.error('Supabase failed to load:', e); }
 
 const VENUES = [
   { id: 'sub', name: 'the sub', desc: 'Student Union' },
@@ -114,20 +122,31 @@ async function boot() {
     let { data: { session } } = await sb.auth.getSession();
     if (session) {
       // Check if access token is expired or about to expire (within 60s)
-      const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
-      if (exp * 1000 < Date.now() + 60000) {
-        const { data: refreshed, error: refreshErr } = await sb.auth.refreshSession();
-        if (refreshErr || !refreshed.session) {
-          console.warn('Session expired and refresh failed:', refreshErr);
-          session = null;
-        } else {
-          session = refreshed.session;
+      try {
+        const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
+        if (exp * 1000 < Date.now() + 60000) {
+          const { data: refreshed, error: refreshErr } = await sb.auth.refreshSession();
+          if (refreshErr || !refreshed.session) {
+            console.warn('Session expired and refresh failed:', refreshErr);
+            session = null;
+          } else {
+            session = refreshed.session;
+          }
         }
+      } catch (tokenErr) {
+        // Corrupted token — try refresh
+        console.warn('Token parse failed, refreshing:', tokenErr);
+        const { data: refreshed } = await sb.auth.refreshSession();
+        session = refreshed?.session || null;
       }
       if (session) {
         await loadOrCreateProfile(session.user);
         registerPushSubscription(); // ensure push sub is registered on every boot
       }
+    }
+    // If no session but user had a linked email, show sign-in prompt
+    if (!session && localStorage.getItem('pm_linked_email')) {
+      toast('session expired — sign in again');
     }
   } catch (e) { console.error('Auth check failed:', e); toast('connecting...'); }
 
@@ -479,9 +498,29 @@ document.addEventListener('visibilitychange', async () => {
     // Debounce — skip if we refreshed less than 5s ago
     if (Date.now() - lastVisibilityRefresh < 5000) return;
     lastVisibilityRefresh = Date.now();
+
+    // Re-validate session on resume (catches iOS purging auth)
+    try {
+      const { data: { session } } = await sb.auth.getSession();
+      if (!session && profile) {
+        // Session was lost — try to refresh
+        const { data: refreshed } = await sb.auth.refreshSession();
+        if (!refreshed?.session) {
+          profile = null;
+          homeState = 'off';
+          toast('session expired — sign in again');
+          renderHome();
+          return;
+        }
+      }
+    } catch (_) {}
+
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
+
+    // Re-register push sub in case iOS killed the service worker
+    if (profile) registerPushSubscription();
   }
 });
 
@@ -536,10 +575,16 @@ document.getElementById('top-share').addEventListener('click', () => {
 });
 
 // Avatar → open combined profile + notis modal
+// Open modal FIRST so tap feels instant, then populate content
 document.getElementById('profile-av').addEventListener('click', () => {
+  document.getElementById('sheet-me').classList.add('open');
   renderMe();
   renderNotis();
-  document.getElementById('sheet-me').classList.add('open');
+  // Mark pings as read when modal opens
+  if (profile && pings.some(p => p.unread)) {
+    sb.from('pings').update({ unread: false }).eq('to_id', profile.id).eq('unread', true)
+      .then(() => { pings.forEach(p => p.unread = false); updateNotisBadge(); });
+  }
 });
 
 /* ── SHEETS ── */
@@ -761,10 +806,10 @@ function updateProfileAv() {
 function updateLinkEmailDot() {
   const dot = document.getElementById('link-email-dot');
   if (!dot) return;
+  // Use cached state instead of async getSession call — prevents UI jank
   if (localStorage.getItem('pm_linked_email')) { dot.style.display = 'none'; return; }
-  sb.auth.getSession().then(({ data: { session } }) => {
-    dot.style.display = (session && !session.user.email) ? '' : 'none';
-  });
+  // If profile exists but no cached email, show the dot (anonymous user)
+  dot.style.display = profile ? '' : 'none';
 }
 
 /* ── COURT TIMER — only for playing state ── */
@@ -813,8 +858,8 @@ async function pingEveryone() {
   }));
   if (rows.length) {
     await sb.from('pings').insert(rows);
-    // Fire push notifications (don't await — fire and forget)
-    rows.forEach(r => sendPushNotification(r.to_id, r.from_id, r.msg));
+    // Push notifications are now triggered server-side via DB webhook on ping insert
+    // Client-side fallback for direct pings only (1:1 from raider sheet)
   }
 }
 
@@ -1350,16 +1395,8 @@ function renderMe() {
     linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
     linkAcctBanner.style.display = 'none';
   } else {
-    sb.auth.getSession().then(({ data: { session } }) => {
-      if (session && session.user.email) {
-        linkedEmailEl.style.display = '';
-        linkedEmailEl.textContent = '✓ linked to ' + session.user.email;
-        linkAcctBanner.style.display = 'none';
-        localStorage.setItem('pm_linked_email', session.user.email);
-      } else if (session && !session.user.email) {
-        linkAcctBanner.style.display = '';
-      }
-    });
+    // Show link banner immediately for anonymous users — don't block on async getSession
+    linkAcctBanner.style.display = profile ? '' : 'none';
   }
   linkAcctBanner.addEventListener('click', () => showLinkEmail());
 

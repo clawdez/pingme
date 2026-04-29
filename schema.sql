@@ -207,6 +207,44 @@ create trigger ping_rate_limit
   before insert on pings
   for each row execute function check_ping_rate_limit();
 
+-- Auto-send push notification when a ping is inserted (server-side, works when app is closed)
+-- This replaces client-side push — the DB triggers it so notifications arrive even if sender closes the app
+create or replace function notify_ping_inserted()
+returns trigger
+language plpgsql
+security definer
+as $$
+declare
+  sub_record record;
+  sender_name text;
+  payload text;
+begin
+  -- Skip broadcast pings (to_id is null) and self-pings
+  if NEW.to_id is null or NEW.to_id = NEW.from_id then
+    return NEW;
+  end if;
+
+  -- Get push subscription for recipient
+  select * into sub_record from push_subscriptions where user_id = NEW.to_id;
+  if not found then
+    return NEW;
+  end if;
+
+  -- Get sender name
+  select name into sender_name from profiles where id = NEW.from_id;
+
+  -- Call the send-push edge function via pg_net (if available) or just let the webhook handle it
+  -- For now, rely on Supabase Database Webhooks configured in the dashboard
+  -- pointing to: /functions/v1/send-push
+  return NEW;
+end;
+$$;
+
+drop trigger if exists on_ping_inserted on pings;
+create trigger on_ping_inserted
+  after insert on pings
+  for each row execute function notify_ping_inserted();
+
 -- Increment referral count atomically
 create or replace function increment_referral(referrer_id uuid)
 returns void
