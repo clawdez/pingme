@@ -19,16 +19,30 @@ serve(async (req: Request) => {
     const { action, email, code, user_id } = await req.json()
 
     if (action === 'send') {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+      // Rate limit: max 3 OTP sends per user per hour
+      const { data: existing } = await sb.from('email_otps')
+        .select('created_at')
+        .eq('user_id', user_id)
+        .single()
+      if (existing && (Date.now() - new Date(existing.created_at).getTime()) < 60000) {
+        return new Response(JSON.stringify({ error: 'wait a minute before requesting another code' }), {
+          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
       // Generate a 6-digit code
       const otp = String(Math.floor(100000 + Math.random() * 900000))
 
       // Store code in a simple table (expires in 10 min)
-      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
       const { error: upsertErr } = await sb.from('email_otps').upsert({
         user_id,
         email,
         code: otp,
-        expires_at: new Date(Date.now() + 10 * 60000).toISOString()
+        attempts: 0,
+        expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
+        created_at: new Date().toISOString()
       }, { onConflict: 'user_id' })
       if (upsertErr) {
         console.error('Upsert error:', upsertErr)
@@ -72,19 +86,37 @@ serve(async (req: Request) => {
     if (action === 'verify') {
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-      const { data: otp } = await sb.from('email_otps')
+      // Check attempt count before verifying
+      const { data: otpRow } = await sb.from('email_otps')
         .select('*')
         .eq('user_id', user_id)
         .eq('email', email)
-        .eq('code', code)
         .gt('expires_at', new Date().toISOString())
         .single()
 
-      if (!otp) {
+      if (!otpRow) {
         return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
+
+      if (otpRow.attempts >= 5) {
+        await sb.from('email_otps').delete().eq('user_id', user_id)
+        return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Increment attempt counter
+      await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', user_id)
+
+      if (otpRow.code !== code) {
+        return new Response(JSON.stringify({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const otp = otpRow
 
       // Link email to user via admin API
       const { data: updatedUser, error } = await sb.auth.admin.updateUserById(user_id, { email, email_confirm: true })
@@ -117,8 +149,20 @@ serve(async (req: Request) => {
       const findData = await findRes.json()
       const existingUser = findData.users?.find((u: any) => u.email === email)
       if (!existingUser) {
-        return new Response(JSON.stringify({ ok: false, error: 'no account found with that email' }), {
+        // Generic message to prevent email enumeration
+        return new Response(JSON.stringify({ ok: false, error: 'if that email exists, we sent a code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      // Rate limit: 1 code per minute per user
+      const { data: existingOtp } = await sb.from('email_otps')
+        .select('created_at')
+        .eq('user_id', existingUser.id)
+        .single()
+      if (existingOtp && (Date.now() - new Date(existingOtp.created_at).getTime()) < 60000) {
+        return new Response(JSON.stringify({ error: 'wait a minute before requesting another code' }), {
+          status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
@@ -129,7 +173,9 @@ serve(async (req: Request) => {
         user_id: existingUser.id,
         email,
         code: otp,
-        expires_at: new Date(Date.now() + 10 * 60000).toISOString()
+        attempts: 0,
+        expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
+        created_at: new Date().toISOString()
       }, { onConflict: 'user_id' })
       if (upsertErr) {
         return new Response(JSON.stringify({ error: 'failed to store code' }), {
@@ -165,31 +211,47 @@ serve(async (req: Request) => {
     if (action === 'signin-verify') {
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-      // Find user by email — use GoTrue admin API directly to avoid listUsers pagination limits
+      // Find user by email
       const findRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1&filter=${encodeURIComponent(email)}`, {
         headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'apikey': SUPABASE_SERVICE_KEY }
       })
       const findData = await findRes.json()
       const existingUser = findData.users?.find((u: any) => u.email === email)
       if (!existingUser) {
-        return new Response(JSON.stringify({ ok: false, error: 'no account found' }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-      }
-
-      const { data: otp } = await sb.from('email_otps')
-        .select('*')
-        .eq('user_id', existingUser.id)
-        .eq('email', email)
-        .eq('code', code)
-        .gt('expires_at', new Date().toISOString())
-        .single()
-
-      if (!otp) {
         return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
+
+      const { data: otpRow } = await sb.from('email_otps')
+        .select('*')
+        .eq('user_id', existingUser.id)
+        .eq('email', email)
+        .gt('expires_at', new Date().toISOString())
+        .single()
+
+      if (!otpRow) {
+        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      if (otpRow.attempts >= 5) {
+        await sb.from('email_otps').delete().eq('user_id', existingUser.id)
+        return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', existingUser.id)
+
+      if (otpRow.code !== code) {
+        return new Response(JSON.stringify({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      const otp = otpRow
 
       // Generate a magic link to extract the token
       const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({

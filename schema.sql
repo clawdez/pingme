@@ -47,6 +47,28 @@ create table if not exists push_subscriptions (
   unique(user_id)
 );
 
+-- Messages: 1:1 chat between users
+create table if not exists messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id text not null,
+  sender_id uuid not null references profiles(id) on delete cascade,
+  receiver_id uuid not null references profiles(id) on delete cascade,
+  body text not null check (char_length(body) <= 200),
+  created_at timestamptz default now()
+);
+
+-- Email OTPs: verification codes for email linking + sign-in
+create table if not exists email_otps (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  email text not null,
+  code text not null,
+  attempts int not null default 0,
+  expires_at timestamptz not null,
+  created_at timestamptz default now(),
+  unique(user_id)
+);
+
 -- Venues (reference data)
 create table if not exists venues (
   id uuid primary key default gen_random_uuid(),
@@ -63,6 +85,8 @@ create index if not exists idx_profiles_updated on profiles(updated_at desc);
 create index if not exists idx_pings_to_id on pings(to_id);
 create index if not exists idx_pings_created on pings(created_at desc);
 create index if not exists idx_push_subs_user on push_subscriptions(user_id);
+create index if not exists idx_messages_room on messages(room_id, created_at desc);
+create index if not exists idx_email_otps_user on email_otps(user_id);
 
 -- ═══════════════════════════════════════════
 -- ROW LEVEL SECURITY
@@ -71,6 +95,8 @@ create index if not exists idx_push_subs_user on push_subscriptions(user_id);
 alter table profiles enable row level security;
 alter table pings enable row level security;
 alter table push_subscriptions enable row level security;
+alter table messages enable row level security;
+alter table email_otps enable row level security;
 alter table venues enable row level security;
 
 -- Profiles: anyone can read, users manage their own
@@ -101,6 +127,17 @@ create policy "Users can update own push subscription"
 create policy "Users can delete own push subscription"
   on push_subscriptions for delete using (auth.uid() = user_id);
 
+-- Messages: users can read their own conversations, send as self
+create policy "Users can read own messages"
+  on messages for select using (
+    sender_id = auth.uid() or receiver_id = auth.uid()
+  );
+create policy "Users can send messages as self"
+  on messages for insert with check (auth.uid() = sender_id);
+
+-- Email OTPs: service role only (edge functions use service key)
+-- No user-facing policies needed — edge functions use service role
+
 -- Venues: public read
 create policy "Anyone can view venues"
   on venues for select using (true);
@@ -111,6 +148,7 @@ create policy "Anyone can view venues"
 
 alter publication supabase_realtime add table profiles;
 alter publication supabase_realtime add table pings;
+alter publication supabase_realtime add table messages;
 
 -- ═══════════════════════════════════════════
 -- FUNCTIONS
@@ -141,6 +179,33 @@ begin
     and started_at + interval '90 minutes' < now();
 end;
 $$;
+
+-- Rate-limit pings: max 5 pings per user per 60 seconds (DB-enforced)
+create or replace function check_ping_rate_limit()
+returns trigger
+language plpgsql
+security definer
+as $$
+declare
+  recent_count int;
+begin
+  select count(*) into recent_count
+  from pings
+  where from_id = NEW.from_id
+    and created_at > now() - interval '60 seconds';
+
+  if recent_count >= 50 then
+    raise exception 'Rate limit exceeded: too many pings';
+  end if;
+
+  return NEW;
+end;
+$$;
+
+drop trigger if exists ping_rate_limit on pings;
+create trigger ping_rate_limit
+  before insert on pings
+  for each row execute function check_ping_rate_limit();
 
 -- Increment referral count atomically
 create or replace function increment_referral(referrer_id uuid)

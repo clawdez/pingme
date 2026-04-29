@@ -32,6 +32,24 @@ serve(async (req: Request) => {
 
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+    // Verify the caller is the sender (prevent arbitrary push abuse)
+    const authHeader = req.headers.get('Authorization')
+    if (authHeader) {
+      const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
+      // Only verify if not a service-role call
+      if (!authHeader.includes(SUPABASE_SERVICE_KEY)) {
+        const userSb = createClient(SUPABASE_URL, ANON_KEY, {
+          global: { headers: { Authorization: authHeader } }
+        })
+        const { data: { user } } = await userSb.auth.getUser()
+        if (!user || user.id !== record.from_id) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+      }
+    }
+
     // Get push subscription for recipient
     const { data: sub } = await sb
       .from('push_subscriptions')

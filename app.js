@@ -199,7 +199,7 @@ async function boot() {
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-  }, 15000);
+  }, 30000);
 
   // Pull-to-refresh
   initPullToRefresh();
@@ -387,13 +387,13 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function registerPushSubscription() {
-  if (!profile || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if (!profile || !('serviceWorker' in navigator) || !('PushManager' in window)) return false;
   try {
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
     if (!sub) {
       const perm = await Notification.requestPermission();
-      if (perm !== 'granted') return;
+      if (perm !== 'granted') return false;
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC)
@@ -401,13 +401,18 @@ async function registerPushSubscription() {
     }
     // Store subscription in Supabase
     const subJson = sub.toJSON();
-    await sb.from('push_subscriptions').upsert({
+    const { error } = await sb.from('push_subscriptions').upsert({
       user_id: profile.id,
       endpoint: subJson.endpoint,
       keys_p256dh: subJson.keys.p256dh,
       keys_auth: subJson.keys.auth
     }, { onConflict: 'user_id' });
-  } catch (e) { console.error('Push sub failed:', e); }
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.error('Push sub failed:', e);
+    return false;
+  }
 }
 
 /* ── DATA ── */
@@ -427,6 +432,7 @@ async function loadPings() {
 }
 
 let profilesChannel = null;
+let realtimeRetryDelay = 3000;
 function subscribeRealtime() {
   // Clean up existing channel before re-subscribing
   if (profilesChannel) {
@@ -456,8 +462,11 @@ function subscribeRealtime() {
     })
     .subscribe((status, err) => {
       console.log('profiles-realtime:', status, err || '');
-      if (status === 'CHANNEL_ERROR') {
-        setTimeout(subscribeRealtime, 3000);
+      if (status === 'SUBSCRIBED') {
+        realtimeRetryDelay = 3000; // reset on success
+      } else if (status === 'CHANNEL_ERROR') {
+        setTimeout(subscribeRealtime, realtimeRetryDelay);
+        realtimeRetryDelay = Math.min(realtimeRetryDelay * 2, 60000); // exponential backoff, max 60s
       }
     });
   subscribePings();
@@ -477,14 +486,15 @@ document.addEventListener('visibilitychange', async () => {
 });
 
 // Notify all other users via push notification (called by the person changing status)
-// Fire-and-forget — don't block the UI
+// Fire-and-forget — don't block the UI. Sends in small batches to avoid hammering.
 function pushStatusChange(msg) {
   if (!profile) return;
-  const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
-  // Batch in background — don't await
-  setTimeout(() => {
-    others.forEach(r => sendPushNotification(r.id, profile.id, msg));
-  }, 0);
+  const others = roster.filter(r => r.id !== profile.id && r.name && r.name.trim() !== '' && r.name !== 'anon');
+  // Send in batches of 5 with 200ms gaps
+  const BATCH_SIZE = 5;
+  others.forEach((r, i) => {
+    setTimeout(() => sendPushNotification(r.id, profile.id, msg), Math.floor(i / BATCH_SIZE) * 200);
+  });
 }
 
 function subscribePings() {
@@ -776,9 +786,16 @@ function renderStrip() { renderLiveZone(); }
 
 async function sendPushNotification(toId, fromId, msg) {
   try {
-    await sb.functions.invoke('send-push', {
-      body: { to_id: toId, from_id: fromId, msg }
+    const res = await fetch(SUPABASE_URL + '/functions/v1/send-push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + SUPABASE_ANON
+      },
+      body: JSON.stringify({ to_id: toId, from_id: fromId, msg }),
+      keepalive: true
     });
+    if (!res.ok) throw new Error(await res.text());
   } catch (e) { console.error('Push failed:', e); }
 }
 
@@ -787,7 +804,7 @@ async function pingEveryone() {
   const now = Date.now();
   if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
   lastPingTime = now;
-  const others = roster.filter(r => r.id !== profile.id && r.name && r.name !== 'anon');
+  const others = roster.filter(r => r.id !== profile.id && r.name && r.name.trim() !== '' && r.name !== 'anon');
   const rows = others.map(r => ({
     from_id: profile.id, to_id: r.id,
     verb: 'is down to play',
@@ -806,7 +823,7 @@ async function pingEveryone() {
 function allRaiders() {
   return roster.filter(r => {
     if (profile && r.id === profile.id) return true;
-    return r.name && r.name !== 'anon';
+    return r.name && r.name.trim() !== '' && r.name !== 'anon';
   });
 }
 
@@ -1306,6 +1323,7 @@ function renderMe() {
       const nowOn = tog.classList.contains('on');
       tog.classList.toggle('on');
       localStorage.setItem('pm_notif_off', nowOn ? '1' : '');
+      if (!nowOn) await registerPushSubscription();
       toast(nowOn ? 'notifications off' : 'notifications on');
     } else if (Notification.permission === 'denied') {
       toast('blocked — check browser settings');
@@ -1314,6 +1332,7 @@ function renderMe() {
       if (p === 'granted') {
         tog.classList.add('on');
         localStorage.removeItem('pm_notif_off');
+        await registerPushSubscription();
         toast('pings are on');
       } else {
         tog.classList.remove('on');
@@ -1474,7 +1493,7 @@ function renderFavoritesList() {
   const container = document.getElementById('me-favorites');
   if (!container) return;
   const favIds = getFavorites();
-  const allR = roster.filter(r => r.name && r.name !== 'anon');
+  const allR = roster.filter(r => r.name && r.name.trim() !== '' && r.name !== 'anon');
   const favUsers = favIds.map(id => allR.find(r => r.id === id)).filter(Boolean);
 
   if (favUsers.length === 0) {
