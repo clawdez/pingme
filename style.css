@@ -49,7 +49,8 @@ html, body { overscroll-behavior-y: contain; }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; margin: 0; padding: 0; }
 button, .c-lbl, .rbub, .profile-av, .setup-primary, .setup-skip,
 .venue-pill, .ping-confirm-btn, .modal-close, .opt, .share-btn,
-.show-more, .lb-toggle, .chat-send, .qr-action-btn { touch-action: manipulation; }
+.show-more, .lb-toggle, .chat-send, .qr-action-btn,
+.sheet-scrim, .sheet-wrap, .modal-center, [data-dismiss] { touch-action: manipulation; }
 
 /* GPU-accelerate interactive elements so transitions don't trigger layout */
 .rbub, .share-btn, .profile-av, .venue-pill, .ping-confirm-btn,
@@ -598,7 +599,7 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; justify-content: center;
 }
 .sheet-wrap.open { pointer-events: auto; opacity: 1; }
-.sheet-scrim { position: absolute; inset: 0; background: rgba(20,18,16,.45); }
+.sheet-scrim { position: absolute; inset: 0; background: rgba(20,18,16,.45); cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
 /* Centered modal card */
 .modal-center {

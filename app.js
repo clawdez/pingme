@@ -35,14 +35,17 @@ function renderVenuePicker() {
     '<span class="vp-desc">' + esc(v.desc) + '</span>' +
     '</button>'
   ).join('');
-  el.querySelectorAll('.venue-pill').forEach(btn =>
-    btn.addEventListener('click', () => {
+  el.querySelectorAll('.venue-pill').forEach(btn => {
+    function handleVenue(e) {
+      if (e.type === 'touchend') e.preventDefault();
       selectedVenue = btn.dataset.venue;
       localStorage.setItem('pm_venue', selectedVenue);
       el.querySelectorAll('.venue-pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-    })
-  );
+    }
+    btn.addEventListener('click', handleVenue);
+    btn.addEventListener('touchend', handleVenue);
+  });
 }
 const VAPID_PUBLIC = 'BL_BNqvydfkgV7pGo0T9gYToFkih9PEMirDsTGNjl8DFAUrK2eQP53NCQ1eH-BjpZRcLjXpDjmaQ56ZY2VCuqTQ';
 
@@ -231,14 +234,32 @@ function initPullToRefresh() {
   let startY = 0;
   let isPulling = false;
   let refreshing = false;
+  let screenEl = null; // the active .screen element — we transform this, NOT #app
 
-  const el = document.createElement('div');
-  el.className = 'ptr';
-  el.innerHTML = '<div class="ptr-spinner"></div>';
-  document.body.prepend(el);
+  const ptr = document.createElement('div');
+  ptr.className = 'ptr';
+  ptr.innerHTML = '<div class="ptr-spinner"></div>';
+  document.body.prepend(ptr);
+  const spinner = ptr.querySelector('.ptr-spinner');
 
-  const appEl = document.getElementById('app');
-  const spinner = el.querySelector('.ptr-spinner');
+  // KEY FIX: transform the active .screen instead of #app.
+  // CSS spec: position:fixed children of a transformed ancestor lose fixed positioning.
+  // The sheet-wrap modals are position:fixed inside #app, so transforming #app
+  // breaks them (they get pushed off-screen along with everything else).
+  // Transforming only the active .screen avoids that — modals stay in place.
+  function getScreenEl() {
+    return document.querySelector('.screen.active') || document.getElementById('app');
+  }
+
+  function resetScreen() {
+    if (screenEl) {
+      screenEl.style.transform = '';
+      screenEl.style.transition = '';
+      screenEl = null;
+    }
+    ptr.style.opacity = '0';
+    ptr.style.transform = 'translateX(-50%) translateY(0)';
+  }
 
   // The move handler — only attached when a pull gesture starts
   function onTouchMove(e) {
@@ -248,14 +269,13 @@ function initPullToRefresh() {
       e.preventDefault();
       const pull = dy < THRESHOLD ? dy * 0.5 : THRESHOLD * 0.5 + (dy - THRESHOLD) * 0.15;
       const progress = Math.min(dy / THRESHOLD, 1);
-      appEl.style.transform = 'translateY(' + pull + 'px)';
-      el.style.opacity = progress;
-      el.style.transform = 'translateX(-50%) translateY(' + (pull * 0.4) + 'px)';
+      if (screenEl) screenEl.style.transform = 'translateY(' + pull + 'px)';
+      ptr.style.opacity = progress;
+      ptr.style.transform = 'translateX(-50%) translateY(' + (pull * 0.4) + 'px)';
       spinner.style.transform = 'rotate(' + (dy * 2) + 'deg)';
       spinner.style.opacity = progress;
-      el.classList.toggle('ptr-ready', progress >= 1);
+      ptr.classList.toggle('ptr-ready', progress >= 1);
     } else if (dy < 0 || window.scrollY > 0) {
-      // Scrolling up or page already scrolled — cancel pull, let browser handle it
       cleanup();
     }
   }
@@ -263,35 +283,45 @@ function initPullToRefresh() {
   function cleanup() {
     document.removeEventListener('touchmove', onTouchMove);
     isPulling = false;
+    if (!refreshing) resetScreen();
   }
 
-  // touchstart is passive — doesn't block anything
+  // touchstart is passive
   document.addEventListener('touchstart', e => {
     if (refreshing) return;
+    // Don't pull while a modal is open — would be jarring and useless
+    if (document.querySelector('.sheet-wrap.open')) return;
     if (window.scrollY <= 0 && e.touches.length === 1) {
       startY = e.touches[0].clientY;
       isPulling = true;
-      el.style.transition = 'none';
-      appEl.style.transition = 'none';
-      // Only now attach the non-passive move handler
+      screenEl = getScreenEl();
+      ptr.style.transition = 'none';
+      if (screenEl) screenEl.style.transition = 'none';
       document.addEventListener('touchmove', onTouchMove, { passive: false });
     }
   }, { passive: true });
 
   document.addEventListener('touchend', async () => {
     if (!isPulling || refreshing) { cleanup(); return; }
-    cleanup();
-    const dy = parseFloat(appEl.style.transform?.match(/translateY\((.+?)px\)/)?.[1] || 0);
+    // Read pull distance before cleanup resets the transform
+    const pulled = screenEl
+      ? parseFloat(screenEl.style.transform?.match(/translateY\((.+?)px\)/)?.[1] || 0)
+      : 0;
+    cleanup(); // resets isPulling; keeps refreshing=false so resetScreen runs
 
-    el.style.transition = 'transform .3s ease, opacity .3s ease';
-    appEl.style.transition = 'transform .3s ease';
+    ptr.style.transition = 'transform .3s ease, opacity .3s ease';
 
-    if (dy >= THRESHOLD * 0.5) {
+    if (pulled >= THRESHOLD * 0.5) {
+      // Re-acquire screenEl for the hold animation (cleanup cleared it)
+      screenEl = getScreenEl();
       refreshing = true;
-      el.classList.add('ptr-loading');
-      appEl.style.transform = 'translateY(' + HOLD_POS + 'px)';
-      el.style.transform = 'translateX(-50%) translateY(' + (HOLD_POS * 0.35) + 'px)';
-      el.style.opacity = '1';
+      ptr.classList.add('ptr-loading');
+      if (screenEl) {
+        screenEl.style.transition = 'transform .3s ease';
+        screenEl.style.transform = 'translateY(' + HOLD_POS + 'px)';
+      }
+      ptr.style.transform = 'translateX(-50%) translateY(' + (HOLD_POS * 0.35) + 'px)';
+      ptr.style.opacity = '1';
 
       try {
         await loadRoster();
@@ -299,29 +329,30 @@ function initPullToRefresh() {
         if (document.querySelector('[data-screen="home"].active')) renderHome();
       } catch {}
 
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
 
-      el.classList.remove('ptr-loading');
-      appEl.style.transform = 'translateY(0)';
-      el.style.transform = 'translateX(-50%) translateY(0)';
-      el.style.opacity = '0';
+      ptr.classList.remove('ptr-loading');
+      ptr.classList.remove('ptr-ready');
+      if (screenEl) screenEl.style.transform = 'translateY(0)';
+      ptr.style.transform = 'translateX(-50%) translateY(0)';
+      ptr.style.opacity = '0';
       setTimeout(() => {
         refreshing = false;
-        el.classList.remove('ptr-ready');
-        appEl.style.transition = '';
-        appEl.style.transform = '';
-      }, 300);
-    } else {
-      appEl.style.transform = 'translateY(0)';
-      el.style.transform = 'translateX(-50%) translateY(0)';
-      el.style.opacity = '0';
-      setTimeout(() => {
-        el.classList.remove('ptr-ready');
-        appEl.style.transition = '';
-        appEl.style.transform = '';
+        if (screenEl) { screenEl.style.transition = ''; screenEl.style.transform = ''; }
+        screenEl = null;
       }, 300);
     }
   });
+
+  // touchcancel — iOS fires on gesture conflicts (back swipe, control center, etc.)
+  document.addEventListener('touchcancel', cleanup);
+
+  // Safety net: force reset if transform gets stuck
+  setInterval(() => {
+    if (!isPulling && !refreshing && screenEl) {
+      resetScreen();
+    }
+  }, 2000);
 }
 
 /* ── AUTH ── */
@@ -570,13 +601,21 @@ function setTab(t) {
 }
 
 // Share button → always show QR modal (with share link option)
-document.getElementById('top-share').addEventListener('click', () => {
+function handleShareBtn(e) {
+  if (e.type === 'touchend') e.preventDefault();
   showQrShare();
-});
+}
+document.getElementById('top-share').addEventListener('click', handleShareBtn);
+document.getElementById('top-share').addEventListener('touchend', handleShareBtn);
 
 // Avatar → open combined profile + notis modal
 // Open modal FIRST so tap feels instant, then populate content
-document.getElementById('profile-av').addEventListener('click', () => {
+// Handle both click and touchend for iOS
+let profileAvFiring = false;
+function handleProfileAv(e) {
+  if (profileAvFiring) return;
+  profileAvFiring = true;
+  if (e.type === 'touchend') e.preventDefault();
   document.getElementById('sheet-me').classList.add('open');
   renderMe();
   renderNotis();
@@ -585,15 +624,20 @@ document.getElementById('profile-av').addEventListener('click', () => {
     sb.from('pings').update({ unread: false }).eq('to_id', profile.id).eq('unread', true)
       .then(() => { pings.forEach(p => p.unread = false); updateNotisBadge(); });
   }
-});
+  setTimeout(() => { profileAvFiring = false; }, 300);
+}
+document.getElementById('profile-av').addEventListener('click', handleProfileAv);
+document.getElementById('profile-av').addEventListener('touchend', handleProfileAv);
 
 /* ── SHEETS ── */
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
-document.addEventListener('click', e => {
+// Handle both click and touchend for iOS reliability
+function handleDismiss(e) {
   const el = e.target.closest('[data-dismiss]');
   if (!el) return;
   const wrap = el.closest('.sheet-wrap');
   if (!wrap) return;
+  if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
   // If ping confirm dismissed, revert to previous state
   if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
@@ -602,10 +646,16 @@ document.addEventListener('click', e => {
     placeBall(SNAP[homeState], true);
     renderRoster();
   }
-});
+}
+document.addEventListener('click', handleDismiss);
+document.addEventListener('touchend', handleDismiss);
 
-// Ping confirm buttons
-document.getElementById('confirm-ping').addEventListener('click', async () => {
+// Ping confirm buttons — handle both click and touchend for iOS
+let confirmPingFiring = false; // debounce double-fire from touch+click
+async function handleConfirmPing(e) {
+  if (confirmPingFiring) return;
+  confirmPingFiring = true;
+  if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   document.getElementById('sheet-ping-confirm').classList.remove('open');
   const targetState = homeState; // 'down' or 'playing'
   if (targetState === 'down') downDur = 60;
@@ -615,6 +665,7 @@ document.getElementById('confirm-ping').addEventListener('click', async () => {
     app.dataset.homeState = homeState;
     placeBall(SNAP[homeState], true);
     renderRoster();
+    confirmPingFiring = false;
     return;
   }
   renderHome();
@@ -625,7 +676,10 @@ document.getElementById('confirm-ping').addEventListener('click', async () => {
     pushStatusChange(profile.name + ' is playing at ' + getVenueName());
     toast('you\'re playing at ' + getVenueName());
   }
-});
+  confirmPingFiring = false;
+}
+document.getElementById('confirm-ping').addEventListener('click', handleConfirmPing);
+document.getElementById('confirm-ping').addEventListener('touchend', handleConfirmPing);
 
 /* ── BALL DRAG ── */
 function placeBall(pct, smooth) {
@@ -690,11 +744,15 @@ function flashP(el) {
   setTimeout(() => el.classList.remove('bounce'), 520);
 }
 
-document.querySelectorAll('.c-lbl').forEach(b =>
-  b.addEventListener('click', () => { dismissTooltip(); snapTo(b.dataset.state); })
-);
-lp.addEventListener('click', () => { if (!dragging) { dismissTooltip(); snapTo('down'); } });
-rp.addEventListener('click', () => { if (!dragging) { dismissTooltip(); snapTo('playing'); } });
+document.querySelectorAll('.c-lbl').forEach(b => {
+  function handleLbl(e) { if (e.type === 'touchend') e.preventDefault(); dismissTooltip(); snapTo(b.dataset.state); }
+  b.addEventListener('click', handleLbl);
+  b.addEventListener('touchend', handleLbl);
+});
+function handleLp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { dismissTooltip(); snapTo('down'); } }
+function handleRp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { dismissTooltip(); snapTo('playing'); } }
+lp.addEventListener('click', handleLp); lp.addEventListener('touchend', handleLp);
+rp.addEventListener('click', handleRp); rp.addEventListener('touchend', handleRp);
 
 /* ── T6: TOOLTIP (always visible) ── */
 function dismissTooltip() { /* no-op — eyebrow stays visible */ }
@@ -1026,13 +1084,17 @@ function clearOffExpand() {
   if (el) el.innerHTML = '';
 }
 
-// Event delegation for roster bubble clicks — wired once, not on every render
-document.querySelector('.table-sections').addEventListener('click', e => {
+// Event delegation for roster bubble taps — wired once, not on every render
+// Handle both click and touchend for iOS reliability
+function handleBubbleTap(e) {
   const bub = e.target.closest('.rbub');
   if (!bub) return;
+  if (e.type === 'touchend') e.preventDefault();
   const r = allRaiders().find(x => x.id === bub.dataset.id);
   if (r) openRaiderSheet(r);
-});
+}
+document.querySelector('.table-sections').addEventListener('click', handleBubbleTap);
+document.querySelector('.table-sections').addEventListener('touchend', handleBubbleTap);
 
 function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
