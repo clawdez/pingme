@@ -221,15 +221,7 @@ async function boot() {
 
   setTab('home');
   hideSplash();
-  if (!profile) setTimeout(() => {
-    // If opened as PWA (home screen) with no session, user likely just installed —
-    // skip the full onboarding and jump straight to sign-in
-    if (isStandalonePWA() && !localStorage.getItem('pm_auth')) {
-      showSetupEmail();
-    } else {
-      showSetup();
-    }
-  }, 300);
+  if (!profile) setTimeout(showSetup, 300);
 
   setInterval(async () => {
     await expireStale();
@@ -1376,6 +1368,7 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
     '<button class="me-dd-item" id="sr-phone-change">' + (profile.phone ? 'change phone' : 'add phone number') + '</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
+    '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
     '</div>' +
 
     '<button class="me-link-acct-banner" id="me-link-acct" style="display:none">' +
@@ -1519,6 +1512,7 @@ function renderMe() {
     if (downExpiryTimer) { clearTimeout(downExpiryTimer); downExpiryTimer = null; }
     if (downReminderTimer) { clearTimeout(downReminderTimer); downReminderTimer = null; }
     if (playingExpiryTimer) { clearTimeout(playingExpiryTimer); playingExpiryTimer = null; }
+    const myId = profile?.id;
     if (profile) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
@@ -1527,11 +1521,37 @@ function renderMe() {
     await sb.auth.signOut();
     localStorage.removeItem('pm_linked_email');
     profile = null; homeState = 'off';
+    if (myId) roster = roster.filter(r => r.id !== myId);
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
     document.getElementById('sheet-me').classList.remove('open');
     renderHome();
+  });
+
+  // Delete account
+  document.getElementById('sr-delete-acct').addEventListener('click', async () => {
+    if (!confirm('delete your account? this cannot be undone.')) return;
+    if (!confirm('are you sure? all your data will be permanently deleted.')) return;
+    const myId = profile?.id;
+    if (myId) {
+      await sb.from('profiles').delete().eq('id', myId);
+    }
+    await sb.auth.signOut();
+    localStorage.removeItem('pm_linked_email');
+    localStorage.removeItem('pm_auth');
+    localStorage.removeItem('pm_venue');
+    localStorage.removeItem('pm_favorites');
+    localStorage.removeItem('pm_link_nudge');
+    localStorage.removeItem('pm_notif_off');
+    profile = null; homeState = 'off';
+    if (myId) roster = roster.filter(r => r.id !== myId);
+    placeBall(SNAP.off, true);
+    app.dataset.homeState = 'off';
+    toast('account deleted');
+    document.getElementById('sheet-me').classList.remove('open');
+    renderHome();
+    setTimeout(showSetup, 300);
   });
 }
 
@@ -1635,43 +1655,6 @@ function showLinkEmail() {
       renderMe();
     });
   });
-}
-
-function renderFavoritesList() {
-  const container = document.getElementById('me-favorites');
-  if (!container) return;
-  const favIds = getFavorites();
-  const allR = roster.filter(r => r.name && r.name.trim() !== '' && r.name !== 'anon');
-  const favUsers = favIds.map(id => allR.find(r => r.id === id)).filter(Boolean);
-
-  if (favUsers.length === 0) {
-    container.innerHTML =
-      '<div class="fav-empty">no favorites yet — tap a player and hit <b>favorite</b></div>';
-    return;
-  }
-
-  container.innerHTML = '<div class="bub-grid">' + favUsers.map(r => {
-    const ini = r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
-    const stClass = r.status === 'off' ? 'bub-away' : 'bub-' + r.status;
-    return '<button class="rbub ' + stClass + '" data-fav-id="' + r.id + '">' +
-      '<div class="rbub-av-wrap">' +
-      '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
-      '<span class="rbub-fav-star">\u2605</span>' +
-      '</div>' +
-      '<div class="rbub-name">' + esc(r.name) + '</div>' +
-      '<div class="rbub-sub">' + r.status + '</div>' +
-      '</button>';
-  }).join('') + '</div>';
-
-  container.querySelectorAll('[data-fav-id]').forEach(bub =>
-    bub.addEventListener('click', () => {
-      const r = allR.find(x => x.id === bub.dataset.favId);
-      if (r) {
-        document.getElementById('sheet-me').classList.remove('open');
-        setTimeout(() => openRaiderSheet(r), 200);
-      }
-    })
-  );
 }
 
 /* ── T9: PUSH / PWA DETECTION ── */
