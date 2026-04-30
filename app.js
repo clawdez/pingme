@@ -229,7 +229,7 @@ async function boot() {
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-  }, 30000);
+  }, 10000);
 
   // Pull-to-refresh
   initPullToRefresh();
@@ -491,6 +491,17 @@ async function loadPings() {
 
 let profilesChannel = null;
 let realtimeRetryDelay = 3000;
+let lastRealtimeEvent = Date.now();
+
+// Heartbeat: if no realtime event in 90s and polling is fetching data, re-subscribe
+setInterval(() => {
+  if (sb && profilesChannel && Date.now() - lastRealtimeEvent > 90000) {
+    console.log('realtime heartbeat: stale, re-subscribing');
+    pingsSubscribed = false;
+    subscribeRealtime();
+  }
+}, 30000);
+
 function subscribeRealtime() {
   // Clean up existing channel before re-subscribing
   if (profilesChannel) {
@@ -499,6 +510,7 @@ function subscribeRealtime() {
   }
   profilesChannel = sb.channel('profiles-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
+      lastRealtimeEvent = Date.now();
       if (payload.eventType === 'INSERT') {
         const exists = roster.find(r => r.id === payload.new.id);
         if (!exists) roster.push(payload.new);
@@ -530,7 +542,7 @@ function subscribeRealtime() {
   subscribePings();
 }
 
-// Refresh roster when tab comes back into focus (don't re-subscribe every time — too heavy)
+// Refresh roster AND re-subscribe realtime when tab comes back into focus
 let lastVisibilityRefresh = 0;
 document.addEventListener('visibilitychange', async () => {
   if (document.visibilityState === 'visible' && sb) {
@@ -553,6 +565,10 @@ document.addEventListener('visibilitychange', async () => {
         }
       }
     } catch (_) {}
+
+    // Re-subscribe realtime — WebSocket dies when phone sleeps
+    pingsSubscribed = false;
+    subscribeRealtime();
 
     await loadRoster();
     if (profile) await loadPings();
@@ -583,6 +599,7 @@ function subscribePings() {
       event: 'INSERT', schema: 'public', table: 'pings',
       filter: 'to_id=eq.' + profile.id
     }, async () => {
+      lastRealtimeEvent = Date.now();
       await loadPings();
       updateNotisBadge();
       maybeNotify('new ping!');
