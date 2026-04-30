@@ -1753,6 +1753,7 @@ function showSetupEmail() {
       '<div class="setup-fs">' +
       '<div class="setup-page s-slide-in">' +
       '<div class="setup-check-icon">&#9993;</div>' +
+      '<button class="setup-back" id="s-otp-back">&larr;</button>' +
       '<h2 class="setup-h2">check your inbox</h2>' +
       '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
       '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
@@ -1809,6 +1810,7 @@ function showSetupEmail() {
     });
 
     document.getElementById('s-email-retry').addEventListener('click', showSetupEmail);
+    document.getElementById('s-otp-back').addEventListener('click', showSetupEmail);
   });
 }
 
@@ -1818,6 +1820,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-2">' +
+    '<button class="setup-back" id="s2-back">&larr;</button>' +
     '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
@@ -1825,6 +1828,8 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<div class="setup-disclaimer">you can change this anytime</div>' +
     '</div>' +
     '</div>';
+
+  document.getElementById('s2-back').addEventListener('click', showSetup);
 
   // Focus + select the prefilled name
   const inp = document.getElementById('setup-name-2');

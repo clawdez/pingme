@@ -1208,6 +1208,19 @@ button { font: inherit; color: inherit; }
 }
 .s-slide-in { animation: pageIn .3s cubic-bezier(.3,1.4,.4,1); }
 
+/* Back arrow button on setup screens */
+.setup-back {
+  position: absolute; top: 16px; left: 16px;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  background: none; border: 2px solid var(--ink);
+  border-radius: 12px; width: 40px; height: 40px;
+  font-size: 20px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink);
+  z-index: 2;
+}
+.setup-back:active { background: var(--paper-2); }
+
 /* Illustration area */
 .setup-art {
   display: flex; justify-content: center; align-items: center;
