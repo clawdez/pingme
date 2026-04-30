@@ -1,12 +1,25 @@
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+const ALLOWED_ORIGINS = [
+  'https://usepingme.com',
+  'https://www.usepingme.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+]
+
+function getCorsHeaders(req: Request) {
+  const origin = req.headers.get('Origin') || ''
+  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  return {
+    'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Vary': 'Origin',
+  }
 }
 
 serve(async (req: Request) => {
+  const corsHeaders = getCorsHeaders(req)
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -105,6 +118,17 @@ serve(async (req: Request) => {
         return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
+      }
+
+      // Progressive delay: 0s, 2s, 4s, 8s, 16s per attempt
+      if (otpRow.attempts > 0) {
+        const delaySec = Math.pow(2, otpRow.attempts)
+        const lastAttemptAge = Date.now() - new Date(otpRow.created_at).getTime()
+        if (lastAttemptAge < delaySec * 1000) {
+          return new Response(JSON.stringify({ ok: false, error: 'too fast — wait ' + delaySec + 's before trying again' }), {
+            status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
       }
 
       // Increment attempt counter
@@ -241,6 +265,17 @@ serve(async (req: Request) => {
         return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
+      }
+
+      // Progressive delay: 0s, 2s, 4s, 8s, 16s per attempt
+      if (otpRow.attempts > 0) {
+        const delaySec = Math.pow(2, otpRow.attempts)
+        const lastAttemptAge = Date.now() - new Date(otpRow.created_at).getTime()
+        if (lastAttemptAge < delaySec * 1000) {
+          return new Response(JSON.stringify({ ok: false, error: 'too fast — wait ' + delaySec + 's before trying again' }), {
+            status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
       }
 
       await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', existingUser.id)

@@ -11,11 +11,11 @@
 -- Profiles: one row per user, includes presence status
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
-  name text not null,
+  name text not null check (char_length(name) >= 1 and char_length(name) <= 30),
   color text not null default '#E8502A',
   status text not null default 'off' check (status in ('off', 'down', 'playing')),
   venue text,
-  duration int,              -- minutes (for 'down' status)
+  duration int check (duration is null or duration > 0),  -- minutes (for 'down' status)
   started_at timestamptz,    -- when user went down/playing
   ambient text,              -- flavor text ("played 3x this week")
   referred_by uuid references profiles(id) on delete set null,
@@ -53,7 +53,7 @@ create table if not exists messages (
   room_id text not null,
   sender_id uuid not null references profiles(id) on delete cascade,
   receiver_id uuid not null references profiles(id) on delete cascade,
-  body text not null check (char_length(body) <= 200),
+  body text not null check (char_length(body) >= 1 and char_length(body) <= 200),
   created_at timestamptz default now()
 );
 
@@ -87,6 +87,7 @@ create index if not exists idx_pings_created on pings(created_at desc);
 create index if not exists idx_push_subs_user on push_subscriptions(user_id);
 create index if not exists idx_messages_room on messages(room_id, created_at desc);
 create index if not exists idx_email_otps_user on email_otps(user_id);
+create index if not exists idx_pings_from_created on pings(from_id, created_at desc);
 
 -- ═══════════════════════════════════════════
 -- ROW LEVEL SECURITY
@@ -194,7 +195,7 @@ begin
   where from_id = NEW.from_id
     and created_at > now() - interval '60 seconds';
 
-  if recent_count >= 50 then
+  if recent_count >= 5 then
     raise exception 'Rate limit exceeded: too many pings';
   end if;
 
@@ -264,5 +265,5 @@ $$;
 insert into venues (name, location) values
   ('The Sub', 'TTU Student Union'),
   ('Rec Center', 'TTU Recreation Center'),
-  ('Library 2nd Floor', 'TTU Library')
+  ('Maggie Trejo', 'Supercenter')
 on conflict do nothing;

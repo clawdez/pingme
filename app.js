@@ -16,8 +16,8 @@ try {
 } catch (e) { console.error('Supabase failed to load:', e); }
 
 const VENUES = [
-  { id: 'sub', name: 'the sub', desc: 'Student Union' },
-  { id: 'rec', name: 'the rec', desc: 'Rec Center' },
+  { id: 'sub', name: 'The Sub', desc: 'TTU Student Union' },
+  { id: 'rec', name: 'Rec Center', desc: 'TTU Recreation Center' },
   { id: 'maggie', name: 'Maggie Trejo', desc: 'Supercenter' }
 ];
 let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
@@ -596,9 +596,7 @@ function updateTableSub() {
 
 
 /* ── NAV — single screen, avatar opens combined panel ── */
-function setTab(t) {
-  if (t === 'home') renderHome();
-}
+function setTab() { renderHome(); }
 
 // Share button → always show QR modal (with share link option)
 function handleShareBtn(e) {
@@ -698,7 +696,7 @@ ball.addEventListener('pointerdown', e => {
   try { ball.setPointerCapture(e.pointerId); } catch (_) {}
   ball.classList.add('dragging');
   ball.classList.remove('at-rest', 'snapping');
-  dismissTooltip(); // T6
+  // T6
 });
 
 window.addEventListener('pointermove', e => {
@@ -745,17 +743,16 @@ function flashP(el) {
 }
 
 document.querySelectorAll('.c-lbl').forEach(b => {
-  function handleLbl(e) { if (e.type === 'touchend') e.preventDefault(); dismissTooltip(); snapTo(b.dataset.state); }
+  function handleLbl(e) { if (e.type === 'touchend') e.preventDefault(); snapTo(b.dataset.state); }
   b.addEventListener('click', handleLbl);
   b.addEventListener('touchend', handleLbl);
 });
-function handleLp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { dismissTooltip(); snapTo('down'); } }
-function handleRp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { dismissTooltip(); snapTo('playing'); } }
+function handleLp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { snapTo('down'); } }
+function handleRp(e) { if (e.type === 'touchend') e.preventDefault(); if (!dragging) { snapTo('playing'); } }
 lp.addEventListener('click', handleLp); lp.addEventListener('touchend', handleLp);
 rp.addEventListener('click', handleRp); rp.addEventListener('touchend', handleRp);
 
-/* ── T6: TOOLTIP (always visible) ── */
-function dismissTooltip() { /* no-op — eyebrow stays visible */ }
+/* ── T6: TOOLTIP ── */
 
 /* ── STATE ── */
 function setHomeState(st) {
@@ -2094,15 +2091,30 @@ async function sendChatMessage() {
   const inp = document.getElementById('chat-input');
   const body = inp.value.trim();
   if (!body) return;
+  const savedBody = body;
   inp.value = '';
+  inp.disabled = true;
 
   const roomId = chatRoomId(profile.id, chatWith.id);
-  await sb.from('messages').insert({
+  const { error } = await sb.from('messages').insert({
     room_id: roomId,
     sender_id: profile.id,
     receiver_id: chatWith.id,
-    body: body.slice(0, 200)
+    body: savedBody.slice(0, 200)
   });
+
+  inp.disabled = false;
+  inp.focus();
+
+  if (error) {
+    // Restore message so user doesn't lose it
+    inp.value = savedBody;
+    toast('failed to send — try again');
+    return;
+  }
+
+  // Push notification to receiver
+  sendPushNotification(chatWith.id, profile.id, profile.name + ': ' + savedBody.slice(0, 80));
 }
 
 // Wire chat send
