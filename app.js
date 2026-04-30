@@ -1172,12 +1172,15 @@ function openRaiderSheet(r) {
     html += '<div class="rs-ambient">' + esc(r.ambient) + '</div>';
   }
 
-  // Action buttons — ping is primary, message is secondary
+  // Action buttons — ping is primary, text is secondary (SMS deep link)
   if (canAct) {
+    const hasPhone = r.phone && r.phone.length >= 10;
     html +=
       '<div class="rs-actions">' +
       '<button class="rs-ping-btn" id="rs-ping-btn">&#127955; ping ' + esc(r.name) + '</button>' +
-      '<button class="rs-msg-btn" id="rs-msg-btn">&#128172;</button>' +
+      (hasPhone
+        ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
+        : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
       '</div>';
   }
 
@@ -1218,8 +1221,6 @@ function openRaiderSheet(r) {
       }, 800);
     };
 
-    // Message
-    document.getElementById('rs-msg-btn').onclick = () => openChat(r);
   }
 
   document.getElementById('sheet-raider').classList.add('open');
@@ -1373,6 +1374,7 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
+    '<button class="me-dd-item" id="sr-phone-change">' + (profile.phone ? 'change phone' : 'add phone number') + '</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '</div>' +
 
@@ -1443,6 +1445,23 @@ function renderMe() {
     toast('name updated');
   }
   document.getElementById('me-name-display').addEventListener('click', startNameChange);
+
+  // Phone change from dropdown
+  document.getElementById('sr-phone-change').addEventListener('click', () => {
+    document.getElementById('me-settings-dd').classList.remove('open');
+    const cur = profile.phone || '';
+    const phone = prompt('your phone number (so others can text you):', cur);
+    if (phone === null) return; // cancelled
+    const cleaned = phone.trim().replace(/[^0-9+]/g, '');
+    if (cleaned.length > 0 && cleaned.length < 10) { toast('enter a valid phone number'); return; }
+    const val = cleaned.length >= 10 ? cleaned : null;
+    profile.phone = val;
+    const me = roster.find(r => r.id === profile.id);
+    if (me) me.phone = val;
+    if (sb) sb.from('profiles').update({ phone: val }).eq('id', profile.id);
+    toast(val ? 'phone updated' : 'phone removed');
+    renderMe();
+  });
 
   // Notifications toggle
   document.getElementById('sr-notif-link').addEventListener('click', async () => {
@@ -1832,8 +1851,9 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
+    '<input class="setup-name-input" id="setup-phone-2" type="tel" placeholder="phone number" autocomplete="tel" style="letter-spacing:1px"/>' +
+    '<div class="setup-disclaimer">so other players can text you</div>' +
     '<button class="setup-primary" id="s2-rally">continue</button>' +
-    '<div class="setup-disclaimer">you can change this anytime</div>' +
     '</div>' +
     '</div>';
 
@@ -1849,6 +1869,8 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   document.getElementById('s2-rally').addEventListener('click', async () => {
     const n = inp.value.trim().toLowerCase().slice(0, 30);
     if (!n) { toast('enter your name first'); return; }
+    const phoneRaw = document.getElementById('setup-phone-2').value.trim().replace(/[^0-9+]/g, '');
+    const phone = phoneRaw.length >= 10 ? phoneRaw : null;
     const btn = document.getElementById('s2-rally');
     btn.textContent = '...'; btn.disabled = true;
 
@@ -1858,8 +1880,10 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     if (user) {
       if (existingProfile) {
         // Update existing nameless profile
+        const upd = { name: n, color };
+        if (phone) upd.phone = phone;
         const { data, error } = await sb.from('profiles')
-          .update({ name: n, color })
+          .update(upd)
           .eq('id', user.id).select().single();
         if (error) { toast('error saving name'); console.error(error); btn.textContent = 'continue'; btn.disabled = false; return; }
         newProfile = data;
@@ -1867,6 +1891,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
         // Create fresh profile
         const refId = getRefParam();
         const insert = { id: user.id, name: n, color, status: 'off', ambient: 'just joined' };
+        if (phone) insert.phone = phone;
         if (refId && refId !== user.id) insert.referred_by = refId;
         const { data, error } = await sb.from('profiles').insert(insert).select().single();
         if (error) { toast('error creating profile'); console.error(error); btn.textContent = 'continue'; btn.disabled = false; return; }
@@ -1886,6 +1911,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
       }
       const refId = getRefParam();
       const insert = { id: anonUser.id, name: n, color, status: 'off', ambient: 'just joined' };
+      if (phone) insert.phone = phone;
       if (refId && refId !== anonUser.id) insert.referred_by = refId;
       const { data, error } = await sb.from('profiles').insert(insert).select().single();
       if (error) { toast('error creating profile'); btn.textContent = 'continue'; btn.disabled = false; return; }
@@ -2060,113 +2086,7 @@ function showQrShare() {
   document.getElementById('sheet-qr').classList.add('open');
 }
 
-/* ── CHAT ── */
-let chatWith = null; // profile object of the person we're chatting with
-let chatMessages = [];
-let chatChannel = null;
-
-function chatRoomId(a, b) {
-  return [a, b].sort().join('_');
-}
-
-async function openChat(raider) {
-  if (!profile || !raider) return;
-  chatWith = raider;
-  const roomId = chatRoomId(profile.id, raider.id);
-
-  // Close other modals
-  document.getElementById('sheet-raider').classList.remove('open');
-
-  // Render header
-  const ini = raider.ini || raider.name.slice(0, 2).toUpperCase();
-  document.getElementById('chat-header').innerHTML =
-    '<div class="chat-av" style="background:' + (raider.color || '#E8502A') + '">' + ini + '</div>' +
-    '<div class="chat-with">' + esc(raider.name) + '</div>';
-
-  // Load messages
-  const { data } = await sb.from('messages')
-    .select('*')
-    .eq('room_id', roomId)
-    .order('created_at', { ascending: true })
-    .limit(50);
-  chatMessages = data || [];
-  renderChatMessages();
-
-  // Subscribe to new messages
-  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
-  chatChannel = sb.channel('chat-' + roomId)
-    .on('postgres_changes', {
-      event: 'INSERT', schema: 'public', table: 'messages',
-      filter: 'room_id=eq.' + roomId
-    }, (payload) => {
-      chatMessages.push(payload.new);
-      renderChatMessages();
-    })
-    .subscribe();
-
-  document.getElementById('sheet-chat').classList.add('open');
-  setTimeout(() => document.getElementById('chat-input').focus(), 200);
-}
-
-function renderChatMessages() {
-  const el = document.getElementById('chat-messages');
-  if (chatMessages.length === 0) {
-    el.innerHTML = '<div class="chat-empty">no messages yet — say hi!</div>';
-    return;
-  }
-  el.innerHTML = chatMessages.map(m => {
-    const isMe = profile && m.sender_id === profile.id;
-    return '<div class="chat-msg ' + (isMe ? 'chat-me' : 'chat-them') + '">' +
-      '<div class="chat-bubble">' + esc(m.body) + '</div>' +
-      '<div class="chat-time">' + timeAgo(m.created_at) + '</div>' +
-      '</div>';
-  }).join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-async function sendChatMessage() {
-  if (!profile || !chatWith) return;
-  const inp = document.getElementById('chat-input');
-  const body = inp.value.trim();
-  if (!body) return;
-  const savedBody = body;
-  inp.value = '';
-  inp.disabled = true;
-
-  const roomId = chatRoomId(profile.id, chatWith.id);
-  const { error } = await sb.from('messages').insert({
-    room_id: roomId,
-    sender_id: profile.id,
-    receiver_id: chatWith.id,
-    body: savedBody.slice(0, 200)
-  });
-
-  inp.disabled = false;
-  inp.focus();
-
-  if (error) {
-    // Restore message so user doesn't lose it
-    inp.value = savedBody;
-    console.warn('chat send error:', error.code, error.message);
-    toast(error.code === '42P01' ? 'chat not set up yet' : 'failed to send — try again');
-    return;
-  }
-
-  // Push notification to receiver
-  sendPushNotification(chatWith.id, profile.id, profile.name + ': ' + savedBody.slice(0, 80));
-}
-
-// Wire chat send
-document.getElementById('chat-send').addEventListener('click', sendChatMessage);
-document.getElementById('chat-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') { e.preventDefault(); sendChatMessage(); }
-});
-
-// Clean up chat channel when closing
-document.querySelector('#sheet-chat [data-dismiss]').addEventListener('click', () => {
-  if (chatChannel) { sb.removeChannel(chatChannel); chatChannel = null; }
-  chatWith = null;
-});
+/* ── CHAT (removed — using SMS deep links instead) ── */
 
 /* ── EXPIRY ── */
 async function expireStale() {

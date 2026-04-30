@@ -12,6 +12,7 @@
 create table if not exists profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   name text not null check (char_length(name) >= 1 and char_length(name) <= 30),
+  phone text check (phone is null or char_length(phone) >= 10),
   color text not null default '#E8502A',
   status text not null default 'off' check (status in ('off', 'down', 'playing')),
   venue text,
