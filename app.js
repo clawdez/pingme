@@ -221,7 +221,15 @@ async function boot() {
 
   setTab('home');
   hideSplash();
-  if (!profile) setTimeout(showSetup, 300);
+  if (!profile) setTimeout(() => {
+    // If opened as PWA (home screen) with no session, user likely just installed —
+    // skip the full onboarding and jump straight to sign-in
+    if (isStandalonePWA() && !localStorage.getItem('pm_auth')) {
+      showSetupEmail();
+    } else {
+      showSetup();
+    }
+  }, 300);
 
   setInterval(async () => {
     await expireStale();
@@ -1204,7 +1212,7 @@ function openRaiderSheet(r) {
         msg: pingMsg,
         unread: true
       });
-      sendPushNotification(r.id, profile.id, pingMsg);
+      // Push notification handled server-side via DB webhook on ping insert
       setTimeout(() => {
         document.getElementById('sheet-raider').classList.remove('open');
       }, 800);
@@ -2139,7 +2147,8 @@ async function sendChatMessage() {
   if (error) {
     // Restore message so user doesn't lose it
     inp.value = savedBody;
-    toast('failed to send — try again');
+    console.warn('chat send error:', error.code, error.message);
+    toast(error.code === '42P01' ? 'chat not set up yet' : 'failed to send — try again');
     return;
   }
 
