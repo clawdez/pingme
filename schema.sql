@@ -102,12 +102,16 @@ alter table email_otps enable row level security;
 alter table venues enable row level security;
 
 -- Profiles: anyone can read, users manage their own
+-- NOTE: phone column is readable via RLS but excluded from roster queries client-side.
+-- For stronger privacy, replace with a view or column-level security in a future migration.
 create policy "Anyone can view profiles"
   on profiles for select using (true);
 create policy "Users can create own profile"
   on profiles for insert with check (auth.uid() = id);
 create policy "Users can update own profile"
   on profiles for update using (auth.uid() = id);
+create policy "Users can delete own profile"
+  on profiles for delete using (auth.uid() = id);
 
 -- Pings: users can read own + broadcasts, send as self, update own received
 create policy "Users can read own pings and broadcasts"
@@ -258,6 +262,14 @@ begin
   where id = referrer_id;
 end;
 $$;
+
+-- ═══════════════════════════════════════════
+-- SCHEDULED JOBS (requires pg_cron extension — enable in Supabase Dashboard > Database > Extensions)
+-- ═══════════════════════════════════════════
+
+-- Expire stale profiles every 2 minutes server-side (catches cases where all clients are closed)
+-- Run this manually after enabling pg_cron:
+-- select cron.schedule('expire-stale-profiles', '*/2 * * * *', $$select expire_stale_profiles()$$);
 
 -- ═══════════════════════════════════════════
 -- SEED DATA

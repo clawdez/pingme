@@ -160,8 +160,11 @@ async function boot() {
     }
   } catch (e) { console.error('Auth check failed:', e); toast('connecting...'); }
 
+  let profileLoaded = !!profile; // skip if boot already loaded profile
   sb.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
+      if (profileLoaded) return; // boot already handled this session
+      profileLoaded = true;
       // T8: detect new vs returning user
       const { data: existing } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
       if (existing && existing.name) {
@@ -208,6 +211,7 @@ async function boot() {
         showSetupScreen2(session.user, existing || null, prefill);
       }
     } else if (event === 'SIGNED_OUT') {
+      profileLoaded = false;
       profile = null; homeState = 'off'; pingsSubscribed = false;
       placeBall(SNAP.off, true);
       app.dataset.homeState = 'off';
@@ -475,7 +479,10 @@ async function registerPushSubscription() {
 
 /* ── DATA ── */
 async function loadRoster() {
-  const { data, error } = await sb.from('profiles').select('*').order('updated_at', { ascending: false });
+  const { data, error } = await sb.from('profiles')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
+    .order('updated_at', { ascending: false })
+    .limit(200);
   if (!error && data) roster = data;
 }
 
@@ -693,8 +700,8 @@ async function handleConfirmPing(e) {
   }
   renderHome();
   if (targetState === 'down') {
-    await pingEveryone();
-    toast('pinged the squad');
+    const pinged = await pingEveryone();
+    toast(pinged ? 'pinged the squad' : 'you\'re down to play');
   } else if (targetState === 'playing') {
     pushStatusChange(profile.name + ' is playing at ' + getVenueName());
     toast('you\'re playing at ' + getVenueName());
@@ -780,7 +787,7 @@ rp.addEventListener('click', handleRp); rp.addEventListener('touchend', handleRp
 /* ── T6: TOOLTIP ── */
 
 /* ── STATE ── */
-function setHomeState(st) {
+async function setHomeState(st) {
   if (!profile && st !== 'off') { showSetup(); placeBall(SNAP.off, true); return; }
   homeState = st;
   app.dataset.homeState = st;
@@ -791,7 +798,7 @@ function setHomeState(st) {
     renderVenuePicker();
     document.getElementById('sheet-ping-confirm').classList.add('open');
   } else {
-    setMyStatus(st);
+    await setMyStatus(st);
   }
   renderStrip();
   renderRoster();
@@ -831,9 +838,7 @@ async function setMyStatus(st) {
   } else {
     updates.venue = null; updates.duration = null; updates.started_at = null;
   }
-  console.log('setMyStatus:', st, 'profile.id:', profile.id, 'updates:', JSON.stringify(updates));
   const { data, error, count } = await sb.from('profiles').update(updates).eq('id', profile.id).select();
-  console.log('setMyStatus result:', { data, error, count });
   if (error) { toast('update failed: ' + error.message); console.error(error); return false; }
   if (!data || data.length === 0) { toast('update missed — no rows matched'); console.error('No rows updated for id:', profile.id); return false; }
   Object.assign(profile, updates);
@@ -925,9 +930,9 @@ async function sendPushNotification(toId, fromId, msg) {
 }
 
 async function pingEveryone() {
-  if (!profile) return;
+  if (!profile) return false;
   const now = Date.now();
-  if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
+  if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return false; }
   lastPingTime = now;
   const others = roster.filter(r => r.id !== profile.id && r.name && r.name.trim() !== '' && r.name !== 'anon');
   const rows = others.map(r => ({
@@ -938,9 +943,8 @@ async function pingEveryone() {
   }));
   if (rows.length) {
     await sb.from('pings').insert(rows);
-    // Push notifications are now triggered server-side via DB webhook on ping insert
-    // Client-side fallback for direct pings only (1:1 from raider sheet)
   }
+  return rows.length > 0;
 }
 
 
@@ -1120,6 +1124,23 @@ document.querySelector('.table-sections').addEventListener('touchend', handleBub
 
 function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
+  // Fetch phone on demand (not in roster for privacy)
+  if (!r._phoneFetched && profile && r.id !== profile.id) {
+    sb.from('profiles').select('phone').eq('id', r.id).single().then(({ data }) => {
+      r.phone = data?.phone || null;
+      r._phoneFetched = true;
+      // Re-render msg button if sheet is still open
+      const msgBtn = document.getElementById('rs-msg-btn');
+      if (msgBtn && r.phone) {
+        const a = document.createElement('a');
+        a.className = 'rs-msg-btn';
+        a.id = 'rs-msg-btn';
+        a.href = 'sms:' + r.phone + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?');
+        a.innerHTML = '&#128172;';
+        msgBtn.replaceWith(a);
+      }
+    });
+  }
   const ini = r.ini || r.name.slice(0, 2).toUpperCase();
   const isMe = profile && r.id === profile.id;
   const canAct = profile && !isMe;
@@ -1741,12 +1762,14 @@ function showSetupEmail() {
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '<button class="setup-skip" id="s-email-back">go back</button>' +
+    '<button class="setup-skip" id="s-email-new">new here? create an account</button>' +
     '</div>' +
     '</div>';
 
   const inp = document.getElementById('setup-email');
   setTimeout(() => inp.focus(), 80);
   document.getElementById('s-email-back').addEventListener('click', showSetup);
+  document.getElementById('s-email-new').addEventListener('click', () => showSetupScreen2(null, null, ''));
 
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim();
@@ -1834,7 +1857,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
-    '<input class="setup-name-input" id="setup-phone-2" type="tel" placeholder="phone number" autocomplete="tel" style="letter-spacing:1px"/>' +
+    '<input class="setup-name-input" id="setup-phone-2" type="tel" placeholder="phone number" autocomplete="tel" maxlength="15" style="letter-spacing:1px"/>' +
     '<div class="setup-disclaimer">so other players can text you</div>' +
     '<button class="setup-primary" id="s2-rally">continue</button>' +
     '</div>' +

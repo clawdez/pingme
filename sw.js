@@ -1,4 +1,4 @@
-const CACHE = 'pingme-v15';
+const CACHE = 'pingme-v16';
 const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -29,7 +29,8 @@ self.addEventListener('fetch', e => {
 });
 
 self.addEventListener('push', e => {
-  const data = e.data ? e.data.json() : {};
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (_) {}
   const options = {
     body: data.body || 'Someone wants to play ping pong!',
     icon: '/icon-192.png',
