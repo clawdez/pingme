@@ -103,6 +103,12 @@ const courtWrap = document.getElementById('court-wrap');
 const lp = document.getElementById('left-paddle');
 const rp = document.getElementById('right-paddle');
 
+/* ── Splash ── */
+function hideSplash() {
+  const s = document.getElementById('splash');
+  if (s) { s.style.opacity = '0'; s.style.transition = 'opacity .3s'; setTimeout(() => s.remove(), 350); }
+}
+
 /* ── BOOT ── */
 window.addEventListener('load', boot);
 
@@ -116,6 +122,7 @@ async function boot() {
     setTab('home');
     renderHome();
     setTimeout(showSetup, 300);
+    hideSplash();
     return;
   }
 
@@ -213,6 +220,7 @@ async function boot() {
   subscribeRealtime();
 
   setTab('home');
+  hideSplash();
   if (!profile) setTimeout(showSetup, 300);
 
   setInterval(async () => {

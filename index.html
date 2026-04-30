@@ -11,6 +11,7 @@
 <meta property="og:type" content="website"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
 <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
 <meta name="apple-mobile-web-app-title" content="pingme"/>
 <link rel="manifest" href="manifest.json"/>
@@ -20,8 +21,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css"/>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script defer src="app.js"></script>
 <script>
 // Register service worker for push notifications + offline
 if ('serviceWorker' in navigator) {
@@ -218,6 +220,12 @@ if ('serviceWorker' in navigator) {
 <div id="setup-root"></div>
 <div class="toast" id="toast"></div>
 
-<script src="app.js"></script>
+<!-- Loading splash — shown instantly, hidden by app.js when ready -->
+<div id="splash" style="position:fixed;inset:0;z-index:999;background:#F4EDDC;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Permanent Marker',cursive,system-ui,sans-serif">
+  <div style="font-size:32px;color:#141210;letter-spacing:-1px">ping<span style="color:#E8502A">me!</span></div>
+  <div style="margin-top:12px;width:28px;height:28px;border:3px solid #e0d8c8;border-top-color:#E8502A;border-radius:50%;animation:sp .7s linear infinite"></div>
+  <style>@keyframes sp{to{transform:rotate(360deg)}}</style>
+</div>
+
 </body>
 </html>
