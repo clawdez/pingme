@@ -1574,6 +1574,25 @@ button { font: inherit; color: inherit; }
 }
 .lb-arrow.lb-open { transform: rotate(90deg); }
 .lb-collapsed { display: none; }
+.lb-tabs {
+  display: flex; gap: 0; margin-bottom: 8px;
+  border-radius: 10px; overflow: hidden;
+  border: 1.5px solid rgba(20,18,16,.12);
+}
+.lb-tab {
+  flex: 1; padding: 8px 0; border: none; cursor: pointer;
+  font-family: 'Caveat', cursive; font-size: 15px;
+  background: transparent; color: var(--muted);
+  transition: background .2s, color .2s;
+}
+.lb-tab-active {
+  background: var(--ink); color: var(--cream);
+}
+.lb-empty {
+  text-align: center; padding: 16px 0;
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px; color: var(--muted);
+}
 .lb-list {
   display: flex; flex-direction: column; gap: 6px;
   padding: 4px 0;

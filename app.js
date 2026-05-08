@@ -480,7 +480,7 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   const { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
   if (!error && data) roster = data;
@@ -814,6 +814,12 @@ async function setMyStatus(st) {
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
     updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = 90;
+    // Increment play count for leaderboard
+    sb.rpc('increment_play_count', { player_id: profile.id }).then(() => {
+      profile.play_count = (profile.play_count || 0) + 1;
+      const me = roster.find(r => r.id === profile.id);
+      if (me) me.play_count = profile.play_count;
+    });
     // 90-min auto-expire
     playingExpiryTimer = setTimeout(() => {
       toast('playing session expired after 90 min');
@@ -1057,17 +1063,25 @@ function renderRoster() {
 
 }
 
+let lbActiveTab = 'players';
+
 function renderLeaderboard() {
   const section = document.getElementById('section-leaderboard');
   const list = document.getElementById('lb-list');
-  if (!section || !list) return;
+  const body = document.getElementById('lb-body');
+  if (!section || !list || !body) return;
 
-  const leaders = allRaiders()
+  const playLeaders = allRaiders()
+    .filter(r => (r.play_count || 0) > 0)
+    .sort((a, b) => (b.play_count || 0) - (a.play_count || 0))
+    .slice(0, 10);
+
+  const refLeaders = allRaiders()
     .filter(r => (r.referral_count || 0) > 0)
     .sort((a, b) => (b.referral_count || 0) - (a.referral_count || 0))
     .slice(0, 10);
 
-  if (leaders.length === 0) { section.style.display = 'none'; return; }
+  if (playLeaders.length === 0 && refLeaders.length === 0) { section.style.display = 'none'; return; }
   section.style.display = 'block';
 
   // Wire toggle
@@ -1076,9 +1090,42 @@ function renderLeaderboard() {
   if (toggle && !toggle._wired) {
     toggle._wired = true;
     toggle.addEventListener('click', () => {
-      list.classList.toggle('lb-collapsed');
+      body.classList.toggle('lb-collapsed');
       arrow.classList.toggle('lb-open');
     });
+  }
+
+  // Wire tabs
+  const tabs = section.querySelectorAll('.lb-tab');
+  tabs.forEach(tab => {
+    if (!tab._wired) {
+      tab._wired = true;
+      tab.addEventListener('click', () => {
+        lbActiveTab = tab.dataset.tab;
+        tabs.forEach(t => t.classList.toggle('lb-tab-active', t.dataset.tab === lbActiveTab));
+        renderLeaderboardList();
+      });
+    }
+  });
+
+  renderLeaderboardList();
+}
+
+function renderLeaderboardList() {
+  const list = document.getElementById('lb-list');
+  if (!list) return;
+
+  const isPlayers = lbActiveTab === 'players';
+  const leaders = allRaiders()
+    .filter(r => isPlayers ? (r.play_count || 0) > 0 : (r.referral_count || 0) > 0)
+    .sort((a, b) => isPlayers
+      ? (b.play_count || 0) - (a.play_count || 0)
+      : (b.referral_count || 0) - (a.referral_count || 0))
+    .slice(0, 10);
+
+  if (leaders.length === 0) {
+    list.innerHTML = '<div class="lb-empty">no one yet — be the first!</div>';
+    return;
   }
 
   const medals = ['&#129351;', '&#129352;', '&#129353;'];
@@ -1086,11 +1133,13 @@ function renderLeaderboard() {
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
     const isMe = profile && r.id === profile.id;
     const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
+    const count = isPlayers ? (r.play_count || 0) : (r.referral_count || 0);
+    const label = isPlayers ? (count === 1 ? 'game' : 'games') : 'invited';
     return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
       '<span class="lb-medal">' + medal + '</span>' +
       '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
       '<span class="lb-name">' + esc(r.name) + (isMe ? ' <span class="lb-you">(you)</span>' : '') + '</span>' +
-      '<span class="lb-count">' + r.referral_count + ' invited</span>' +
+      '<span class="lb-count">' + count + ' ' + label + '</span>' +
       '</div>';
   }).join('');
 }

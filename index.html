@@ -136,10 +136,16 @@ if ('serviceWorker' in navigator) {
           <div class="section-list" id="list-off"></div>
         </div>
       </div>
-      <!-- Referral leaderboard (collapsed by default) -->
+      <!-- Leaderboard -->
       <div class="table-section" id="section-leaderboard" style="display:none">
-        <button class="section-label lb-label lb-toggle" id="lb-toggle">&#127942; top recruiters <span class="lb-arrow" id="lb-arrow">&#9654;</span></button>
-        <div class="lb-list lb-collapsed" id="lb-list"></div>
+        <button class="section-label lb-label lb-toggle" id="lb-toggle">&#127942; leaderboard <span class="lb-arrow" id="lb-arrow">&#9654;</span></button>
+        <div class="lb-body lb-collapsed" id="lb-body">
+          <div class="lb-tabs">
+            <button class="lb-tab lb-tab-active" data-tab="players">&#127955; top players</button>
+            <button class="lb-tab" data-tab="referrals">&#129309; top recruiters</button>
+          </div>
+          <div class="lb-list" id="lb-list"></div>
+        </div>
       </div>
 
       <div class="empty-roster" id="empty-roster" style="display:none">

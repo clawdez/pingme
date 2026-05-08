@@ -21,6 +21,7 @@ create table if not exists profiles (
   ambient text,              -- flavor text ("played 3x this week")
   referred_by uuid references profiles(id) on delete set null,
   referral_count int not null default 0,
+  play_count int not null default 0,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
@@ -260,6 +261,17 @@ as $$
 begin
   update profiles set referral_count = referral_count + 1
   where id = referrer_id;
+end;
+$$;
+
+create or replace function increment_play_count(player_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+begin
+  update profiles set play_count = play_count + 1
+  where id = player_id;
 end;
 $$;
 
