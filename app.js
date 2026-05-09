@@ -479,10 +479,19 @@ async function registerPushSubscription() {
 
 /* ── DATA ── */
 async function loadRoster() {
-  const { data, error } = await sb.from('profiles')
+  let { data, error } = await sb.from('profiles')
     .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
+  // Fallback if play_count column doesn't exist yet
+  if (error && error.message && error.message.includes('play_count')) {
+    const fallback = await sb.from('profiles')
+      .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
+      .order('updated_at', { ascending: false })
+      .limit(200);
+    data = fallback.data;
+    error = fallback.error;
+  }
   if (!error && data) roster = data;
 }
 
@@ -819,7 +828,7 @@ async function setMyStatus(st) {
       profile.play_count = (profile.play_count || 0) + 1;
       const me = roster.find(r => r.id === profile.id);
       if (me) me.play_count = profile.play_count;
-    });
+    }).catch(() => {});
     // 90-min auto-expire
     playingExpiryTimer = setTimeout(() => {
       toast('playing session expired after 90 min');
