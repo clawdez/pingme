@@ -1077,32 +1077,7 @@ let lbActiveTab = 'players';
 function renderLeaderboard() {
   const section = document.getElementById('section-leaderboard');
   const list = document.getElementById('lb-list');
-  const body = document.getElementById('lb-body');
-  if (!section || !list || !body) return;
-
-  const playLeaders = allRaiders()
-    .filter(r => (r.play_count || 0) > 0)
-    .sort((a, b) => (b.play_count || 0) - (a.play_count || 0))
-    .slice(0, 10);
-
-  const refLeaders = allRaiders()
-    .filter(r => (r.referral_count || 0) > 0)
-    .sort((a, b) => (b.referral_count || 0) - (a.referral_count || 0))
-    .slice(0, 10);
-
-  if (playLeaders.length === 0 && refLeaders.length === 0) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-
-  // Wire toggle
-  const toggle = document.getElementById('lb-toggle');
-  const arrow = document.getElementById('lb-arrow');
-  if (toggle && !toggle._wired) {
-    toggle._wired = true;
-    toggle.addEventListener('click', () => {
-      body.classList.toggle('lb-collapsed');
-      arrow.classList.toggle('lb-open');
-    });
-  }
+  if (!section || !list) return;
 
   // Wire tabs
   const tabs = section.querySelectorAll('.lb-tab');
@@ -1126,7 +1101,6 @@ function renderLeaderboardList() {
 
   const isPlayers = lbActiveTab === 'players';
   const leaders = allRaiders()
-    .filter(r => isPlayers ? (r.play_count || 0) > 0 : (r.referral_count || 0) > 0)
     .sort((a, b) => isPlayers
       ? (b.play_count || 0) - (a.play_count || 0)
       : (b.referral_count || 0) - (a.referral_count || 0))
