@@ -1100,7 +1100,12 @@ function renderLeaderboardList() {
   if (!list) return;
 
   const isPlayers = lbActiveTab === 'players';
-  const leaders = allRaiders()
+  // Deduplicate by name — keep the most recently updated profile
+  const seen = new Map();
+  allRaiders()
+    .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+    .forEach(r => { if (!seen.has(r.name.toLowerCase())) seen.set(r.name.toLowerCase(), r); });
+  const leaders = Array.from(seen.values())
     .sort((a, b) => isPlayers
       ? (b.play_count || 0) - (a.play_count || 0)
       : (b.referral_count || 0) - (a.referral_count || 0))
