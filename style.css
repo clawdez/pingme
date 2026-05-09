@@ -1583,6 +1583,8 @@ button { font: inherit; color: inherit; }
 .lb-tab-active {
   background: var(--ink); color: var(--cream);
 }
+.lb-icon { vertical-align: -3px; margin-right: 2px; }
+.lb-tab-icon { vertical-align: -2px; margin-right: 3px; }
 .lb-empty {
   text-align: center; padding: 20px 0;
   font-family: 'Caveat', cursive; font-weight: 700;

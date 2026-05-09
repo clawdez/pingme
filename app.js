@@ -1116,7 +1116,8 @@ function renderLeaderboardList() {
     return;
   }
 
-  const medals = ['&#129351;', '&#129352;', '&#129353;'];
+  const medalSvg = (fill) => '<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="14" r="7" fill="' + fill + '" stroke="#141210" stroke-width="2"/><path d="M9 2h6l-1 7h-4L9 2z" fill="' + fill + '" stroke="#141210" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg>';
+  const medals = [medalSvg('#E8B84A'), medalSvg('#C0C0C0'), medalSvg('#CD7F32')];
   list.innerHTML = leaders.map((r, i) => {
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
     const isMe = profile && r.id === profile.id;
