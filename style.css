@@ -1633,3 +1633,153 @@ button { font: inherit; color: inherit; }
   font-size: 12px; color: var(--flame);
   white-space: nowrap;
 }
+
+/* ───── match modal ───── */
+.match-modal { width: min(440px, 94vw); }
+.match-head { text-align: center; margin-bottom: 6px; }
+.match-title {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 22px; color: var(--ink); margin: 0;
+}
+.match-venue {
+  font-family: 'Caveat', cursive; font-size: 16px;
+  color: var(--ink); opacity: .7;
+}
+.match-board {
+  display: grid; grid-template-columns: 1fr auto 1fr;
+  gap: 10px; align-items: center; margin: 18px 0 10px;
+}
+.mside {
+  display: flex; flex-direction: column; align-items: center;
+  background: #fff;
+  border: 2.5px solid var(--ink);
+  border-radius: 18px; padding: 12px 6px;
+  box-shadow: 3px 3px 0 var(--ink);
+  border-color: var(--mside-color, var(--ink));
+}
+.mside-name {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 14px; color: var(--ink);
+  text-align: center; margin-bottom: 6px;
+  max-width: 100%; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.mscore {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 64px; line-height: 1; color: var(--ink);
+  background: transparent; border: none; cursor: pointer;
+  padding: 8px 0; min-width: 80px;
+}
+.mscore:active { transform: scale(.95); }
+.mside-actions { display: flex; gap: 6px; }
+.mbtn-plus, .mbtn-minus {
+  font-family: 'Space Grotesk', sans-serif;
+  font-weight: 700; font-size: 14px;
+  background: var(--cream); color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 10px;
+  padding: 6px 12px; cursor: pointer;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.mbtn-plus { background: var(--flame); color: #fff; }
+.mbtn-plus:active, .mbtn-minus:active {
+  transform: translate(2px, 2px); box-shadow: none;
+}
+.mvs {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 18px; color: var(--ink); opacity: .6;
+}
+.match-status {
+  font-family: 'Caveat', cursive; font-size: 18px;
+  text-align: center; color: var(--ink); opacity: .75;
+  margin: 4px 0 12px;
+}
+.match-status-win {
+  opacity: 1; color: var(--flame);
+  font-family: 'Permanent Marker', cursive; font-size: 20px;
+}
+.match-voice {
+  display: flex; flex-direction: column; align-items: center;
+  margin-bottom: 14px;
+}
+.match-voice-btn {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--cream); color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 999px;
+  padding: 8px 16px; cursor: pointer;
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+  font-size: 13px;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+.match-voice-btn.on {
+  background: var(--cobalt); color: #fff;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 2px 2px 0 var(--ink); }
+  50% { box-shadow: 2px 2px 0 var(--ink), 0 0 0 4px rgba(37,68,214,.25); }
+}
+.match-voice-heard {
+  font-family: 'Caveat', cursive; font-size: 15px;
+  color: var(--ink); opacity: .6; margin-top: 6px;
+  min-height: 20px; text-align: center;
+}
+.match-bottom { display: flex; gap: 8px; }
+.match-end {
+  flex: 1;
+  font-family: 'Permanent Marker', cursive; font-size: 18px;
+  background: var(--flame); color: #fff;
+  border: 2.5px solid var(--ink); border-radius: 14px;
+  padding: 12px; cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.match-end:disabled { opacity: .6; cursor: wait; }
+.match-end:active { transform: translate(3px, 3px); box-shadow: none; }
+.match-abandon {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 600; font-size: 13px;
+  background: transparent; color: var(--ink); opacity: .6;
+  border: 2px solid var(--ink); border-radius: 14px;
+  padding: 12px 14px; cursor: pointer;
+}
+
+/* ───── challenge button on raider sheet ───── */
+.rs-challenge-btn {
+  width: 100%; margin-top: 8px;
+  font-family: 'Permanent Marker', cursive; font-size: 17px;
+  background: var(--cobalt); color: #fff;
+  border: 2.5px solid var(--ink); border-radius: 14px;
+  padding: 12px; cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.rs-challenge-btn:active { transform: translate(3px, 3px); box-shadow: none; }
+
+/* ───── access code modal ───── */
+.ac-sub {
+  font-family: 'Space Grotesk', sans-serif; font-size: 13px;
+  color: var(--ink); opacity: .7; text-align: center;
+  margin: 6px 0 14px; line-height: 1.4;
+}
+.ac-input {
+  width: 100%; box-sizing: border-box;
+  font-family: 'Permanent Marker', cursive;
+  font-size: 24px; letter-spacing: 4px;
+  text-align: center; text-transform: uppercase;
+  background: #fff; color: var(--ink);
+  border: 2.5px solid var(--ink); border-radius: 12px;
+  padding: 14px; margin-bottom: 12px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.ac-input:focus { outline: none; border-color: var(--flame); }
+.ac-error {
+  font-family: 'Caveat', cursive; font-size: 14px;
+  color: var(--flame); text-align: center;
+  min-height: 18px; margin-top: 6px;
+}
+
+/* ───── ELO chip on leaderboard rows ───── */
+.lb-elo {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+  font-size: 11px; color: var(--cobalt);
+  background: rgba(37,68,214,.1);
+  padding: 2px 6px; border-radius: 6px;
+  margin-left: 4px;
+}
