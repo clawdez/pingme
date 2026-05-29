@@ -416,13 +416,6 @@ async function loadOrCreateProfile(user) {
       }).then(() => updateNotisBadge());
     }
     // Restore expiry timer if returning as "playing"
-    // If returning user lacks invited_via AND there's a code/ref in URL, claim it (no prompt for legacy users)
-    if (!existing.invited_via) {
-      const params = new URLSearchParams(location.search);
-      if (params.get('code') || params.get('ref') || localStorage.getItem('pm_invited_via')) {
-        setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
-      }
-    }
     if (existing.status === 'playing' && existing.started_at) {
       const msLeft = (90 * 60000) - (Date.now() - new Date(existing.started_at).getTime());
       if (msLeft > 0) {
@@ -443,8 +436,6 @@ async function loadOrCreateProfile(user) {
   }).select().single();
   if (error) { toast('profile error'); console.error(error); return; }
   profile = newProfile; homeState = 'off';
-  // New profile: kick off access code claim flow (referral param or PINGME or prompt)
-  setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
 }
 
 /* ── WEB PUSH ── */
@@ -1108,18 +1099,16 @@ function renderLeaderboardList() {
   const list = document.getElementById('lb-list');
   if (!list) return;
 
-  const tab = lbActiveTab;
+  const isPlayers = lbActiveTab === 'players';
   // Deduplicate by name — keep the most recently updated profile
   const seen = new Map();
   allRaiders()
     .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
     .forEach(r => { if (!seen.has(r.name.toLowerCase())) seen.set(r.name.toLowerCase(), r); });
   const leaders = Array.from(seen.values())
-    .sort((a, b) => {
-      if (tab === 'players') return (b.play_count || 0) - (a.play_count || 0);
-      if (tab === 'elo') return (b.elo || 1200) - (a.elo || 1200);
-      return (b.referral_count || 0) - (a.referral_count || 0);
-    })
+    .sort((a, b) => isPlayers
+      ? (b.play_count || 0) - (a.play_count || 0)
+      : (b.referral_count || 0) - (a.referral_count || 0))
     .slice(0, 10);
 
   if (leaders.length === 0) {
@@ -1133,10 +1122,8 @@ function renderLeaderboardList() {
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
     const isMe = profile && r.id === profile.id;
     const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
-    let count, label;
-    if (tab === 'players') { count = r.play_count || 0; label = count === 1 ? 'game' : 'games'; }
-    else if (tab === 'elo') { count = r.elo || 1200; label = 'elo'; }
-    else { count = r.referral_count || 0; label = 'invited'; }
+    const count = isPlayers ? (r.play_count || 0) : (r.referral_count || 0);
+    const label = isPlayers ? (count === 1 ? 'game' : 'games') : 'invited';
     return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
       '<span class="lb-medal">' + medal + '</span>' +
       '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
@@ -1145,7 +1132,6 @@ function renderLeaderboardList() {
       '</div>';
   }).join('');
 }
-window.renderLeaderboard = renderLeaderboard;
 
 function getOrCreateOffExpand() {
   let el = document.getElementById('off-expand-link');
@@ -1246,8 +1232,7 @@ function openRaiderSheet(r) {
       (hasPhone
         ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
         : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
-      '</div>' +
-      '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>';
+      '</div>';
   }
 
   modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;
@@ -1287,14 +1272,6 @@ function openRaiderSheet(r) {
       }, 800);
     };
 
-    // Challenge to a match
-    const chBtn = document.getElementById('rs-challenge-btn');
-    if (chBtn) {
-      chBtn.onclick = () => {
-        document.getElementById('sheet-raider').classList.remove('open');
-        if (window.pmMatch?.open) window.pmMatch.open(r.id);
-      };
-    }
   }
 
   document.getElementById('sheet-raider').classList.add('open');
