@@ -1014,6 +1014,12 @@ button { font: inherit; color: inherit; }
   margin-left: 4px;
   cursor: pointer;
 }
+.me-verified {
+  display: inline-block; font-size: 14px; color: #fff;
+  background: var(--cobalt, #2563eb);
+  width: 18px; height: 18px; line-height: 18px; text-align: center;
+  border-radius: 50%; margin-left: 4px; vertical-align: 2px;
+}
 .me-name-input {
   font-family: 'Permanent Marker'; font-size: 28px; line-height: 1;
   border: none; border-bottom: 2.5px solid var(--cobalt);

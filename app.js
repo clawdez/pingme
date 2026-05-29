@@ -1623,7 +1623,7 @@ function renderMe() {
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
     '<div class="me-hero-text">' +
-    '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
+    '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + (me.email_verified ? ' <span class="me-verified" title="verified">&#10004;</span>' : '') + ' <span class="me-name-edit">&#9998;</span></div>' +
     '</div>' +
     '<button class="me-gear" id="me-gear">&#9881;</button>' +
     '</div>' +
