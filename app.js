@@ -24,43 +24,123 @@ try {
   });
 } catch (e) { console.error('Supabase failed to load:', e); }
 
-// #5: venues loaded from the `venues` table at boot. Hard-coded list is a fallback
-// for offline / first-paint only — the source of truth is Supabase.
-let VENUES = [
-  { id: 'sub', name: 'The Sub', desc: 'TTU Student Union' },
-  { id: 'rec', name: 'Rec Center', desc: 'TTU Recreation Center' },
-  { id: 'maggie', name: 'Maggie Trejo', desc: 'Supercenter' }
-];
+// Venues are user-contributed and span any place with a ping pong table —
+// public spots, businesses, private spaces. Source of truth is Supabase.
+let VENUES = [];
+let venueSearch = '';
+const VENUE_TYPE_ICON = { public: '🌳', business: '🏪', private: '🏠' };
+const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
+
 async function loadVenues() {
   if (!sb) return;
   try {
-    const { data, error } = await sb.from('venues').select('id, name, location').order('name');
-    if (error || !data || !data.length) return;
-    VENUES = data.map(v => ({ id: v.id, name: v.name, desc: v.location || '' }));
-    // Reselect by name if the previously-saved id doesn't exist anymore
+    const { data, error } = await sb.from('venues')
+      .select('id, name, location, type, city, lat, lng, play_count, verified')
+      .order('play_count', { ascending: false })
+      .order('name');
+    if (error) { console.warn('venues load failed', error); return; }
+    VENUES = (data || []).map(v => ({
+      id: v.id,
+      name: v.name,
+      desc: v.location || v.city || '',
+      type: v.type || 'public',
+      city: v.city || '',
+      lat: v.lat, lng: v.lng,
+      play_count: v.play_count || 0,
+      verified: !!v.verified
+    }));
     const stored = localStorage.getItem('pm_venue');
-    if (!VENUES.find(v => v.id === stored)) {
-      selectedVenue = VENUES[0].id;
-      localStorage.setItem('pm_venue', selectedVenue);
+    if (stored && !VENUES.find(v => v.id === stored)) {
+      selectedVenue = VENUES[0]?.id || null;
+      if (selectedVenue) localStorage.setItem('pm_venue', selectedVenue);
+      else localStorage.removeItem('pm_venue');
     }
     renderVenuePicker();
-  } catch (_) {}
+  } catch (e) { console.warn('venues load error', e); }
 }
-let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
-function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0]; }
-function getVenueName() { return getVenue().name; }
+let selectedVenue = localStorage.getItem('pm_venue') || null;
+function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0] || null; }
+function getVenueName() { const v = getVenue(); return v ? v.name : null; }
+function getVenueId()   { const v = getVenue(); return v ? v.id : null; }
 
 const AV_COLORS = ['#E8502A','#2544D6','#6FD27B','#E8B84A','#BFA8E0','#FFD3B6','#FF9AA2','#B5EAD7'];
+
+function filteredVenues() {
+  const q = (venueSearch || '').trim().toLowerCase();
+  if (!q) return VENUES;
+  return VENUES.filter(v =>
+    v.name.toLowerCase().includes(q) ||
+    (v.desc || '').toLowerCase().includes(q) ||
+    (v.city || '').toLowerCase().includes(q)
+  );
+}
 
 function renderVenuePicker() {
   const el = document.getElementById('venue-picker');
   if (!el) return;
-  el.innerHTML = VENUES.map(v =>
-    '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '">' +
-    '<span class="vp-name">' + esc(v.name) + '</span>' +
-    '<span class="vp-desc">' + esc(v.desc) + '</span>' +
-    '</button>'
-  ).join('');
+  const list = filteredVenues();
+  const searchVal = esc(venueSearch || '');
+  let html = '';
+  html += '<div class="venue-search-row">';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search places…" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<button class="venue-add-btn" id="venue-add-btn" type="button">+ add place</button>';
+  html += '</div>';
+  if (!list.length) {
+    html += '<div class="venue-empty">';
+    html += venueSearch
+      ? 'no matches — tap <b>+ add place</b> to put it on the map'
+      : 'no places yet — be the first: <b>+ add place</b>';
+    html += '</div>';
+  } else {
+    html += '<div class="venue-pill-grid">';
+    html += list.map(v => {
+      const icon = VENUE_TYPE_ICON[v.type] || '📍';
+      const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
+      return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '" type="button">'
+        + '<span class="vp-icon">' + icon + '</span>'
+        + '<span class="vp-text">'
+        +   '<span class="vp-name">' + esc(v.name) + '</span>'
+        +   '<span class="vp-desc">' + esc(meta) + '</span>'
+        + '</span>'
+        + '</button>';
+    }).join('');
+    html += '</div>';
+  }
+  el.innerHTML = html;
+
+  const searchInput = el.querySelector('#venue-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      venueSearch = e.target.value;
+      // re-render list portion only to keep input focus
+      const grid = el.querySelector('.venue-pill-grid, .venue-empty');
+      if (!grid) return;
+      const list2 = filteredVenues();
+      if (!list2.length) {
+        grid.outerHTML = '<div class="venue-empty">no matches — tap <b>+ add place</b> to put it on the map</div>';
+      } else {
+        const gridHtml = list2.map(v => {
+          const icon = VENUE_TYPE_ICON[v.type] || '📍';
+          const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
+          return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '" type="button">'
+            + '<span class="vp-icon">' + icon + '</span>'
+            + '<span class="vp-text">'
+            +   '<span class="vp-name">' + esc(v.name) + '</span>'
+            +   '<span class="vp-desc">' + esc(meta) + '</span>'
+            + '</span>'
+            + '</button>';
+        }).join('');
+        grid.outerHTML = '<div class="venue-pill-grid">' + gridHtml + '</div>';
+        bindVenuePills(el);
+      }
+    });
+  }
+
+  el.querySelector('#venue-add-btn')?.addEventListener('click', openAddVenueModal);
+  bindVenuePills(el);
+}
+
+function bindVenuePills(el) {
   el.querySelectorAll('.venue-pill').forEach(btn => {
     function handleVenue(e) {
       if (e.type === 'touchend') e.preventDefault();
@@ -72,6 +152,74 @@ function renderVenuePicker() {
     btn.addEventListener('click', handleVenue);
     btn.addEventListener('touchend', handleVenue);
   });
+}
+
+function openAddVenueModal() {
+  if (!profile) { toast('sign in first'); return; }
+  let el = document.getElementById('sheet-add-venue');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-add-venue';
+    el.innerHTML = `
+      <div class="sheet-scrim" data-dismiss></div>
+      <div class="modal-center">
+        <button class="modal-close" data-dismiss>&times;</button>
+        <h3>add a place</h3>
+        <div class="av-sub">anywhere with a ping pong table — park, bar, office, garage.</div>
+        <input class="av-input" id="av-name" maxlength="60" placeholder="place name (e.g. Bowie Park, Joe's Garage)"/>
+        <div class="av-types">
+          <button class="av-type active" data-type="public" type="button">🌳 public</button>
+          <button class="av-type" data-type="business" type="button">🏪 business</button>
+          <button class="av-type" data-type="private" type="button">🏠 private</button>
+        </div>
+        <input class="av-input" id="av-city" maxlength="40" placeholder="city (optional)"/>
+        <input class="av-input" id="av-location" maxlength="80" placeholder="address or note (optional)"/>
+        <button class="ping-confirm-btn" id="av-submit">add it</button>
+        <div class="av-error" id="av-error"></div>
+      </div>
+    `;
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-dismiss]').forEach(d => d.addEventListener('click', () => el.classList.remove('open')));
+    el.querySelectorAll('.av-type').forEach(b => {
+      b.addEventListener('click', () => {
+        el.querySelectorAll('.av-type').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+    el.querySelector('#av-submit').addEventListener('click', async () => {
+      const name = el.querySelector('#av-name').value.trim();
+      const type = el.querySelector('.av-type.active').dataset.type;
+      const city = el.querySelector('#av-city').value.trim();
+      const location = el.querySelector('#av-location').value.trim();
+      const err = el.querySelector('#av-error');
+      if (name.length < 2) { err.textContent = 'name too short'; return; }
+      err.textContent = '';
+      const submitBtn = el.querySelector('#av-submit');
+      submitBtn.disabled = true; submitBtn.textContent = 'adding…';
+      const { data, error } = await sb.rpc('add_venue', {
+        p_name: name, p_type: type,
+        p_city: city || null, p_location: location || null,
+        p_lat: null, p_lng: null
+      });
+      submitBtn.disabled = false; submitBtn.textContent = 'add it';
+      if (error) { err.textContent = error.message || 'could not add'; return; }
+      const v = Array.isArray(data) ? data[0] : data;
+      if (v?.id) {
+        VENUES.unshift({
+          id: v.id, name: v.name, desc: v.location || v.city || '',
+          type: v.type, city: v.city || '', lat: v.lat, lng: v.lng,
+          play_count: 0, verified: false
+        });
+        selectedVenue = v.id;
+        localStorage.setItem('pm_venue', selectedVenue);
+        renderVenuePicker();
+        toast('added: ' + v.name);
+      }
+      el.classList.remove('open');
+    });
+  }
+  el.classList.add('open');
 }
 const VAPID_PUBLIC = 'BL_BNqvydfkgV7pGo0T9gYToFkih9PEMirDsTGNjl8DFAUrK2eQP53NCQ1eH-BjpZRcLjXpDjmaQ56ZY2VCuqTQ';
 
@@ -501,11 +649,11 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
   // Fallback if newer columns don't exist yet on this Supabase instance
-  if (error && error.message && /play_count|email_verified/.test(error.message)) {
+  if (error && error.message && /play_count|email_verified|elo|wins|losses/.test(error.message)) {
     const fallback = await sb.from('profiles')
       .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
       .order('updated_at', { ascending: false })
@@ -714,8 +862,12 @@ document.addEventListener('touchend', handleDismiss);
 let confirmPingFiring = false; // debounce double-fire from touch+click
 async function handleConfirmPing(e) {
   if (confirmPingFiring) return;
-  confirmPingFiring = true;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
+  if (!getVenue()) {
+    toast('pick a place first (or + add place)');
+    return;
+  }
+  confirmPingFiring = true;
   document.getElementById('sheet-ping-confirm').classList.remove('open');
   const targetState = homeState; // 'down' or 'playing'
   if (targetState === 'down') downDur = 60;
@@ -844,6 +996,9 @@ async function setMyStatus(st) {
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
     updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = 90;
+    // Bump per-venue play_count so popular spots float to the top
+    const vid = getVenueId();
+    if (vid) sb.rpc('bump_venue_play', { p_venue: vid }).catch(() => {});
     // Increment play count for leaderboard
     sb.rpc('increment_play_count', { player_id: profile.id }).then(() => {
       profile.play_count = (profile.play_count || 0) + 1;
@@ -1455,7 +1610,15 @@ function renderMe() {
 
   const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
-  // Layout: avatar + name + gear → notis feed
+  // Stats: ELO, wins, losses, plays signaled, win %
+  const elo = (me.elo != null ? me.elo : 1200);
+  const wins = me.wins || 0;
+  const losses = me.losses || 0;
+  const plays = me.play_count || 0;
+  const totalMatches = wins + losses;
+  const winPct = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : null;
+
+  // Layout: avatar + name + gear → stats → notis feed
   w.innerHTML =
     '<div class="me-hero-min">' +
     '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
@@ -1463,6 +1626,14 @@ function renderMe() {
     '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
     '</div>' +
     '<button class="me-gear" id="me-gear">&#9881;</button>' +
+    '</div>' +
+
+    '<div class="me-stats">' +
+      '<div class="me-stat"><span class="me-stat-num">' + elo + '</span><span class="me-stat-lbl">elo</span></div>' +
+      '<div class="me-stat"><span class="me-stat-num">' + wins + '</span><span class="me-stat-lbl">wins</span></div>' +
+      '<div class="me-stat"><span class="me-stat-num">' + losses + '</span><span class="me-stat-lbl">losses</span></div>' +
+      '<div class="me-stat"><span class="me-stat-num">' + (winPct != null ? winPct + '%' : '—') + '</span><span class="me-stat-lbl">win rate</span></div>' +
+      '<div class="me-stat"><span class="me-stat-num">' + plays + '</span><span class="me-stat-lbl">plays</span></div>' +
     '</div>' +
 
     '<div class="me-settings-dropdown" id="me-settings-dd">' +
@@ -1473,7 +1644,6 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
-    '<button class="me-dd-item" id="sr-phone-change">' + (profile.phone ? 'change phone' : 'add phone number') + '</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
     '</div>' +
@@ -1545,23 +1715,6 @@ function renderMe() {
     toast('name updated');
   }
   document.getElementById('me-name-display').addEventListener('click', startNameChange);
-
-  // Phone change from dropdown
-  document.getElementById('sr-phone-change').addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.remove('open');
-    const cur = profile.phone || '';
-    const phone = prompt('your phone number (so others can text you):', cur);
-    if (phone === null) return; // cancelled
-    const cleaned = phone.trim().replace(/[^0-9+]/g, '');
-    if (cleaned.length > 0 && cleaned.length < 10) { toast('enter a valid phone number'); return; }
-    const val = cleaned.length >= 10 ? cleaned : null;
-    profile.phone = val;
-    const me = roster.find(r => r.id === profile.id);
-    if (me) me.phone = val;
-    if (sb) sb.from('profiles').update({ phone: val }).eq('id', profile.id);
-    toast(val ? 'phone updated' : 'phone removed');
-    renderMe();
-  });
 
   // Notifications toggle
   document.getElementById('sr-notif-link').addEventListener('click', async () => {
@@ -1943,8 +2096,6 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
-    '<input class="setup-name-input" id="setup-phone-2" type="tel" placeholder="phone number" autocomplete="tel" maxlength="15" style="letter-spacing:1px"/>' +
-    '<div class="setup-disclaimer">so other players can text you</div>' +
     '<button class="setup-primary" id="s2-rally">continue</button>' +
     '</div>' +
     '</div>';
@@ -1961,8 +2112,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   document.getElementById('s2-rally').addEventListener('click', async () => {
     const n = inp.value.trim().toLowerCase().slice(0, 30);
     if (!n) { toast('enter your name first'); return; }
-    const phoneRaw = document.getElementById('setup-phone-2').value.trim().replace(/[^0-9+]/g, '');
-    const phone = phoneRaw.length >= 10 ? phoneRaw : null;
+    const phone = null;
     const btn = document.getElementById('s2-rally');
     btn.textContent = '...'; btn.disabled = true;
 

@@ -364,30 +364,89 @@ button { font: inherit; color: inherit; }
 }
 /* venue picker */
 .venue-picker {
-  display: flex; gap: 8px; margin-bottom: 14px;
-  flex-wrap: wrap; justify-content: center;
+  display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;
+}
+.venue-search-row { display: flex; gap: 8px; }
+.venue-search {
+  flex: 1; min-width: 0;
+  border: 2px solid var(--ink); border-radius: 12px;
+  padding: 9px 12px; font: inherit; font-size: 14px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  outline: none;
+}
+.venue-search:focus { background: #FFF8E6; }
+.venue-add-btn {
+  border: 2px solid var(--ink); border-radius: 12px;
+  background: var(--flame, #E8502A); color: var(--cream);
+  padding: 9px 12px; font-family: 'Permanent Marker'; font-size: 13px;
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+  white-space: nowrap;
+}
+.venue-add-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+.venue-pill-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  max-height: 240px; overflow-y: auto;
+}
+.venue-empty {
+  text-align: center; padding: 18px 8px;
+  font-family: 'Caveat', cursive; font-size: 16px; opacity: .75;
 }
 .venue-pill {
-  flex: 1; min-width: 80px;
   border: 2px solid var(--ink);
   border-radius: 14px;
-  padding: 10px 8px;
+  padding: 10px 10px;
   background: var(--cream); color: var(--ink);
   box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
   transition: transform .08s;
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  display: flex; align-items: center; gap: 8px;
+  text-align: left;
 }
 .venue-pill:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 .venue-pill.active { background: var(--ink); color: var(--cream); }
+.vp-icon { font-size: 20px; line-height: 1; }
+.vp-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .vp-name {
   font-family: 'Permanent Marker'; font-size: 14px; line-height: 1.1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vp-desc {
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 11px; opacity: .6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .venue-pill.active .vp-desc { opacity: .7; }
+
+/* add-venue modal */
+.av-sub {
+  font-family: 'Caveat', cursive; font-size: 16px;
+  text-align: center; opacity: .75; margin: -4px 0 12px;
+}
+.av-input {
+  width: 100%;
+  border: 2px solid var(--ink); border-radius: 12px;
+  padding: 10px 12px; font: inherit; font-size: 15px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  outline: none;
+  margin-bottom: 10px;
+}
+.av-input:focus { background: #FFF8E6; }
+.av-types { display: flex; gap: 6px; margin-bottom: 12px; }
+.av-type {
+  flex: 1;
+  border: 2px solid var(--ink); border-radius: 12px;
+  padding: 8px 6px; font-family: 'Permanent Marker'; font-size: 12px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+}
+.av-type.active { background: var(--ink); color: var(--cream); }
+.av-error {
+  color: var(--flame, #E8502A); font-family: 'Caveat', cursive;
+  font-size: 15px; text-align: center; min-height: 18px; margin-top: 6px;
+}
 
 .ping-confirm-btn {
   width: 100%;
@@ -1122,6 +1181,38 @@ button { font: inherit; color: inherit; }
 }
 .me-gear:hover { color: var(--ink); }
 .me-gear:active { transform: rotate(60deg); }
+
+/* Profile stats grid */
+.me-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin: 4px 0 10px;
+  padding: 10px 6px;
+  background: var(--cream);
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: 3px 3px 0 var(--ink);
+}
+.me-stat {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center;
+  padding: 4px 2px;
+}
+.me-stat-num {
+  font-family: 'Permanent Marker', cursive;
+  font-size: 20px; line-height: 1.05;
+  color: var(--ink);
+  letter-spacing: -.5px;
+}
+.me-stat-lbl {
+  font-family: 'Space Grotesk';
+  font-size: 10px; font-weight: 600;
+  color: rgba(20,18,16,.55);
+  text-transform: lowercase;
+  margin-top: 2px;
+}
 
 /* Settings dropdown — hidden by default */
 .me-settings-dropdown {
