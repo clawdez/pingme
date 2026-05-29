@@ -1420,6 +1420,7 @@ function openRaiderSheet(r) {
   // Action buttons — ping is primary, text is secondary (SMS deep link)
   if (canAct) {
     const hasPhone = r.phone && r.phone.length >= 10;
+    const showInvite = r.status === 'down';
     html +=
       '<div class="rs-actions">' +
       '<button class="rs-ping-btn" id="rs-ping-btn">&#127955; ping ' + esc(r.name) + '</button>' +
@@ -1427,6 +1428,7 @@ function openRaiderSheet(r) {
         ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
         : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
       '</div>' +
+      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">&#128205; down to play at...</button>' : '') +
       (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>' : '');
   }
 
@@ -1475,9 +1477,71 @@ function openRaiderSheet(r) {
         if (window.pmMatch?.open) window.pmMatch.open(r.id);
       };
     }
+
+    // Invite to a venue (handshake) — only when target is down
+    const invBtn = document.getElementById('rs-invite-venue-btn');
+    if (invBtn) {
+      invBtn.onclick = () => {
+        document.getElementById('sheet-raider').classList.remove('open');
+        openInviteToVenue(r);
+      };
+    }
   }
 
   document.getElementById('sheet-raider').classList.add('open');
+}
+
+/* ── INVITE TO VENUE (handshake) ──
+   target is a roster row in 'down' state. We pick a venue + optional note,
+   then drop a ping with verb='down to play at' so the receiver sees
+   accept/decline in their notis. */
+function openInviteToVenue(target) {
+  if (!profile) { toast('sign in first'); return; }
+  let el = document.getElementById('sheet-invite-venue');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-invite-venue';
+    el.innerHTML =
+      '<div class="sheet-scrim" data-dismiss></div>' +
+      '<div class="modal-center">' +
+        '<button class="modal-close" data-dismiss>&times;</button>' +
+        '<h3 id="iv-title">down to play?</h3>' +
+        '<div class="ping-confirm-sub" id="iv-sub">pick a spot — they get to accept or pass</div>' +
+        '<div class="venue-picker" id="venue-picker"></div>' +
+        '<input class="av-input" id="iv-note" maxlength="120" placeholder="add a note (optional) — e.g. anytime after 6pm"/>' +
+        '<button class="ping-confirm-btn" id="iv-send">send invite</button>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-dismiss]').forEach(d =>
+      d.addEventListener('click', () => el.classList.remove('open'))
+    );
+  }
+  el.querySelector('#iv-title').textContent = 'invite ' + target.name + ' to play';
+  el.querySelector('#iv-note').value = '';
+  renderVenuePicker();
+  el.classList.add('open');
+
+  el.querySelector('#iv-send').onclick = async () => {
+    const venue = getVenue();
+    if (!venue) { toast('pick a place first'); return; }
+    const note = el.querySelector('#iv-note').value.trim();
+    const btn = el.querySelector('#iv-send');
+    btn.disabled = true; btn.textContent = 'sending…';
+    const msg = (profile.name || 'someone') + ' is down to play at ' + venue.name +
+                (note ? ' — ' + note : '');
+    const { error } = await sb.from('pings').insert({
+      from_id: profile.id,
+      to_id: target.id,
+      verb: 'down to play at',
+      msg: msg + '␟' + venue.id, // separator-encoded venue id for accept handler
+      unread: true
+    });
+    btn.disabled = false; btn.textContent = 'send invite';
+    if (error) { toast('send failed: ' + error.message); return; }
+    el.classList.remove('open');
+    toast('invite sent to ' + target.name);
+  };
 }
 
 /* ── NOTIS — T7 welcome card ── */
@@ -1514,9 +1578,15 @@ function renderNotis() {
     const acted = p.action_taken;
 
     let actions = '';
+    const isInvite = p.verb === 'down to play at';
     if (isSystem) {
       actions = '<div class="ping-actions">' +
         '<button class="pa-btn primary system-link-email" data-ping="' + p.id + '">connect email</button>' +
+        '</div>';
+    } else if (!acted && isInvite) {
+      actions = '<div class="ping-actions">' +
+        '<button class="pa-btn primary" data-ping="' + p.id + '" data-action="accepted">i\'m in</button>' +
+        '<button class="pa-btn" data-ping="' + p.id + '" data-action="declined">pass</button>' +
         '</div>';
     } else if (!acted) {
       actions = '<div class="ping-actions">' +
@@ -1524,15 +1594,20 @@ function renderNotis() {
         '<button class="pa-btn" data-ping="' + p.id + '" data-action="maybe">maybe</button>' +
         '<button class="pa-btn" data-ping="' + p.id + '" data-action="can\'t">can\'t</button>' +
         '</div>';
+    } else if (isInvite && acted === 'accepted' && FEATURES.matchTracking) {
+      actions = '<div class="ping-actions">' +
+        '<button class="pa-btn primary pa-start-match" data-from="' + p.from_id + '">&#127955; tap to start match</button>' +
+        '</div>';
     } else {
       actions = '<div class="ping-actions"><button class="pa-btn taken">&#10003; ' + esc(acted) + '</button></div>';
     }
 
+    const displayMsg = (p.msg || '').split('␟')[0]; // strip encoded venue id on invites
     return '<div class="ping-card ' + (p.unread ? 'unread' : '') + '" data-id="' + p.id + '">' +
       '<div class="pc-av" style="background:' + color + ';color:#F4EDDC">' + avText + '</div>' +
       '<div class="pc-body">' +
       '<div class="pc-who">' + esc(who) + (isSystem ? '' : ' <span class="pc-verb">' + esc(p.verb || '') + '</span>') + '</div>' +
-      '<div class="pc-msg">' + esc(p.msg || '') + '</div>' +
+      '<div class="pc-msg">' + esc(displayMsg) + '</div>' +
       '<div class="pc-time">' + ago + '</div>' +
       actions + '</div></div>';
   }).join('') + '<div class="empty-hint">that\'s the lot. go play.</div>';
@@ -1557,6 +1632,25 @@ function renderNotis() {
       await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
+      // "accepted" invite → switch to that venue + go down
+      if (action === 'accepted' && profile && p?.verb === 'down to play at') {
+        const venueId = (p.msg || '').split('␟')[1];
+        if (venueId && VENUES.find(v => v.id === venueId)) {
+          selectedVenue = venueId;
+          localStorage.setItem('pm_venue', venueId);
+        }
+        if (homeState !== 'down' && homeState !== 'playing') {
+          downDur = 60;
+          const ok = await setMyStatus('down');
+          if (!ok) { toast('failed to update status'); renderNotis(); return; }
+          homeState = 'down';
+          app.dataset.homeState = 'down';
+        }
+        document.getElementById('sheet-me').classList.remove('open');
+        renderHome();
+        toast('locked in — see you at ' + (getVenueName() || 'the table'));
+        return;
+      }
       // "on my way" sets your status to down automatically
       if (action === 'on my way' && profile && homeState !== 'down' && homeState !== 'playing') {
         downDur = 60;
@@ -1571,6 +1665,17 @@ function renderNotis() {
       }
       renderNotis();
       updateNotisBadge();
+    })
+  );
+
+  // "tap to start match" on an accepted invite → open scoreholio score card
+  pingList.querySelectorAll('.pa-start-match').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const fromId = btn.dataset.from;
+      if (!fromId) return;
+      document.getElementById('sheet-me').classList.remove('open');
+      if (window.pmMatch?.open) window.pmMatch.open(fromId);
+      else toast('match tracking not enabled');
     })
   );
 }
