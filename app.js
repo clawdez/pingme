@@ -453,8 +453,10 @@ async function loadOrCreateProfile(user) {
   }).select().single();
   if (error) { toast('profile error'); console.error(error); return; }
   profile = newProfile; homeState = 'off';
-  // New profile: kick off access code claim flow (referral param or PINGME or prompt)
-  setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
+  if (FEATURES.accessCodes) {
+    // New profile: kick off access code claim flow (referral param or PINGME or prompt)
+    setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
+  }
 }
 
 /* ── WEB PUSH ── */
@@ -1098,6 +1100,12 @@ function renderLeaderboard() {
   const list = document.getElementById('lb-list');
   if (!section || !list) return;
 
+  // Hide the elo tab when match tracking isn't enabled on this build
+  if (!FEATURES.matchTracking) {
+    section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
+    if (lbActiveTab === 'elo') lbActiveTab = 'players';
+  }
+
   // Wire tabs
   const tabs = section.querySelectorAll('.lb-tab');
   tabs.forEach(tab => {
@@ -1264,7 +1272,7 @@ function openRaiderSheet(r) {
         ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
         : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
       '</div>' +
-      '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>';
+      (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>' : '');
   }
 
   modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;

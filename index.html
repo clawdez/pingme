@@ -23,6 +23,16 @@
 <link rel="stylesheet" href="style.css"/>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<script>
+  // DEV-BRANCH override — turns experimental features on for the Vercel preview build.
+  // This <script> block lives only on the `dev` branch; on `main` it is absent so the
+  // FEATURES defaults in app.js (all off) take over.
+  window.PINGME_FEATURES = {
+    matchTracking: true,
+    accessCodes: true,
+    leaderboardLinkedOnly: false
+  };
+</script>
 <script defer src="app.js"></script>
 <script defer src="matches.js"></script>
 <script>
