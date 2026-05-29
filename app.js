@@ -1,5 +1,14 @@
 /* pingme — v5 · all tasks */
 
+// Feature flags — overridden on dev/preview deployments via window.PINGME_FEATURES in index.html
+const FEATURES = Object.assign({
+  matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
+  accessCodes:   false,           // invite-only access codes
+  leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
+}, (typeof window !== 'undefined' && window.PINGME_FEATURES) || {});
+
+const POLL_INTERVAL_MS = 60000; // #7: 60s fallback (was 10s) — realtime is primary
+
 const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
 
@@ -15,11 +24,28 @@ try {
   });
 } catch (e) { console.error('Supabase failed to load:', e); }
 
-const VENUES = [
+// #5: venues loaded from the `venues` table at boot. Hard-coded list is a fallback
+// for offline / first-paint only — the source of truth is Supabase.
+let VENUES = [
   { id: 'sub', name: 'The Sub', desc: 'TTU Student Union' },
   { id: 'rec', name: 'Rec Center', desc: 'TTU Recreation Center' },
   { id: 'maggie', name: 'Maggie Trejo', desc: 'Supercenter' }
 ];
+async function loadVenues() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('venues').select('id, name, location').order('name');
+    if (error || !data || !data.length) return;
+    VENUES = data.map(v => ({ id: v.id, name: v.name, desc: v.location || '' }));
+    // Reselect by name if the previously-saved id doesn't exist anymore
+    const stored = localStorage.getItem('pm_venue');
+    if (!VENUES.find(v => v.id === stored)) {
+      selectedVenue = VENUES[0].id;
+      localStorage.setItem('pm_venue', selectedVenue);
+    }
+    renderVenuePicker();
+  } catch (_) {}
+}
 let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
 function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0]; }
 function getVenueName() { return getVenue().name; }
@@ -169,30 +195,8 @@ async function boot() {
       const { data: existing } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
       if (existing && existing.name) {
         // Returning user — already onboarded
-        profile = existing;
-        homeState = existing.status || 'off';
-        // Restore expiry timer if returning as "down"
-        if (existing.status === 'down' && existing.started_at && existing.duration) {
-          const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-          if (msLeft > 0) {
-            downDur = existing.duration;
-            downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
-            // Schedule 5-min reminder if enough time left
-            const reminderMs = msLeft - 5 * 60000;
-            if (reminderMs > 60000) {
-              downReminderTimer = setTimeout(() => {
-                toast('5 min left on your down window');
-                maybeNotify('5 minutes left — find your game!');
-              }, reminderMs);
-            }
-          } else {
-            // Expired while offline — immediately set to off
-            homeState = 'off';
-            existing.status = 'off';
-            profile = existing;
-            await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
-          }
-        }
+        profile = await restoreTimers(existing);
+        homeState = profile.status || 'off';
         document.getElementById('setup-root').innerHTML = '';
         await loadRoster();
         await loadPings();
@@ -229,11 +233,15 @@ async function boot() {
 
   setInterval(async () => {
     await expireStale();
-    // Polling fallback — refresh roster in case realtime missed updates
+    // #7: polling is a true fallback now (60s). Realtime subscription is primary;
+    // visibilitychange + heartbeat re-subscribe handle gaps.
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-  }, 10000);
+  }, POLL_INTERVAL_MS);
+
+  // #5: pull canonical venue list once we have a connection
+  loadVenues();
 
   // Pull-to-refresh
   initPullToRefresh();
@@ -367,6 +375,39 @@ function initPullToRefresh() {
   }, 2000);
 }
 
+// #8: single source of truth for restoring per-status expiry timers + offline catch-up.
+// Was duplicated between boot, loadOrCreateProfile, and onAuthStateChange.
+async function restoreTimers(p) {
+  if (!p) return p;
+  if (p.status === 'down' && p.started_at && p.duration) {
+    const msLeft = (p.duration * 60000) - (Date.now() - new Date(p.started_at).getTime());
+    if (msLeft > 0) {
+      downDur = p.duration;
+      downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+      const reminderMs = msLeft - 5 * 60000;
+      if (reminderMs > 60000) {
+        downReminderTimer = setTimeout(() => {
+          toast('5 min left on your down window');
+          maybeNotify('5 minutes left — find your game!');
+        }, reminderMs);
+      }
+    } else {
+      p.status = 'off';
+      await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', p.id);
+    }
+  }
+  if (p.status === 'playing' && p.started_at) {
+    const msLeft = (90 * 60000) - (Date.now() - new Date(p.started_at).getTime());
+    if (msLeft > 0) {
+      playingExpiryTimer = setTimeout(() => { toast('playing session expired after 90 min'); snapTo('off'); }, msLeft);
+    } else {
+      p.status = 'off';
+      await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', p.id);
+    }
+  }
+  return p;
+}
+
 /* ── AUTH ── */
 async function signInSendCode(email) {
   try {
@@ -384,27 +425,8 @@ async function signInSendCode(email) {
 async function loadOrCreateProfile(user) {
   const { data: existing } = await sb.from('profiles').select('*').eq('id', user.id).single();
   if (existing) {
-    profile = existing; homeState = existing.status || 'off';
-    // Restore expiry timer if returning as "down"
-    if (existing.status === 'down' && existing.started_at && existing.duration) {
-      const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-      if (msLeft > 0) {
-        downDur = existing.duration;
-        downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
-        const reminderMs = msLeft - 5 * 60000;
-        if (reminderMs > 60000) {
-          downReminderTimer = setTimeout(() => {
-            toast('5 min left on your down window');
-            maybeNotify('5 minutes left — find your game!');
-          }, reminderMs);
-        }
-      } else {
-        // Expired while offline — immediately set to off
-        homeState = 'off';
-        profile.status = 'off';
-        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
-      }
-    }
+    profile = await restoreTimers(existing);
+    homeState = profile.status || 'off';
     // Nudge anonymous users to link email (once)
     if (!user.email && !localStorage.getItem('pm_link_nudge')) {
       localStorage.setItem('pm_link_nudge', '1');
@@ -414,17 +436,6 @@ async function loadOrCreateProfile(user) {
         msg: 'your account will disappear if you log out or switch devices. connect your email now to save it.',
         unread: true
       }).then(() => updateNotisBadge());
-    }
-    // Restore expiry timer if returning as "playing"
-    if (existing.status === 'playing' && existing.started_at) {
-      const msLeft = (90 * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-      if (msLeft > 0) {
-        playingExpiryTimer = setTimeout(() => { toast('playing session expired after 90 min'); snapTo('off'); }, msLeft);
-      } else {
-        homeState = 'off';
-        profile.status = 'off';
-        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
-      }
     }
     return;
   }
@@ -480,11 +491,11 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
-  // Fallback if play_count column doesn't exist yet
-  if (error && error.message && error.message.includes('play_count')) {
+  // Fallback if newer columns don't exist yet on this Supabase instance
+  if (error && error.message && /play_count|email_verified/.test(error.message)) {
     const fallback = await sb.from('profiles')
       .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
       .order('updated_at', { ascending: false })
@@ -1100,11 +1111,17 @@ function renderLeaderboardList() {
   if (!list) return;
 
   const isPlayers = lbActiveTab === 'players';
-  // Deduplicate by name — keep the most recently updated profile
+  // #3: dedupe by id (was name) — same name across accounts is fine, same id is the bug.
   const seen = new Map();
-  allRaiders()
+  let pool = allRaiders();
+  // #10: gate to linked-email accounts when the flag is on. `email_verified` is set
+  // server-side by the send-email edge function on OTP verify.
+  if (FEATURES.leaderboardLinkedOnly) {
+    pool = pool.filter(r => r.email_verified || (profile && r.id === profile.id && localStorage.getItem('pm_linked_email')));
+  }
+  pool
     .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
-    .forEach(r => { if (!seen.has(r.name.toLowerCase())) seen.set(r.name.toLowerCase(), r); });
+    .forEach(r => { if (!seen.has(r.id)) seen.set(r.id, r); });
   const leaders = Array.from(seen.values())
     .sort((a, b) => isPlayers
       ? (b.play_count || 0) - (a.play_count || 0)
@@ -1164,8 +1181,9 @@ function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
   // Fetch phone on demand (not in roster for privacy)
   if (!r._phoneFetched && profile && r.id !== profile.id) {
-    sb.from('profiles').select('phone').eq('id', r.id).single().then(({ data }) => {
-      r.phone = data?.phone || null;
+    // #1: phone is no longer in the world-readable SELECT — fetch via RPC.
+    sb.rpc('get_player_contact', { target_id: r.id }).then(({ data }) => {
+      r.phone = data || null;
       r._phoneFetched = true;
       // Re-render msg button if sheet is still open
       const msgBtn = document.getElementById('rs-msg-btn');
