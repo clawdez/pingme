@@ -249,6 +249,29 @@ function bindVenuePills(el) {
   });
 }
 
+let _avSearchTimer = null;
+let _avSearchSeq = 0;
+let _avPicked = null; // { name, city, location, lat, lng }
+
+async function nominatimSearch(query) {
+  if (!query || query.length < 3) return [];
+  const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=' + encodeURIComponent(query);
+  try {
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch { return []; }
+}
+
+function formatNomResult(r) {
+  const a = r.address || {};
+  const city = a.city || a.town || a.village || a.hamlet || a.suburb || a.county || '';
+  const name = r.namedetails?.name || (r.display_name || '').split(',')[0].trim();
+  const parts = [a.road, a.house_number].filter(Boolean).join(' ');
+  const tail = [parts, a.state, a.country].filter(Boolean).join(', ');
+  return { name, city, location: tail || (r.display_name || ''), lat: parseFloat(r.lat), lng: parseFloat(r.lon) };
+}
+
 function openAddVenueModal() {
   if (!profile) { toast('sign in first'); return; }
   let el = document.getElementById('sheet-add-venue');
@@ -261,41 +284,85 @@ function openAddVenueModal() {
       <div class="modal-center">
         <button class="modal-close" data-dismiss>&times;</button>
         <h3>add a place</h3>
-        <div class="av-sub">anywhere with a ping pong table — park, bar, office, garage.</div>
-        <input class="av-input" id="av-name" maxlength="60" placeholder="place name (e.g. Bowie Park, Joe's Garage)"/>
+        <div class="av-sub">search for it — park, bar, gym, anywhere with a table</div>
+        <div class="av-search-wrap">
+          <input class="av-input av-search" id="av-search" autocomplete="off" placeholder="search a place…"/>
+          <div class="av-results" id="av-results"></div>
+        </div>
+        <div class="av-picked" id="av-picked" style="display:none"></div>
         <div class="av-types">
           <button class="av-type active" data-type="public" type="button">🌳 public</button>
           <button class="av-type" data-type="business" type="button">🏪 business</button>
           <button class="av-type" data-type="private" type="button">🏠 private</button>
         </div>
-        <input class="av-input" id="av-city" maxlength="40" placeholder="city (optional)"/>
-        <input class="av-input" id="av-location" maxlength="80" placeholder="address or note (optional)"/>
         <button class="ping-confirm-btn" id="av-submit">add it</button>
         <div class="av-error" id="av-error"></div>
       </div>
     `;
     document.body.appendChild(el);
-    el.querySelectorAll('[data-dismiss]').forEach(d => d.addEventListener('click', () => el.classList.remove('open')));
+    el.querySelectorAll('[data-dismiss]').forEach(d => d.addEventListener('click', () => {
+      el.classList.remove('open');
+    }));
     el.querySelectorAll('.av-type').forEach(b => {
       b.addEventListener('click', () => {
         el.querySelectorAll('.av-type').forEach(x => x.classList.remove('active'));
         b.classList.add('active');
       });
     });
+    const searchInput = el.querySelector('#av-search');
+    const resultsEl = el.querySelector('#av-results');
+    const pickedEl = el.querySelector('#av-picked');
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.trim();
+      _avPicked = null;
+      pickedEl.style.display = 'none';
+      if (_avSearchTimer) clearTimeout(_avSearchTimer);
+      if (q.length < 3) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+      const seq = ++_avSearchSeq;
+      resultsEl.innerHTML = '<div class="av-result-loading">searching…</div>';
+      resultsEl.style.display = 'block';
+      _avSearchTimer = setTimeout(async () => {
+        const raw = await nominatimSearch(q);
+        if (seq !== _avSearchSeq) return;
+        const items = raw.map(formatNomResult).filter(r => r.name);
+        if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">no matches</div>'; return; }
+        resultsEl.innerHTML = items.map((r, i) =>
+          '<button class="av-result" type="button" data-i="' + i + '">'
+          + '<span class="avr-name">' + esc(r.name) + '</span>'
+          + '<span class="avr-meta">' + esc([r.city, r.location].filter(Boolean).join(' · ')) + '</span>'
+          + '</button>'
+        ).join('');
+        resultsEl.querySelectorAll('.av-result').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const pick = items[parseInt(btn.dataset.i, 10)];
+            _avPicked = pick;
+            searchInput.value = pick.name;
+            resultsEl.style.display = 'none';
+            resultsEl.innerHTML = '';
+            pickedEl.style.display = 'block';
+            pickedEl.innerHTML = '<span class="avp-pin">📍</span>'
+              + '<span class="avp-text"><b>' + esc(pick.name) + '</b><br/><span class="avp-meta">'
+              + esc([pick.city, pick.location].filter(Boolean).join(' · ')) + '</span></span>';
+          });
+        });
+      }, 320);
+    });
     el.querySelector('#av-submit').addEventListener('click', async () => {
-      const name = el.querySelector('#av-name').value.trim();
-      const type = el.querySelector('.av-type.active').dataset.type;
-      const city = el.querySelector('#av-city').value.trim();
-      const location = el.querySelector('#av-location').value.trim();
       const err = el.querySelector('#av-error');
-      if (name.length < 2) { err.textContent = 'name too short'; return; }
+      let payload = _avPicked;
+      if (!payload) {
+        const typed = searchInput.value.trim();
+        if (typed.length < 2) { err.textContent = 'search for a place first'; return; }
+        payload = { name: typed, city: '', location: '', lat: null, lng: null };
+      }
+      const type = el.querySelector('.av-type.active').dataset.type;
       err.textContent = '';
       const submitBtn = el.querySelector('#av-submit');
       submitBtn.disabled = true; submitBtn.textContent = 'adding…';
       const { data, error } = await sb.rpc('add_venue', {
-        p_name: name, p_type: type,
-        p_city: city || null, p_location: location || null,
-        p_lat: null, p_lng: null
+        p_name: payload.name, p_type: type,
+        p_city: payload.city || null, p_location: payload.location || null,
+        p_lat: payload.lat, p_lng: payload.lng
       });
       submitBtn.disabled = false; submitBtn.textContent = 'add it';
       if (error) { err.textContent = error.message || 'could not add'; return; }
@@ -311,8 +378,23 @@ function openAddVenueModal() {
         renderVenuePicker();
         toast('added: ' + v.name);
       }
+      // reset for next open
+      _avPicked = null;
+      searchInput.value = '';
+      pickedEl.style.display = 'none';
       el.classList.remove('open');
     });
+  } else {
+    // reset on reopen
+    const searchInput = el.querySelector('#av-search');
+    const pickedEl = el.querySelector('#av-picked');
+    const resultsEl = el.querySelector('#av-results');
+    const errEl = el.querySelector('#av-error');
+    if (searchInput) searchInput.value = '';
+    if (pickedEl) pickedEl.style.display = 'none';
+    if (resultsEl) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; }
+    if (errEl) errEl.textContent = '';
+    _avPicked = null;
   }
   el.classList.add('open');
 }
