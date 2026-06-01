@@ -156,6 +156,8 @@ serve(async (req: Request) => {
       // Clean up OTP and system nudge pings
       await sb.from('email_otps').delete().eq('user_id', user_id)
       await sb.from('pings').delete().eq('to_id', user_id).eq('verb', 'system')
+      // #10: mark this profile as email-verified so it qualifies for the leaderboard gate
+      await sb.from('profiles').update({ email_verified: true }).eq('id', user_id)
 
       return new Response(JSON.stringify({ verified: true }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -302,6 +304,8 @@ serve(async (req: Request) => {
 
       // Clean up OTP
       await sb.from('email_otps').delete().eq('user_id', existingUser.id)
+      // #10: sign-in via email means email is verified — gate qualifier
+      await sb.from('profiles').update({ email_verified: true }).eq('id', existingUser.id)
 
       // Return the hashed token for client-side verification
       const tokenHash = linkData.properties?.hashed_token

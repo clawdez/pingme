@@ -22,9 +22,14 @@ create table if not exists profiles (
   referred_by uuid references profiles(id) on delete set null,
   referral_count int not null default 0,
   play_count int not null default 0,
+  -- #10: gate leaderboard / future trusted actions to email-linked accounts
+  email_verified boolean not null default false,
   updated_at timestamptz default now(),
   created_at timestamptz default now()
 );
+
+-- Backfill column for existing deployments (idempotent)
+alter table profiles add column if not exists email_verified boolean not null default false;
 
 -- Pings: notifications between users
 create table if not exists pings (
@@ -49,15 +54,11 @@ create table if not exists push_subscriptions (
   unique(user_id)
 );
 
--- Messages: 1:1 chat between users
-create table if not exists messages (
-  id uuid primary key default gen_random_uuid(),
-  room_id text not null,
-  sender_id uuid not null references profiles(id) on delete cascade,
-  receiver_id uuid not null references profiles(id) on delete cascade,
-  body text not null check (char_length(body) >= 1 and char_length(body) <= 200),
-  created_at timestamptz default now()
-);
+-- #4: in-app DMs were removed from MVP — SMS deep-links from the player sheet
+-- replace them. The table is dropped here to shrink the attack surface (RLS no
+-- longer matters if there's nothing to read). If we ever ship DMs again it will
+-- live on the `dev` branch behind a feature flag, not in this schema.
+drop table if exists messages cascade;
 
 -- Email OTPs: verification codes for email linking + sign-in
 create table if not exists email_otps (
@@ -87,7 +88,6 @@ create index if not exists idx_profiles_updated on profiles(updated_at desc);
 create index if not exists idx_pings_to_id on pings(to_id);
 create index if not exists idx_pings_created on pings(created_at desc);
 create index if not exists idx_push_subs_user on push_subscriptions(user_id);
-create index if not exists idx_messages_room on messages(room_id, created_at desc);
 create index if not exists idx_email_otps_user on email_otps(user_id);
 create index if not exists idx_pings_from_created on pings(from_id, created_at desc);
 
@@ -98,13 +98,18 @@ create index if not exists idx_pings_from_created on pings(from_id, created_at d
 alter table profiles enable row level security;
 alter table pings enable row level security;
 alter table push_subscriptions enable row level security;
-alter table messages enable row level security;
 alter table email_otps enable row level security;
 alter table venues enable row level security;
 
--- Profiles: anyone can read, users manage their own
--- NOTE: phone column is readable via RLS but excluded from roster queries client-side.
--- For stronger privacy, replace with a view or column-level security in a future migration.
+-- #1: phone is no longer world-readable. Revoke direct column access for anon/authenticated;
+-- clients must call get_player_contact() RPC (security definer, rate-limited by Supabase).
+revoke select (phone) on profiles from anon, authenticated;
+grant  select (
+  id, name, color, status, venue, duration, started_at, ambient,
+  referred_by, referral_count, play_count, email_verified, updated_at, created_at
+) on profiles to anon, authenticated;
+
+-- Profiles: anyone can read the public columns, users manage their own
 create policy "Anyone can view profiles"
   on profiles for select using (true);
 create policy "Users can create own profile"
@@ -119,8 +124,12 @@ create policy "Users can read own pings and broadcasts"
   on pings for select using (
     to_id = auth.uid() or to_id is null or from_id = auth.uid()
   );
+-- #9: clients must not be able to insert verb='system' — those are server-only notices
+-- (e.g. the email-link nudge). Without this gate, any anon user could spoof a system ping.
 create policy "Authenticated users can send pings"
-  on pings for insert with check (auth.uid() = from_id);
+  on pings for insert with check (
+    auth.uid() = from_id and (verb is null or verb <> 'system')
+  );
 create policy "Users can update own received pings"
   on pings for update using (to_id = auth.uid());
 
@@ -134,13 +143,7 @@ create policy "Users can update own push subscription"
 create policy "Users can delete own push subscription"
   on push_subscriptions for delete using (auth.uid() = user_id);
 
--- Messages: users can read their own conversations, send as self
-create policy "Users can read own messages"
-  on messages for select using (
-    sender_id = auth.uid() or receiver_id = auth.uid()
-  );
-create policy "Users can send messages as self"
-  on messages for insert with check (auth.uid() = sender_id);
+-- (messages table dropped — see #4 above)
 
 -- Email OTPs: service role only (edge functions use service key)
 -- No user-facing policies needed — edge functions use service role
@@ -155,7 +158,6 @@ create policy "Anyone can view venues"
 
 alter publication supabase_realtime add table profiles;
 alter publication supabase_realtime add table pings;
-alter publication supabase_realtime add table messages;
 
 -- ═══════════════════════════════════════════
 -- FUNCTIONS
@@ -275,13 +277,46 @@ begin
 end;
 $$;
 
--- ═══════════════════════════════════════════
--- SCHEDULED JOBS (requires pg_cron extension — enable in Supabase Dashboard > Database > Extensions)
--- ═══════════════════════════════════════════
+-- #1: contact lookup RPC. Phone is no longer in the world-readable SELECT —
+-- clients call this to get a single target's phone for the SMS deep link.
+-- Anonymous callers get null; authenticated callers get the phone if it's set.
+create or replace function get_player_contact(target_id uuid)
+returns text
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  result text;
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+  select phone into result from profiles where id = target_id;
+  return result;
+end;
+$$;
 
--- Expire stale profiles every 2 minutes server-side (catches cases where all clients are closed)
--- Run this manually after enabling pg_cron:
--- select cron.schedule('expire-stale-profiles', '*/2 * * * *', $$select expire_stale_profiles()$$);
+revoke all on function get_player_contact(uuid) from public, anon;
+grant  execute on function get_player_contact(uuid) to authenticated;
+
+-- ═══════════════════════════════════════════
+-- SCHEDULED JOBS (#2: auto-schedule via pg_cron — falls back to a no-op if extension missing)
+-- ═══════════════════════════════════════════
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    create extension if not exists pg_cron;
+    -- Unschedule the same job name first so re-running this file is safe
+    begin
+      perform cron.unschedule('expire-stale-profiles');
+    exception when others then null;
+    end;
+    perform cron.schedule('expire-stale-profiles', '*/2 * * * *', $job$select expire_stale_profiles()$job$);
+  else
+    raise notice 'pg_cron not available — enable it in Dashboard > Database > Extensions, then re-run this file';
+  end if;
+end $$;
 
 -- ═══════════════════════════════════════════
 -- SEED DATA

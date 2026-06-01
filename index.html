@@ -23,9 +23,16 @@
 <link rel="stylesheet" href="style.css"/>
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-<script defer src="app.js"></script>
 <script>
-// Register service worker for push notifications + offline
+  window.PINGME_FEATURES = {
+    matchTracking: true,
+    accessCodes: true,
+    leaderboardLinkedOnly: false
+  };
+</script>
+<script defer src="app.js"></script>
+<script defer src="matches.js"></script>
+<script>
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/sw.js').catch(e => console.error('SW registration failed:', e));
 }
@@ -51,7 +58,6 @@ if ('serviceWorker' in navigator) {
   <!-- HOME -->
   <div class="screen active" data-screen="home">
 
-    <!-- top bar: wordmark + avatar (opens combined panel) -->
     <div class="top">
       <div class="wordmark">ping<span class="me">me!</span></div>
       <div class="top-actions">
@@ -60,12 +66,12 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <!-- THE TABLE: the focal point -->
+    <!-- THE TABLE -->
     <div class="court-card">
-      <span class="court-eyebrow">tap or drag &rarr;</span>
+      <span class="court-eyebrow" id="court-eyebrow">tap or drag &rarr;</span>
       <div class="court-wrap" id="court-wrap">
         <svg class="court-svg" viewBox="0 0 340 168" preserveAspectRatio="none">
-          <g>
+          <g id="court-g">
             <ellipse cx="170" cy="156" rx="140" ry="5" fill="rgba(20,18,16,.18)"/>
             <path d="M 56 50 L 284 50 L 298 130 L 42 130 Z" fill="var(--table)" stroke="#141210" stroke-width="2.5" stroke-linejoin="round"/>
             <path d="M 62 55 L 278 55 L 290 125 L 50 125 Z" fill="none" stroke="#F4EDDC" stroke-width="1.4" opacity=".65"/>
@@ -77,7 +83,6 @@ if ('serviceWorker' in navigator) {
               <path d="M 168 46 L 175 46 L 175 130 L 168 130 Z" fill="url(#netMesh)" stroke="#141210" stroke-width="1.5"/>
               <path d="M 167 44 L 176 44 L 176 48 L 167 48 Z" fill="#F4EDDC" stroke="#141210" stroke-width="1"/>
             </g>
-            <!-- LEFT PADDLE (cobalt / down) -->
             <g transform="translate(28, 90)">
               <g class="paddle left-paddle" id="left-paddle">
                 <rect x="-22" y="-4" width="26" height="10" rx="3" fill="var(--handle)" stroke="#141210" stroke-width="2.2" transform="rotate(-22 -9 1)"/>
@@ -88,7 +93,6 @@ if ('serviceWorker' in navigator) {
                 <path d="M 4 -10 Q 8 -22 18 -22" stroke="#F4EDDC" stroke-width="1.5" fill="none" opacity=".45"/>
               </g>
             </g>
-            <!-- RIGHT PADDLE (flame / playing) -->
             <g transform="translate(312, 90)">
               <g class="paddle right-paddle" id="right-paddle">
                 <rect x="-4" y="-4" width="26" height="10" rx="3" fill="var(--handle)" stroke="#141210" stroke-width="2.2" transform="rotate(22 9 1)"/>
@@ -101,12 +105,10 @@ if ('serviceWorker' in navigator) {
             </g>
           </g>
         </svg>
-        <!-- draggable ball -->
         <div class="ball at-rest" id="ball" style="left: 50%;">
           <div class="ball-shadow"></div>
           <div class="ball-core"></div>
         </div>
-        <!-- live timer overlay (visible when playing) -->
         <div class="court-timer" id="court-timer"></div>
       </div>
       <div class="court-labels">
@@ -116,10 +118,10 @@ if ('serviceWorker' in navigator) {
       </div>
     </div>
 
-    <!-- the table (calling screen integrates here when down) -->
+    <!-- the table -->
     <div class="the-table" id="the-table">
       <div class="table-head">
-        <span class="table-title"><svg class="tt-icon" width="24" height="24" viewBox="0 0 40 40" filter="url(#wobble)"><path d="M26 4 C 34 5 38 14 36 22 C 34 30 26 34 18 31 C 16 32 14 34 13 36 C 12 38 10 38 9 37 C 8 36 9 34 11 33 C 13 32 14 30 14 28 C 10 24 9 16 12 10 C 15 4 21 2 26 4 Z" fill="#E8502A" stroke="#141210" stroke-width="2"/><circle cx="30" cy="12" r="2.6" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg> ping pong</span>
+        <span class="table-title" id="table-title"><svg class="tt-icon" id="tt-icon" width="24" height="24" viewBox="0 0 40 40" filter="url(#wobble)"><path d="M26 4 C 34 5 38 14 36 22 C 34 30 26 34 18 31 C 16 32 14 34 13 36 C 12 38 10 38 9 37 C 8 36 9 34 11 33 C 13 32 14 30 14 28 C 10 24 9 16 12 10 C 15 4 21 2 26 4 Z" fill="#E8502A" stroke="#141210" stroke-width="2"/><circle cx="30" cy="12" r="2.6" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg> ping pong</span>
         <span class="table-sub" id="table-sub">2 playing · 3 down</span>
       </div>
       <div class="table-sections">
@@ -136,18 +138,6 @@ if ('serviceWorker' in navigator) {
           <div class="section-list" id="list-off"></div>
         </div>
       </div>
-      <!-- Leaderboard -->
-      <div class="table-section" id="section-leaderboard">
-        <div class="section-label lb-label"><svg class="lb-icon" width="18" height="18" viewBox="0 0 24 24" filter="url(#wobble)"><path d="M6 21h12M8 21v-4h8v4M12 3l3 6h-6l3-6z" fill="#E8502A" stroke="#141210" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 9h14l-2 4H7L5 9z" fill="#E8B84A" stroke="#141210" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> leaderboard</div>
-        <div class="lb-body" id="lb-body">
-          <div class="lb-tabs">
-            <button class="lb-tab lb-tab-active" data-tab="players"><svg class="lb-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> top players</button>
-            <button class="lb-tab" data-tab="referrals"><svg class="lb-tab-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="10" cy="7" r="3"/><path d="M22 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg> top recruiters</button>
-          </div>
-          <div class="lb-list" id="lb-list"></div>
-        </div>
-      </div>
-
       <div class="empty-roster" id="empty-roster" style="display:none">
         <div class="empty-roster-icon">&#127955;</div>
         <div class="empty-roster-text">no one's here yet</div>
@@ -156,8 +146,6 @@ if ('serviceWorker' in navigator) {
     </div>
 
   </div>
-
-  <!-- CENTERED MODALS -->
 
   <!-- Ping confirm -->
   <div class="sheet-wrap" id="sheet-ping-confirm">
@@ -174,46 +162,123 @@ if ('serviceWorker' in navigator) {
   <!-- Player profile modal -->
   <div class="sheet-wrap" id="sheet-raider">
     <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center"><button class="modal-close" data-dismiss>&times;</button></div>
+    <div class="modal-center"><button class="modal-close" data-dismiss>&times;</button><div id="raider-body"></div></div>
   </div>
 
-  <!-- Combined profile + notis modal -->
-  <div class="sheet-wrap" id="sheet-me">
-    <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center modal-tall">
-      <div class="me-wrap" id="me-wrap"></div>
-      <div class="me-notis-section" id="me-notis-section">
-        <div class="me-rule"></div>
-        <div class="me-notis-head">
-          <span class="me-notis-title">notis</span>
-          <span class="notis-sub" id="notis-sub"></span>
+  <!-- Profile (me) page -->
+  <div class="sheet-wrap me-page" id="sheet-me">
+    <div class="modal-center modal-tall me-card">
+      <button class="me-back" data-dismiss title="back"><svg viewBox="0 0 24 24" filter="url(#wobble)"><path d="M15 4 L7 12 L15 20" fill="none" stroke="#141210" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="me-gear-top" id="me-gear-top" title="settings"><svg viewBox="0 0 24 24" filter="url(#wobble)"><circle cx="12" cy="12" r="3" fill="none" stroke="#141210" stroke-width="2"/><path d="M12 2 L12 5 M12 19 L12 22 M2 12 L5 12 M19 12 L22 12 M4.9 4.9 L7 7 M17 17 L19.1 19.1 M4.9 19.1 L7 17 M17 7 L19.1 4.9" stroke="#141210" stroke-width="2" stroke-linecap="round"/></svg></button>
+
+      <!-- banner with avatar -->
+      <div class="me-banner">
+        <button class="me-av-tap" id="me-av-tap" style="background:var(--muted-2)">?</button>
+      </div>
+
+      <!-- name + status + email/phone icons -->
+      <div class="me-id">
+        <div class="me-id-main">
+          <div class="me-name-row">
+            <span class="me-name-text" id="me-name-text">—</span>
+            <button class="me-name-edit" id="me-name-edit" title="edit name"><svg viewBox="0 0 24 24" filter="url(#wobble)"><path d="M4 20 L5 16 L16 5 L19 8 L8 19 Z" fill="none" stroke="#141210" stroke-width="2" stroke-linejoin="round"/><path d="M14 7 L17 10" stroke="#141210" stroke-width="2"/></svg></button>
+          </div>
+          <div class="me-status-line" id="me-status-line">you're off right now</div>
         </div>
-        <div class="ping-list" id="ping-list"></div>
+        <div class="me-id-icons">
+          <button class="id-icon" id="row-email" title="link email"><svg viewBox="0 0 24 24" filter="url(#wobble)"><rect x="3" y="6" width="18" height="13" rx="2" fill="none" stroke="#141210" stroke-width="2"/><path d="M4 7 L12 13 L20 7" fill="none" stroke="#141210" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        </div>
+      </div>
+
+      <!-- stats: elo / games / rank -->
+      <div class="me-stats me-stats-3">
+        <div class="me-stat" id="stat-elo" role="button"><span class="ms-num">1200</span><span class="ms-lbl">elo</span></div>
+        <div class="me-stat"><span class="ms-num" id="stat-games">0</span><span class="ms-lbl">games</span></div>
+        <div class="me-stat" id="stat-rank" role="button"><span class="ms-num">—</span><span class="ms-lbl">rank</span></div>
+      </div>
+
+      <!-- settings panel (hidden by default, toggled by gear) -->
+      <div class="me-wrap" id="me-wrap"></div>
+
+      <!-- pings: always-visible list -->
+      <div class="me-pings" id="me-pings">
+        <div class="me-pings-head">
+          <span>your pings</span>
+          <span class="pings-head-right">
+            <button class="clear-pings" id="clear-pings" style="display:none">clear all</button>
+            <span class="pings-bell"><svg viewBox="0 0 24 24" filter="url(#wobble)"><path d="M6 17 L18 17 L17 13 C 17 8 15 6 12 6 C 9 6 7 8 7 13 Z" fill="none" stroke="#141210" stroke-width="2" stroke-linejoin="round"/><path d="M10 17 C 10 19 14 19 14 17" fill="none" stroke="#141210" stroke-width="2"/><path d="M12 3 L12 6" stroke="#141210" stroke-width="2" stroke-linecap="round"/></svg><span class="msb-badge" id="me-pings-badge" style="display:none">0</span></span>
+          </span>
+        </div>
+        <div class="me-notis-section" id="me-notis-section">
+          <div class="notis-sub" id="notis-sub" style="display:none"></div>
+          <div class="me-ping-list" id="me-ping-list"></div>
+          <div id="ping-list" style="display:none"></div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- QR share modal -->
-  <div class="sheet-wrap" id="sheet-qr">
+  <!-- Share modal -->
+  <div class="sheet-wrap" id="sheet-share">
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
       <button class="modal-close" data-dismiss>&times;</button>
-      <h3>share pingme</h3>
-      <div class="qr-wrap" id="qr-canvas-wrap"></div>
+      <h3>ping 'em</h3>
+      <div class="ping-confirm-sub">scan the code or copy the link</div>
+      <div class="qr-box" id="qr-box"></div>
+      <div class="share-link" id="share-link">pingme.app</div>
       <div class="qr-share-actions">
-        <button class="qr-action-btn" id="qr-copy">copy link</button>
-        <button class="qr-action-btn qr-share-native" id="qr-share-native" style="display:none">share link</button>
+        <button class="ping-confirm-btn qr-action-btn" id="copy-link" style="background:var(--cobalt)">copy invite link</button>
       </div>
     </div>
   </div>
 
+  <!-- Rank leaderboard sheet -->
+  <div class="sheet-wrap" id="sheet-rank">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center modal-tall">
+      <button class="modal-close" data-dismiss>&times;</button>
+      <h3>rankings</h3>
+      <div class="lb-list" id="lb-list"></div>
+    </div>
+  </div>
+
+  <!-- Ping detail / respond sheet -->
+  <div class="sheet-wrap" id="sheet-ping">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center">
+      <button class="modal-close" data-dismiss>&times;</button>
+      <div class="pd-av" id="pd-av">?</div>
+      <div class="pd-name" id="pd-name">—</div>
+      <div class="pd-msg" id="pd-msg"></div>
+      <div class="pd-actions" id="pd-actions">
+        <button class="pd-btn go" id="pd-go">i'm going</button>
+        <button class="pd-btn no" id="pd-no">not going</button>
+      </div>
+      <button class="pd-btn gotit" id="pd-gotit" data-dismiss style="display:none;width:100%">got it</button>
+    </div>
+  </div>
+
+  <!-- ELO detail sheet -->
+  <div class="sheet-wrap" id="sheet-elo">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center modal-tall">
+      <button class="modal-close" data-dismiss>&times;</button>
+      <h3>your elo</h3>
+      <div class="elo-big" id="elo-big">1200</div>
+      <div class="elo-tier" id="elo-tier">unranked</div>
+      <div class="elo-next" id="elo-next" style="display:none"></div>
+      <div class="elo-bar" id="elo-bar-wrap" style="display:none"><span style="width:0%"></span></div>
+      <div class="elo-hist" id="elo-hist"></div>
+    </div>
+  </div>
 
 </div>
 
 <div id="setup-root"></div>
 <div class="toast" id="toast"></div>
 
-<!-- Loading splash — shown instantly, hidden by app.js when ready -->
+<!-- Loading splash -->
 <div id="splash" style="position:fixed;inset:0;z-index:999;background:#F4EDDC;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Permanent Marker',cursive,system-ui,sans-serif">
   <div style="font-size:32px;color:#141210;letter-spacing:-1px">ping<span style="color:#E8502A">me!</span></div>
   <div style="margin-top:12px;width:28px;height:28px;border:3px solid #e0d8c8;border-top-color:#E8502A;border-radius:50%;animation:sp .7s linear infinite"></div>

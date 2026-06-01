@@ -1,5 +1,14 @@
 /* pingme — v5 · all tasks */
 
+// Feature flags — overridden on dev/preview deployments via window.PINGME_FEATURES in index.html
+const FEATURES = Object.assign({
+  matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
+  accessCodes:   false,           // invite-only access codes
+  leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
+}, (typeof window !== 'undefined' && window.PINGME_FEATURES) || {});
+
+const POLL_INTERVAL_MS = 60000; // #7: 60s fallback (was 10s) — realtime is primary
+
 const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
 
@@ -15,26 +24,192 @@ try {
   });
 } catch (e) { console.error('Supabase failed to load:', e); }
 
-const VENUES = [
-  { id: 'sub', name: 'The Sub', desc: 'TTU Student Union' },
-  { id: 'rec', name: 'Rec Center', desc: 'TTU Recreation Center' },
-  { id: 'maggie', name: 'Maggie Trejo', desc: 'Supercenter' }
-];
-let selectedVenue = localStorage.getItem('pm_venue') || 'sub';
-function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0]; }
-function getVenueName() { return getVenue().name; }
+// Venues are user-contributed and span any place with a ping pong table —
+// public spots, businesses, private spaces. Source of truth is Supabase.
+let VENUES = [];
+let venueSearch = '';
+let venueZip = localStorage.getItem('pm_zip') || '';
+let userLoc = null; // { lat, lng } from geolocation, ephemeral per session
+const VENUE_TYPE_ICON = { public: '🌳', business: '🏪', private: '🏠' };
+const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
+
+function haversineKm(a, b) {
+  const toRad = d => d * Math.PI / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
+async function loadVenues() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('venues')
+      .select('id, name, location, type, city, lat, lng, play_count, verified')
+      .order('play_count', { ascending: false })
+      .order('name');
+    if (error) { console.warn('venues load failed', error); return; }
+    VENUES = (data || []).map(v => ({
+      id: v.id,
+      name: v.name,
+      desc: v.location || v.city || '',
+      type: v.type || 'public',
+      city: v.city || '',
+      lat: v.lat, lng: v.lng,
+      play_count: v.play_count || 0,
+      verified: !!v.verified
+    }));
+    const stored = localStorage.getItem('pm_venue');
+    if (stored && !VENUES.find(v => v.id === stored)) {
+      selectedVenue = VENUES[0]?.id || null;
+      if (selectedVenue) localStorage.setItem('pm_venue', selectedVenue);
+      else localStorage.removeItem('pm_venue');
+    }
+    renderVenuePicker();
+  } catch (e) { console.warn('venues load error', e); }
+}
+let selectedVenue = localStorage.getItem('pm_venue') || null;
+function getVenue() { return VENUES.find(v => v.id === selectedVenue) || VENUES[0] || null; }
+function getVenueName() { const v = getVenue(); return v ? v.name : null; }
+function getVenueId()   { const v = getVenue(); return v ? v.id : null; }
 
 const AV_COLORS = ['#E8502A','#2544D6','#6FD27B','#E8B84A','#BFA8E0','#FFD3B6','#FF9AA2','#B5EAD7'];
+
+function filteredVenues() {
+  const q = (venueSearch || '').trim().toLowerCase();
+  const zip = (venueZip || '').trim();
+  let list = VENUES.slice();
+  if (zip) {
+    list = list.filter(v =>
+      (v.desc || '').includes(zip) ||
+      (v.city || '').toLowerCase().includes(zip.toLowerCase())
+    );
+  }
+  if (q) {
+    list = list.filter(v =>
+      v.name.toLowerCase().includes(q) ||
+      (v.desc || '').toLowerCase().includes(q) ||
+      (v.city || '').toLowerCase().includes(q)
+    );
+  }
+  if (userLoc) {
+    list = list.map(v => {
+      const dist = (v.lat != null && v.lng != null)
+        ? haversineKm(userLoc, { lat: v.lat, lng: v.lng })
+        : Infinity;
+      return Object.assign({}, v, { _dist: dist });
+    }).sort((a, b) => a._dist - b._dist);
+  }
+  return list;
+}
+
+function venuePillHtml(v) {
+  const icon = VENUE_TYPE_ICON[v.type] || '📍';
+  const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
+  const distLbl = (v._dist != null && isFinite(v._dist))
+    ? ' · ' + (v._dist < 1.6 ? (v._dist * 0.621).toFixed(1) + 'mi' : Math.round(v._dist * 0.621) + 'mi')
+    : '';
+  const verifiedBadge = v.verified
+    ? '<span class="vp-verified" title="table confirmed">✓</span>'
+    : '';
+  return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + (v.verified ? ' verified' : '') + '" data-venue="' + v.id + '" type="button">'
+    + '<span class="vp-icon">' + icon + '</span>'
+    + '<span class="vp-text">'
+    +   '<span class="vp-name">' + esc(v.name) + verifiedBadge + '</span>'
+    +   '<span class="vp-desc">' + esc(meta) + distLbl + '</span>'
+    + '</span>'
+    + '</button>';
+}
 
 function renderVenuePicker() {
   const el = document.getElementById('venue-picker');
   if (!el) return;
-  el.innerHTML = VENUES.map(v =>
-    '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '">' +
-    '<span class="vp-name">' + esc(v.name) + '</span>' +
-    '<span class="vp-desc">' + esc(v.desc) + '</span>' +
-    '</button>'
-  ).join('');
+  const list = filteredVenues();
+  const searchVal = esc(venueSearch || '');
+  const zipVal = esc(venueZip || '');
+  let html = '';
+  html += '<div class="pm-loc-row">';
+  html += '<button class="pm-loc-btn' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button">📍 ' + (userLoc ? 'using location' : 'use my location') + '</button>';
+  html += '<input class="pm-loc-zip" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="10" placeholder="zip / city" value="' + zipVal + '"/>';
+  html += '</div>';
+  html += '<div class="venue-search-row">';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search places…" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<button class="venue-add-btn" id="venue-add-btn" type="button">+ add place</button>';
+  html += '</div>';
+  if (!list.length) {
+    html += '<div class="venue-empty">';
+    html += (venueSearch || venueZip)
+      ? 'no matches — tap <b>+ add place</b> to put it on the map'
+      : 'no places yet — be the first: <b>+ add place</b>';
+    html += '</div>';
+  } else {
+    html += '<div class="venue-pill-grid">';
+    html += list.map(venuePillHtml).join('');
+    html += '</div>';
+  }
+  el.innerHTML = html;
+
+  const searchInput = el.querySelector('#venue-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      venueSearch = e.target.value;
+      refreshVenueGrid(el);
+    });
+  }
+
+  const zipInput = el.querySelector('#pm-loc-zip');
+  if (zipInput) {
+    zipInput.addEventListener('input', (e) => {
+      venueZip = e.target.value;
+      if (venueZip) localStorage.setItem('pm_zip', venueZip);
+      else localStorage.removeItem('pm_zip');
+      refreshVenueGrid(el);
+    });
+  }
+
+  const nearBtn = el.querySelector('#pm-loc-near');
+  if (nearBtn) {
+    nearBtn.addEventListener('click', () => {
+      if (userLoc) {
+        userLoc = null;
+        renderVenuePicker();
+        return;
+      }
+      if (!navigator.geolocation) { toast('location not available'); return; }
+      nearBtn.textContent = '📍 locating…';
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          renderVenuePicker();
+        },
+        err => {
+          nearBtn.textContent = '📍 use my location';
+          toast('location denied');
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      );
+    });
+  }
+
+  el.querySelector('#venue-add-btn')?.addEventListener('click', openAddVenueModal);
+  bindVenuePills(el);
+}
+
+function refreshVenueGrid(el) {
+  const grid = el.querySelector('.venue-pill-grid, .venue-empty');
+  if (!grid) return;
+  const list2 = filteredVenues();
+  if (!list2.length) {
+    grid.outerHTML = '<div class="venue-empty">no matches — tap <b>+ add place</b> to put it on the map</div>';
+  } else {
+    const gridHtml = list2.map(venuePillHtml).join('');
+    grid.outerHTML = '<div class="venue-pill-grid">' + gridHtml + '</div>';
+    bindVenuePills(el);
+  }
+}
+
+function bindVenuePills(el) {
   el.querySelectorAll('.venue-pill').forEach(btn => {
     function handleVenue(e) {
       if (e.type === 'touchend') e.preventDefault();
@@ -46,6 +221,74 @@ function renderVenuePicker() {
     btn.addEventListener('click', handleVenue);
     btn.addEventListener('touchend', handleVenue);
   });
+}
+
+function openAddVenueModal() {
+  if (!profile) { toast('sign in first'); return; }
+  let el = document.getElementById('sheet-add-venue');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-add-venue';
+    el.innerHTML = `
+      <div class="sheet-scrim" data-dismiss></div>
+      <div class="modal-center">
+        <button class="modal-close" data-dismiss>&times;</button>
+        <h3>add a place</h3>
+        <div class="av-sub">anywhere with a ping pong table — park, bar, office, garage.</div>
+        <input class="av-input" id="av-name" maxlength="60" placeholder="place name (e.g. Bowie Park, Joe's Garage)"/>
+        <div class="av-types">
+          <button class="av-type active" data-type="public" type="button">🌳 public</button>
+          <button class="av-type" data-type="business" type="button">🏪 business</button>
+          <button class="av-type" data-type="private" type="button">🏠 private</button>
+        </div>
+        <input class="av-input" id="av-city" maxlength="40" placeholder="city (optional)"/>
+        <input class="av-input" id="av-location" maxlength="80" placeholder="address or note (optional)"/>
+        <button class="ping-confirm-btn" id="av-submit">add it</button>
+        <div class="av-error" id="av-error"></div>
+      </div>
+    `;
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-dismiss]').forEach(d => d.addEventListener('click', () => el.classList.remove('open')));
+    el.querySelectorAll('.av-type').forEach(b => {
+      b.addEventListener('click', () => {
+        el.querySelectorAll('.av-type').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+      });
+    });
+    el.querySelector('#av-submit').addEventListener('click', async () => {
+      const name = el.querySelector('#av-name').value.trim();
+      const type = el.querySelector('.av-type.active').dataset.type;
+      const city = el.querySelector('#av-city').value.trim();
+      const location = el.querySelector('#av-location').value.trim();
+      const err = el.querySelector('#av-error');
+      if (name.length < 2) { err.textContent = 'name too short'; return; }
+      err.textContent = '';
+      const submitBtn = el.querySelector('#av-submit');
+      submitBtn.disabled = true; submitBtn.textContent = 'adding…';
+      const { data, error } = await sb.rpc('add_venue', {
+        p_name: name, p_type: type,
+        p_city: city || null, p_location: location || null,
+        p_lat: null, p_lng: null
+      });
+      submitBtn.disabled = false; submitBtn.textContent = 'add it';
+      if (error) { err.textContent = error.message || 'could not add'; return; }
+      const v = Array.isArray(data) ? data[0] : data;
+      if (v?.id) {
+        VENUES.unshift({
+          id: v.id, name: v.name, desc: v.location || v.city || '',
+          type: v.type, city: v.city || '', lat: v.lat, lng: v.lng,
+          play_count: 0, verified: false
+        });
+        selectedVenue = v.id;
+        localStorage.setItem('pm_venue', selectedVenue);
+        renderVenuePicker();
+        toast('added: ' + v.name);
+      }
+      el.classList.remove('open');
+    });
+  }
+  el.classList.add('open');
 }
 const VAPID_PUBLIC = 'BL_BNqvydfkgV7pGo0T9gYToFkih9PEMirDsTGNjl8DFAUrK2eQP53NCQ1eH-BjpZRcLjXpDjmaQ56ZY2VCuqTQ';
 
@@ -169,30 +412,8 @@ async function boot() {
       const { data: existing } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
       if (existing && existing.name) {
         // Returning user — already onboarded
-        profile = existing;
-        homeState = existing.status || 'off';
-        // Restore expiry timer if returning as "down"
-        if (existing.status === 'down' && existing.started_at && existing.duration) {
-          const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-          if (msLeft > 0) {
-            downDur = existing.duration;
-            downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
-            // Schedule 5-min reminder if enough time left
-            const reminderMs = msLeft - 5 * 60000;
-            if (reminderMs > 60000) {
-              downReminderTimer = setTimeout(() => {
-                toast('5 min left on your down window');
-                maybeNotify('5 minutes left — find your game!');
-              }, reminderMs);
-            }
-          } else {
-            // Expired while offline — immediately set to off
-            homeState = 'off';
-            existing.status = 'off';
-            profile = existing;
-            await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
-          }
-        }
+        profile = await restoreTimers(existing);
+        homeState = profile.status || 'off';
         document.getElementById('setup-root').innerHTML = '';
         await loadRoster();
         await loadPings();
@@ -229,11 +450,15 @@ async function boot() {
 
   setInterval(async () => {
     await expireStale();
-    // Polling fallback — refresh roster in case realtime missed updates
+    // #7: polling is a true fallback now (60s). Realtime subscription is primary;
+    // visibilitychange + heartbeat re-subscribe handle gaps.
     await loadRoster();
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
-  }, 10000);
+  }, POLL_INTERVAL_MS);
+
+  // #5: pull canonical venue list once we have a connection
+  loadVenues();
 
   // Pull-to-refresh
   initPullToRefresh();
@@ -367,6 +592,39 @@ function initPullToRefresh() {
   }, 2000);
 }
 
+// #8: single source of truth for restoring per-status expiry timers + offline catch-up.
+// Was duplicated between boot, loadOrCreateProfile, and onAuthStateChange.
+async function restoreTimers(p) {
+  if (!p) return p;
+  if (p.status === 'down' && p.started_at && p.duration) {
+    const msLeft = (p.duration * 60000) - (Date.now() - new Date(p.started_at).getTime());
+    if (msLeft > 0) {
+      downDur = p.duration;
+      downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
+      const reminderMs = msLeft - 5 * 60000;
+      if (reminderMs > 60000) {
+        downReminderTimer = setTimeout(() => {
+          toast('5 min left on your down window');
+          maybeNotify('5 minutes left — find your game!');
+        }, reminderMs);
+      }
+    } else {
+      p.status = 'off';
+      await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', p.id);
+    }
+  }
+  if (p.status === 'playing' && p.started_at) {
+    const msLeft = (90 * 60000) - (Date.now() - new Date(p.started_at).getTime());
+    if (msLeft > 0) {
+      playingExpiryTimer = setTimeout(() => { toast('playing session expired after 90 min'); snapTo('off'); }, msLeft);
+    } else {
+      p.status = 'off';
+      await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', p.id);
+    }
+  }
+  return p;
+}
+
 /* ── AUTH ── */
 async function signInSendCode(email) {
   try {
@@ -384,27 +642,8 @@ async function signInSendCode(email) {
 async function loadOrCreateProfile(user) {
   const { data: existing } = await sb.from('profiles').select('*').eq('id', user.id).single();
   if (existing) {
-    profile = existing; homeState = existing.status || 'off';
-    // Restore expiry timer if returning as "down"
-    if (existing.status === 'down' && existing.started_at && existing.duration) {
-      const msLeft = (existing.duration * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-      if (msLeft > 0) {
-        downDur = existing.duration;
-        downExpiryTimer = setTimeout(() => { toast('your down window expired'); snapTo('off'); }, msLeft);
-        const reminderMs = msLeft - 5 * 60000;
-        if (reminderMs > 60000) {
-          downReminderTimer = setTimeout(() => {
-            toast('5 min left on your down window');
-            maybeNotify('5 minutes left — find your game!');
-          }, reminderMs);
-        }
-      } else {
-        // Expired while offline — immediately set to off
-        homeState = 'off';
-        profile.status = 'off';
-        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
-      }
-    }
+    profile = await restoreTimers(existing);
+    homeState = profile.status || 'off';
     // Nudge anonymous users to link email (once)
     if (!user.email && !localStorage.getItem('pm_link_nudge')) {
       localStorage.setItem('pm_link_nudge', '1');
@@ -415,15 +654,10 @@ async function loadOrCreateProfile(user) {
         unread: true
       }).then(() => updateNotisBadge());
     }
-    // Restore expiry timer if returning as "playing"
-    if (existing.status === 'playing' && existing.started_at) {
-      const msLeft = (90 * 60000) - (Date.now() - new Date(existing.started_at).getTime());
-      if (msLeft > 0) {
-        playingExpiryTimer = setTimeout(() => { toast('playing session expired after 90 min'); snapTo('off'); }, msLeft);
-      } else {
-        homeState = 'off';
-        profile.status = 'off';
-        await sb.from('profiles').update({ status: 'off', venue: null, duration: null, started_at: null }).eq('id', existing.id);
+    if (FEATURES.accessCodes && !existing.invited_via) {
+      const params = new URLSearchParams(location.search);
+      if (params.get('code') || params.get('ref') || localStorage.getItem('pm_invited_via')) {
+        setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
       }
     }
     return;
@@ -436,6 +670,10 @@ async function loadOrCreateProfile(user) {
   }).select().single();
   if (error) { toast('profile error'); console.error(error); return; }
   profile = newProfile; homeState = 'off';
+  if (FEATURES.accessCodes) {
+    // New profile: kick off access code claim flow (referral param or PINGME or prompt)
+    setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
+  }
 }
 
 /* ── WEB PUSH ── */
@@ -480,11 +718,11 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
-  // Fallback if play_count column doesn't exist yet
-  if (error && error.message && error.message.includes('play_count')) {
+  // Fallback if newer columns don't exist yet on this Supabase instance
+  if (error && error.message && /play_count|email_verified|elo|wins|losses/.test(error.message)) {
     const fallback = await sb.from('profiles')
       .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
       .order('updated_at', { ascending: false })
@@ -693,8 +931,12 @@ document.addEventListener('touchend', handleDismiss);
 let confirmPingFiring = false; // debounce double-fire from touch+click
 async function handleConfirmPing(e) {
   if (confirmPingFiring) return;
-  confirmPingFiring = true;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
+  if (!getVenue()) {
+    toast('pick a place first (or + add place)');
+    return;
+  }
+  confirmPingFiring = true;
   document.getElementById('sheet-ping-confirm').classList.remove('open');
   const targetState = homeState; // 'down' or 'playing'
   if (targetState === 'down') downDur = 60;
@@ -823,6 +1065,9 @@ async function setMyStatus(st) {
   const updates = { status: st, updated_at: new Date().toISOString() };
   if (st === 'playing') {
     updates.venue = getVenueName(); updates.started_at = new Date().toISOString(); updates.duration = 90;
+    // Bump per-venue play_count so popular spots float to the top
+    const vid = getVenueId();
+    if (vid) sb.rpc('bump_venue_play', { p_venue: vid }).catch(() => {});
     // Increment play count for leaderboard
     sb.rpc('increment_play_count', { player_id: profile.id }).then(() => {
       profile.play_count = (profile.play_count || 0) + 1;
@@ -1079,6 +1324,12 @@ function renderLeaderboard() {
   const list = document.getElementById('lb-list');
   if (!section || !list) return;
 
+  // Hide the elo tab when match tracking isn't enabled on this build
+  if (!FEATURES.matchTracking) {
+    section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
+    if (lbActiveTab === 'elo') lbActiveTab = 'players';
+  }
+
   // Wire tabs
   const tabs = section.querySelectorAll('.lb-tab');
   tabs.forEach(tab => {
@@ -1099,16 +1350,24 @@ function renderLeaderboardList() {
   const list = document.getElementById('lb-list');
   if (!list) return;
 
-  const isPlayers = lbActiveTab === 'players';
-  // Deduplicate by name — keep the most recently updated profile
+  const tab = lbActiveTab;
+  // #3: dedupe by id (was name) — same name across accounts is fine, same id is the bug.
   const seen = new Map();
-  allRaiders()
+  let pool = allRaiders();
+  // #10: gate to linked-email accounts when the flag is on. `email_verified` is set
+  // server-side by the send-email edge function on OTP verify.
+  if (FEATURES.leaderboardLinkedOnly) {
+    pool = pool.filter(r => r.email_verified || (profile && r.id === profile.id && localStorage.getItem('pm_linked_email')));
+  }
+  pool
     .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
-    .forEach(r => { if (!seen.has(r.name.toLowerCase())) seen.set(r.name.toLowerCase(), r); });
+    .forEach(r => { if (!seen.has(r.id)) seen.set(r.id, r); });
   const leaders = Array.from(seen.values())
-    .sort((a, b) => isPlayers
-      ? (b.play_count || 0) - (a.play_count || 0)
-      : (b.referral_count || 0) - (a.referral_count || 0))
+    .sort((a, b) => {
+      if (tab === 'players') return (b.play_count || 0) - (a.play_count || 0);
+      if (tab === 'elo') return (b.elo || 1200) - (a.elo || 1200);
+      return (b.referral_count || 0) - (a.referral_count || 0);
+    })
     .slice(0, 10);
 
   if (leaders.length === 0) {
@@ -1122,8 +1381,10 @@ function renderLeaderboardList() {
     const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
     const isMe = profile && r.id === profile.id;
     const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
-    const count = isPlayers ? (r.play_count || 0) : (r.referral_count || 0);
-    const label = isPlayers ? (count === 1 ? 'game' : 'games') : 'invited';
+    let count, label;
+    if (tab === 'players') { count = r.play_count || 0; label = count === 1 ? 'game' : 'games'; }
+    else if (tab === 'elo') { count = r.elo || 1200; label = 'elo'; }
+    else { count = r.referral_count || 0; label = 'invited'; }
     return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
       '<span class="lb-medal">' + medal + '</span>' +
       '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
@@ -1132,6 +1393,7 @@ function renderLeaderboardList() {
       '</div>';
   }).join('');
 }
+window.renderLeaderboard = renderLeaderboard;
 
 function getOrCreateOffExpand() {
   let el = document.getElementById('off-expand-link');
@@ -1164,8 +1426,9 @@ function openRaiderSheet(r) {
   const modal = document.querySelector('#sheet-raider .modal-center');
   // Fetch phone on demand (not in roster for privacy)
   if (!r._phoneFetched && profile && r.id !== profile.id) {
-    sb.from('profiles').select('phone').eq('id', r.id).single().then(({ data }) => {
-      r.phone = data?.phone || null;
+    // #1: phone is no longer in the world-readable SELECT — fetch via RPC.
+    sb.rpc('get_player_contact', { target_id: r.id }).then(({ data }) => {
+      r.phone = data || null;
       r._phoneFetched = true;
       // Re-render msg button if sheet is still open
       const msgBtn = document.getElementById('rs-msg-btn');
@@ -1226,13 +1489,16 @@ function openRaiderSheet(r) {
   // Action buttons — ping is primary, text is secondary (SMS deep link)
   if (canAct) {
     const hasPhone = r.phone && r.phone.length >= 10;
+    const showInvite = r.status === 'down';
     html +=
       '<div class="rs-actions">' +
       '<button class="rs-ping-btn" id="rs-ping-btn">&#127955; ping ' + esc(r.name) + '</button>' +
       (hasPhone
         ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
         : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
-      '</div>';
+      '</div>' +
+      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">&#128205; down to play at...</button>' : '') +
+      (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>' : '');
   }
 
   modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;
@@ -1272,18 +1538,99 @@ function openRaiderSheet(r) {
       }, 800);
     };
 
+    // Challenge to a match
+    const chBtn = document.getElementById('rs-challenge-btn');
+    if (chBtn) {
+      chBtn.onclick = () => {
+        document.getElementById('sheet-raider').classList.remove('open');
+        if (window.pmMatch?.open) window.pmMatch.open(r.id);
+      };
+    }
+
+    // Invite to a venue (handshake) — only when target is down
+    const invBtn = document.getElementById('rs-invite-venue-btn');
+    if (invBtn) {
+      invBtn.onclick = () => {
+        document.getElementById('sheet-raider').classList.remove('open');
+        openInviteToVenue(r);
+      };
+    }
   }
 
   document.getElementById('sheet-raider').classList.add('open');
 }
 
+/* ── INVITE TO VENUE (handshake) ──
+   target is a roster row in 'down' state. We pick a venue + optional note,
+   then drop a ping with verb='down to play at' so the receiver sees
+   accept/decline in their notis. */
+function openInviteToVenue(target) {
+  if (!profile) { toast('sign in first'); return; }
+  let el = document.getElementById('sheet-invite-venue');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-invite-venue';
+    el.innerHTML =
+      '<div class="sheet-scrim" data-dismiss></div>' +
+      '<div class="modal-center">' +
+        '<button class="modal-close" data-dismiss>&times;</button>' +
+        '<h3 id="iv-title">down to play?</h3>' +
+        '<div class="ping-confirm-sub" id="iv-sub">pick a spot — they get to accept or pass</div>' +
+        '<div class="venue-picker" id="venue-picker"></div>' +
+        '<input class="av-input" id="iv-note" maxlength="120" placeholder="add a note (optional) — e.g. anytime after 6pm"/>' +
+        '<button class="ping-confirm-btn" id="iv-send">send invite</button>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-dismiss]').forEach(d =>
+      d.addEventListener('click', () => el.classList.remove('open'))
+    );
+  }
+  el.querySelector('#iv-title').textContent = 'invite ' + target.name + ' to play';
+  el.querySelector('#iv-note').value = '';
+  renderVenuePicker();
+  el.classList.add('open');
+
+  el.querySelector('#iv-send').onclick = async () => {
+    const venue = getVenue();
+    if (!venue) { toast('pick a place first'); return; }
+    const note = el.querySelector('#iv-note').value.trim();
+    const btn = el.querySelector('#iv-send');
+    btn.disabled = true; btn.textContent = 'sending…';
+    const msg = (profile.name || 'someone') + ' is down to play at ' + venue.name +
+                (note ? ' — ' + note : '');
+    const { error } = await sb.from('pings').insert({
+      from_id: profile.id,
+      to_id: target.id,
+      verb: 'down to play at',
+      msg: msg + '␟' + venue.id, // separator-encoded venue id for accept handler
+      unread: true
+    });
+    btn.disabled = false; btn.textContent = 'send invite';
+    if (error) { toast('send failed: ' + error.message); return; }
+    el.classList.remove('open');
+    toast('invite sent to ' + target.name);
+  };
+}
+
 /* ── NOTIS — T7 welcome card ── */
 function renderNotis() {
   const notisSub = document.getElementById('notis-sub');
-  const pingList = document.getElementById('ping-list');
+  const pingList = document.getElementById('me-ping-list') || document.getElementById('ping-list');
+  if (!pingList) return;
   const u = pings.filter(p => p.unread).length;
   const rr = pings.filter(p => !p.unread).length;
-  notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
+  if (notisSub) notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
+
+  // Update bell badge in the new pings header
+  const pBadge = document.getElementById('me-pings-badge');
+  if (pBadge) {
+    pBadge.textContent = u;
+    pBadge.style.display = u > 0 ? 'grid' : 'none';
+  }
+  // Toggle clear-all visibility
+  const clearBtn = document.getElementById('clear-pings');
+  if (clearBtn) clearBtn.style.display = pings.length ? 'inline-flex' : 'none';
 
   // T7: welcome card when no pings yet
   if (pings.length === 0) {
@@ -1311,9 +1658,15 @@ function renderNotis() {
     const acted = p.action_taken;
 
     let actions = '';
+    const isInvite = p.verb === 'down to play at';
     if (isSystem) {
       actions = '<div class="ping-actions">' +
         '<button class="pa-btn primary system-link-email" data-ping="' + p.id + '">connect email</button>' +
+        '</div>';
+    } else if (!acted && isInvite) {
+      actions = '<div class="ping-actions">' +
+        '<button class="pa-btn primary" data-ping="' + p.id + '" data-action="accepted">i\'m in</button>' +
+        '<button class="pa-btn" data-ping="' + p.id + '" data-action="declined">pass</button>' +
         '</div>';
     } else if (!acted) {
       actions = '<div class="ping-actions">' +
@@ -1321,15 +1674,20 @@ function renderNotis() {
         '<button class="pa-btn" data-ping="' + p.id + '" data-action="maybe">maybe</button>' +
         '<button class="pa-btn" data-ping="' + p.id + '" data-action="can\'t">can\'t</button>' +
         '</div>';
+    } else if (isInvite && acted === 'accepted' && FEATURES.matchTracking) {
+      actions = '<div class="ping-actions">' +
+        '<button class="pa-btn primary pa-start-match" data-from="' + p.from_id + '">&#127955; tap to start match</button>' +
+        '</div>';
     } else {
       actions = '<div class="ping-actions"><button class="pa-btn taken">&#10003; ' + esc(acted) + '</button></div>';
     }
 
+    const displayMsg = (p.msg || '').split('␟')[0]; // strip encoded venue id on invites
     return '<div class="ping-card ' + (p.unread ? 'unread' : '') + '" data-id="' + p.id + '">' +
       '<div class="pc-av" style="background:' + color + ';color:#F4EDDC">' + avText + '</div>' +
       '<div class="pc-body">' +
       '<div class="pc-who">' + esc(who) + (isSystem ? '' : ' <span class="pc-verb">' + esc(p.verb || '') + '</span>') + '</div>' +
-      '<div class="pc-msg">' + esc(p.msg || '') + '</div>' +
+      '<div class="pc-msg">' + esc(displayMsg) + '</div>' +
       '<div class="pc-time">' + ago + '</div>' +
       actions + '</div></div>';
   }).join('') + '<div class="empty-hint">that\'s the lot. go play.</div>';
@@ -1354,6 +1712,25 @@ function renderNotis() {
       await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
+      // "accepted" invite → switch to that venue + go down
+      if (action === 'accepted' && profile && p?.verb === 'down to play at') {
+        const venueId = (p.msg || '').split('␟')[1];
+        if (venueId && VENUES.find(v => v.id === venueId)) {
+          selectedVenue = venueId;
+          localStorage.setItem('pm_venue', venueId);
+        }
+        if (homeState !== 'down' && homeState !== 'playing') {
+          downDur = 60;
+          const ok = await setMyStatus('down');
+          if (!ok) { toast('failed to update status'); renderNotis(); return; }
+          homeState = 'down';
+          app.dataset.homeState = 'down';
+        }
+        document.getElementById('sheet-me').classList.remove('open');
+        renderHome();
+        toast('locked in — see you at ' + (getVenueName() || 'the table'));
+        return;
+      }
       // "on my way" sets your status to down automatically
       if (action === 'on my way' && profile && homeState !== 'down' && homeState !== 'playing') {
         downDur = 60;
@@ -1370,6 +1747,17 @@ function renderNotis() {
       updateNotisBadge();
     })
   );
+
+  // "tap to start match" on an accepted invite → open scoreholio score card
+  pingList.querySelectorAll('.pa-start-match').forEach(btn =>
+    btn.addEventListener('click', () => {
+      const fromId = btn.dataset.from;
+      if (!fromId) return;
+      document.getElementById('sheet-me').classList.remove('open');
+      if (window.pmMatch?.open) window.pmMatch.open(fromId);
+      else toast('match tracking not enabled');
+    })
+  );
 }
 
 /* ── ME — T1: truly minimal ── */
@@ -1377,14 +1765,21 @@ function renderMe() {
   const w = document.getElementById('me-wrap');
 
   if (!profile) {
-    w.innerHTML =
-      '<div class="me-hero-min">' +
-      '<div class="me-av-tap" style="background:var(--muted-2);font-size:20px;width:52px;height:52px">?</div>' +
-      '<div class="me-hero-text">' +
-      '<div class="me-name-min" style="font-size:20px">not signed in</div>' +
-      '</div>' +
-      '</div>' +
-      '<button class="setup-primary" style="font-size:20px;padding:14px;border-radius:16px" onclick="showSetup()">sign in to play</button>';
+    // Populate fixed elements with empty/signed-out state
+    const avEl = document.getElementById('me-av-tap');
+    if (avEl) { avEl.textContent = '?'; avEl.style.background = 'var(--muted-2)'; }
+    const nameEl = document.getElementById('me-name-text');
+    if (nameEl) nameEl.textContent = 'not signed in';
+    const statusEl = document.getElementById('me-status-line');
+    if (statusEl) statusEl.textContent = 'sign in to play';
+    const eloEl = document.querySelector('#stat-elo .ms-num');
+    if (eloEl) eloEl.textContent = '—';
+    const gamesEl = document.getElementById('stat-games');
+    if (gamesEl) gamesEl.textContent = '—';
+    const rankEl = document.querySelector('#stat-rank .ms-num');
+    if (rankEl) rankEl.textContent = '—';
+    if (w) w.innerHTML =
+      '<button class="setup-primary" style="font-size:20px;padding:14px;border-radius:16px;width:100%" onclick="showSetup()">sign in to play</button>';
     return;
   }
 
@@ -1392,31 +1787,52 @@ function renderMe() {
   const col = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
   const me = roster.find(r => r.id === profile.id) || profile;
 
-  let nowIc = '&#9898;', nowHd = "you're away", nowSub = 'drag the ball to change your status';
+  // Status line for the fixed status element
+  let statusHtml = "you're off right now";
   if (me.status === 'playing') {
-    nowIc = '&#127955;';
-    nowHd = 'playing at ' + (me.venue || getVenueName());
     const m = me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    nowSub = 'since ' + timeStr() + ' &middot; ' + m + ' min in';
+    statusHtml = 'playing at ' + (me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
   } else if (me.status === 'down') {
-    nowIc = '&#9203;';
     const dur = me.duration === 30 ? '30 min' : me.duration === 60 ? '1 hour' : '2 hours';
-    nowHd = 'down for ' + dur;
-    nowSub = timeLeft(me) + ' remaining';
+    statusHtml = 'down for ' + dur + ' &middot; ' + timeLeft(me) + ' remaining';
   }
 
   const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
-  // Layout: avatar + name + gear → notis feed
-  w.innerHTML =
-    '<div class="me-hero-min">' +
-    '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
-    '<div class="me-hero-text">' +
-    '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + ' <span class="me-name-edit">&#9998;</span></div>' +
-    '</div>' +
-    '<button class="me-gear" id="me-gear">&#9881;</button>' +
-    '</div>' +
+  // Stats: ELO, games (plays), rank
+  const elo = (me.elo != null ? me.elo : 1200);
+  const wins = me.wins || 0;
+  const losses = me.losses || 0;
+  const plays = me.play_count || 0;
+  const totalMatches = wins + losses;
+  const winPct = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : null;
 
+  // ── Populate FIXED elements (new redesigned profile DOM) ──
+  const avEl = document.getElementById('me-av-tap');
+  if (avEl) { avEl.textContent = ini; avEl.style.background = col; }
+  const nameEl = document.getElementById('me-name-text');
+  if (nameEl) {
+    nameEl.innerHTML = esc(profile.name) + (me.email_verified ? ' <span class="me-verified" title="verified">&#10004;</span>' : '');
+  }
+  const statusEl = document.getElementById('me-status-line');
+  if (statusEl) statusEl.innerHTML = statusHtml;
+  const eloEl = document.querySelector('#stat-elo .ms-num');
+  if (eloEl) eloEl.textContent = elo;
+  const gamesEl = document.getElementById('stat-games');
+  if (gamesEl) gamesEl.textContent = plays;
+  const rankEl = document.querySelector('#stat-rank .ms-num');
+  if (rankEl) rankEl.textContent = computeMyRankText();
+
+  // Email / phone row state
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
+  const rowEmail = document.getElementById('row-email');
+  if (rowEmail) {
+    rowEmail.classList.toggle('ok', !!cachedEmail || !!me.email_verified);
+    rowEmail.title = cachedEmail ? ('email: ' + cachedEmail) : (me.email_verified ? 'email verified' : 'link email');
+  }
+
+  // ── settings panel + link-email banner live in #me-wrap (legacy) ──
+  w.innerHTML =
     '<div class="me-settings-dropdown" id="me-settings-dd">' +
     '<button class="me-dd-item" id="sr-notif-link">' +
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
@@ -1425,7 +1841,6 @@ function renderMe() {
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-invite">share link</button>' +
     '<button class="me-dd-item" id="sr-name-change">change name</button>' +
-    '<button class="me-dd-item" id="sr-phone-change">' + (profile.phone ? 'change phone' : 'add phone number') + '</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
     '</div>' +
@@ -1434,22 +1849,88 @@ function renderMe() {
     '&#9993; link email (save account)</button>' +
     '<div class="me-linked-email" id="me-linked-email" style="display:none"></div>';
 
-  // Avatar: tap cycles color
+  // Stub elements so older code that reads them doesn't crash
+  // (me-name-display + me-av-btn are now the fixed elements above)
+  const meNameDisplayStub = document.createElement('div');
+  meNameDisplayStub.id = 'me-name-display'; meNameDisplayStub.style.display = 'none';
+  w.appendChild(meNameDisplayStub);
+
+  // Avatar: tap cycles color (new fixed element: #me-av-tap)
   let colorIdx = AV_COLORS.indexOf(col);
   if (colorIdx === -1) colorIdx = 0;
-  document.getElementById('me-av-btn').addEventListener('click', async () => {
-    colorIdx = (colorIdx + 1) % AV_COLORS.length;
-    const newColor = AV_COLORS[colorIdx];
-    document.getElementById('me-av-btn').style.background = newColor;
-    profile.color = newColor;
-    updateProfileAv();
-    if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
-  });
+  const meAvBtn = document.getElementById('me-av-tap');
+  if (meAvBtn && !meAvBtn._wired) {
+    meAvBtn._wired = true;
+    meAvBtn.addEventListener('click', async () => {
+      colorIdx = (colorIdx + 1) % AV_COLORS.length;
+      const newColor = AV_COLORS[colorIdx];
+      meAvBtn.style.background = newColor;
+      profile.color = newColor;
+      updateProfileAv();
+      if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
+    });
+  }
 
-  // Gear toggle
-  document.getElementById('me-gear').addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.toggle('open');
-  });
+  // Gear toggle (top-right gear icon on the redesigned profile page)
+  const gearBtn = document.getElementById('me-gear-top');
+  if (gearBtn && !gearBtn._wired) {
+    gearBtn._wired = true;
+    gearBtn.addEventListener('click', () => {
+      document.getElementById('me-settings-dd')?.classList.toggle('open');
+    });
+  }
+
+  // Stat-row clicks → open rank / elo sheets
+  const statRank = document.getElementById('stat-rank');
+  if (statRank && !statRank._wired) {
+    statRank._wired = true;
+    statRank.addEventListener('click', () => {
+      renderLeaderboard();
+      document.getElementById('sheet-rank')?.classList.add('open');
+    });
+  }
+  const statElo = document.getElementById('stat-elo');
+  if (statElo && !statElo._wired) {
+    statElo._wired = true;
+    statElo.addEventListener('click', () => {
+      renderEloSheet();
+      document.getElementById('sheet-elo')?.classList.add('open');
+    });
+  }
+
+  // Email/Phone row icons
+  const rowEmailEl = document.getElementById('row-email');
+  if (rowEmailEl && !rowEmailEl._wired) {
+    rowEmailEl._wired = true;
+    rowEmailEl.addEventListener('click', () => {
+      if (rowEmailEl.classList.contains('ok')) {
+        toast(rowEmailEl.title || 'email linked');
+      } else {
+        showLinkEmail();
+      }
+    });
+  }
+
+  // Name edit (pencil icon)
+  const nameEditBtn = document.getElementById('me-name-edit');
+  if (nameEditBtn && !nameEditBtn._wired) {
+    nameEditBtn._wired = true;
+    nameEditBtn.addEventListener('click', () => startNameChange());
+  }
+  // Clear pings button
+  const clrBtn = document.getElementById('clear-pings');
+  if (clrBtn && !clrBtn._wired) {
+    clrBtn._wired = true;
+    clrBtn.addEventListener('click', async () => {
+      if (!profile) return;
+      if (!confirm('clear all pings?')) return;
+      await sb.from('pings').delete().eq('to_id', profile.id);
+      pings.length = 0;
+      renderNotis();
+      updateNotisBadge();
+      toast('pings cleared');
+    });
+  }
 
   // Test notification
   document.getElementById('sr-test-notif').addEventListener('click', () => {
@@ -1498,23 +1979,6 @@ function renderMe() {
   }
   document.getElementById('me-name-display').addEventListener('click', startNameChange);
 
-  // Phone change from dropdown
-  document.getElementById('sr-phone-change').addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.remove('open');
-    const cur = profile.phone || '';
-    const phone = prompt('your phone number (so others can text you):', cur);
-    if (phone === null) return; // cancelled
-    const cleaned = phone.trim().replace(/[^0-9+]/g, '');
-    if (cleaned.length > 0 && cleaned.length < 10) { toast('enter a valid phone number'); return; }
-    const val = cleaned.length >= 10 ? cleaned : null;
-    profile.phone = val;
-    const me = roster.find(r => r.id === profile.id);
-    if (me) me.phone = val;
-    if (sb) sb.from('profiles').update({ phone: val }).eq('id', profile.id);
-    toast(val ? 'phone updated' : 'phone removed');
-    renderMe();
-  });
-
   // Notifications toggle
   document.getElementById('sr-notif-link').addEventListener('click', async () => {
     if (!('Notification' in window)) {
@@ -1552,7 +2016,6 @@ function renderMe() {
   // Link email — show blue banner for anonymous users, or show linked email
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
   if (cachedEmail) {
     linkedEmailEl.style.display = '';
     linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
@@ -1895,8 +2358,6 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     '<h2 class="setup-h2">what should we call you?</h2>' +
     '<input class="setup-name-input" id="setup-name-2" placeholder="your name" value="' +
       esc(prefill || '') + '" autocomplete="off" autofocus/>' +
-    '<input class="setup-name-input" id="setup-phone-2" type="tel" placeholder="phone number" autocomplete="tel" maxlength="15" style="letter-spacing:1px"/>' +
-    '<div class="setup-disclaimer">so other players can text you</div>' +
     '<button class="setup-primary" id="s2-rally">continue</button>' +
     '</div>' +
     '</div>';
@@ -1913,8 +2374,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
   document.getElementById('s2-rally').addEventListener('click', async () => {
     const n = inp.value.trim().toLowerCase().slice(0, 30);
     if (!n) { toast('enter your name first'); return; }
-    const phoneRaw = document.getElementById('setup-phone-2').value.trim().replace(/[^0-9+]/g, '');
-    const phone = phoneRaw.length >= 10 ? phoneRaw : null;
+    const phone = null;
     const btn = document.getElementById('s2-rally');
     btn.textContent = '...'; btn.disabled = true;
 
@@ -2073,61 +2533,67 @@ window.reqNotif = function () {
 /* ── QR SHARE ── */
 function showQrShare() {
   const url = getShareUrl();
-  const wrap = document.getElementById('qr-canvas-wrap');
-  wrap.innerHTML = '';
+  const wrap = document.getElementById('qr-box');
+  if (wrap) {
+    wrap.innerHTML = '';
 
-  if (typeof qrcode !== 'undefined') {
-    const qr = qrcode(0, 'M');
-    qr.addData(url);
-    qr.make();
-    // Create styled QR with the retro theme
-    const size = 200;
-    const modules = qr.getModuleCount();
-    const cellSize = Math.floor(size / modules);
-    const canvas = document.createElement('canvas');
-    canvas.width = cellSize * modules;
-    canvas.height = cellSize * modules;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#F4EDDC';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#141210';
-    for (let r = 0; r < modules; r++) {
-      for (let c = 0; c < modules; c++) {
-        if (qr.isDark(r, c)) {
-          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+    if (typeof qrcode !== 'undefined') {
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      // Create styled QR with the retro theme
+      const size = 160;
+      const modules = qr.getModuleCount();
+      const cellSize = Math.floor(size / modules);
+      const canvas = document.createElement('canvas');
+      canvas.width = cellSize * modules;
+      canvas.height = cellSize * modules;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#F4EDDC';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#141210';
+      for (let r = 0; r < modules; r++) {
+        for (let c = 0; c < modules; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+          }
         }
       }
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.maxWidth = '160px';
+      canvas.style.maxHeight = '160px';
+      wrap.appendChild(canvas);
+    } else {
+      wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
     }
-    canvas.style.width = '200px';
-    canvas.style.height = '200px';
-    canvas.style.borderRadius = '14px';
-    canvas.style.border = '2.5px solid #141210';
-    canvas.style.boxShadow = '4px 4px 0 #141210';
-    wrap.appendChild(canvas);
-  } else {
-    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
   }
 
-  document.getElementById('qr-copy').onclick = () => {
-    navigator.clipboard.writeText(url)
-      .then(() => { toast('link copied'); })
-      .catch(() => toast('copy failed'));
-  };
+  // Update visible share link text
+  const linkText = document.getElementById('share-link');
+  if (linkText) linkText.textContent = url.replace(/^https?:\/\//, '');
 
-  // Show native share button if supported
-  const shareBtn = document.getElementById('qr-share-native');
-  if (navigator.share) {
-    shareBtn.style.display = '';
-    shareBtn.onclick = () => {
-      navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
+  // Copy / native-share button (one button, branches on capability)
+  const copyBtn = document.getElementById('copy-link');
+  if (copyBtn) {
+    copyBtn.textContent = navigator.share ? 'share invite link' : 'copy invite link';
+    copyBtn.onclick = () => {
+      if (navigator.share) {
+        navigator.share({ title: 'pingme', text: "see who's playing ping pong rn", url })
+          .catch(() => {
+            if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('link copied')).catch(() => toast('copy failed'));
+          });
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => toast('link copied')).catch(() => toast('copy failed'));
+      } else {
+        toast('copy failed');
+      }
     };
-  } else {
-    shareBtn.style.display = 'none';
   }
 
-  // Close profile modal, open QR
+  // Close profile modal, open share
   document.getElementById('sheet-me').classList.remove('open');
-  document.getElementById('sheet-qr').classList.add('open');
+  document.getElementById('sheet-share').classList.add('open');
 }
 
 /* ── CHAT (removed — using SMS deep links instead) ── */
