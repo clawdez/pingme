@@ -104,6 +104,33 @@ function filteredVenues() {
   return list;
 }
 
+function renderVenueSections(list) {
+  // If using location, show flat distance-sorted list (closest first).
+  if (userLoc) return list.map(venuePillHtml).join('');
+  // Otherwise group by city; verified spots float to the top within each city.
+  const groups = new Map();
+  for (const v of list) {
+    const key = (v.city || 'other').trim() || 'other';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(v);
+  }
+  const cityOrder = Array.from(groups.keys()).sort((a, b) => {
+    if (a === 'other') return 1;
+    if (b === 'other') return -1;
+    return a.localeCompare(b);
+  });
+  let out = '';
+  for (const city of cityOrder) {
+    const rows = groups.get(city).sort((a, b) => {
+      if (!!b.verified - !!a.verified) return !!b.verified - !!a.verified;
+      return a.name.localeCompare(b.name);
+    });
+    out += '<div class="venue-section-label">' + esc(city) + '</div>';
+    out += rows.map(venuePillHtml).join('');
+  }
+  return out;
+}
+
 function venuePillHtml(v) {
   const icon = VENUE_TYPE_ICON[v.type] || '📍';
   const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
@@ -145,7 +172,7 @@ function renderVenuePicker() {
     html += '</div>';
   } else {
     html += '<div class="venue-pill-grid">';
-    html += list.map(venuePillHtml).join('');
+    html += renderVenueSections(list);
     html += '</div>';
   }
   el.innerHTML = html;
@@ -203,8 +230,7 @@ function refreshVenueGrid(el) {
   if (!list2.length) {
     grid.outerHTML = '<div class="venue-empty">no matches — tap <b>+ add place</b> to put it on the map</div>';
   } else {
-    const gridHtml = list2.map(venuePillHtml).join('');
-    grid.outerHTML = '<div class="venue-pill-grid">' + gridHtml + '</div>';
+    grid.outerHTML = '<div class="venue-pill-grid">' + renderVenueSections(list2) + '</div>';
     bindVenuePills(el);
   }
 }

@@ -420,9 +420,17 @@ button { font: inherit; color: inherit; }
 }
 .venue-add-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 .venue-pill-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-  max-height: 240px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  max-height: 380px; overflow-y: auto; overflow-x: hidden;
+  padding-right: 2px;
 }
+.venue-section-label {
+  font-family: 'Permanent Marker'; font-size: 13px;
+  color: var(--ink); opacity: .7;
+  margin: 6px 2px 2px; letter-spacing: .5px;
+}
+.venue-section-label:first-child { margin-top: 0; }
+.venue-pill { width: 100%; }
 .venue-empty {
   text-align: center; padding: 18px 8px;
   font-family: 'Caveat', cursive; font-size: 16px; opacity: .75;
