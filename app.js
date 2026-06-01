@@ -158,25 +158,19 @@ function renderVenuePicker() {
   let html = '';
   html += '<div class="vp-controls">';
   html += '<div class="venue-search-row">';
-  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search places…" value="' + searchVal + '" autocomplete="off"/>';
-  html += '<button class="venue-add-btn" id="venue-add-btn" type="button" title="add place">+</button>';
-  html += '</div>';
-  html += '<div class="pm-loc-row">';
-  html += '<button class="pm-loc-btn' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button" title="use my location">📍<span class="pm-loc-lbl">' + (userLoc ? 'near me' : 'near me') + '</span></button>';
-  html += '<input class="pm-loc-zip" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="10" placeholder="zip" value="' + zipVal + '"/>';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search or add a place…" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<button class="pm-loc-mini' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button" title="use my location">📍</button>';
+  html += '<input class="pm-loc-zip pm-loc-zip-mini" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="6" placeholder="zip" value="' + zipVal + '"/>';
   html += '</div>';
   html += '</div>';
   if (!list.length) {
-    html += '<div class="venue-empty">';
-    html += (venueSearch || venueZip)
-      ? 'no matches — tap <b>+ add place</b> to put it on the map'
-      : 'no places yet — be the first: <b>+ add place</b>';
-    html += '</div>';
+    html += '<div class="venue-empty">no matches yet — keep typing to add it</div>';
   } else {
     html += '<div class="venue-pill-grid">';
     html += renderVenueSections(list);
     html += '</div>';
   }
+  html += '<div class="vp-suggest" id="vp-suggest"></div>';
   el.innerHTML = html;
 
   const searchInput = el.querySelector('#venue-search');
@@ -184,6 +178,7 @@ function renderVenuePicker() {
     searchInput.addEventListener('input', (e) => {
       venueSearch = e.target.value;
       refreshVenueGrid(el);
+      scheduleVenueSuggest(el);
     });
   }
 
@@ -221,8 +216,66 @@ function renderVenuePicker() {
     });
   }
 
-  el.querySelector('#venue-add-btn')?.addEventListener('click', openAddVenueModal);
   bindVenuePills(el);
+  scheduleVenueSuggest(el);
+}
+
+let _vpSugTimer = null;
+let _vpSugSeq = 0;
+function scheduleVenueSuggest(el) {
+  const sugEl = el.querySelector('#vp-suggest');
+  if (!sugEl) return;
+  const q = (venueSearch || '').trim();
+  if (_vpSugTimer) clearTimeout(_vpSugTimer);
+  if (q.length < 3) { sugEl.innerHTML = ''; return; }
+  const seq = ++_vpSugSeq;
+  sugEl.innerHTML = '<div class="vp-sug-loading">looking up "' + esc(q) + '"…</div>';
+  _vpSugTimer = setTimeout(async () => {
+    const raw = await nominatimSearch(q);
+    if (seq !== _vpSugSeq) return;
+    const items = raw.map(formatNomResult).filter(r => r.name).slice(0, 4);
+    if (!items.length) { sugEl.innerHTML = ''; return; }
+    const nameSet = new Set(VENUES.map(v => v.name.toLowerCase().trim()));
+    const fresh = items.filter(r => !nameSet.has(r.name.toLowerCase().trim()));
+    if (!fresh.length) { sugEl.innerHTML = ''; return; }
+    sugEl.innerHTML = '<div class="vp-sug-label">add a new spot</div>' + fresh.map((r, i) =>
+      '<button class="vp-sug-row" type="button" data-i="' + i + '">'
+      + '<span class="vp-sug-plus">+</span>'
+      + '<span class="vp-sug-text">'
+      +   '<span class="vp-sug-name">' + esc(r.name) + '</span>'
+      +   '<span class="vp-sug-meta">' + esc([r.city, r.location].filter(Boolean).join(' · ')) + '</span>'
+      + '</span>'
+      + '</button>'
+    ).join('');
+    sugEl.querySelectorAll('.vp-sug-row').forEach(btn => {
+      btn.addEventListener('click', () => quickAddVenue(fresh[parseInt(btn.dataset.i, 10)]));
+    });
+  }, 380);
+}
+
+async function quickAddVenue(pick) {
+  if (!profile) { toast('sign in first'); return; }
+  if (!pick?.name) return;
+  toast('adding ' + pick.name + '…');
+  const { data, error } = await sb.rpc('add_venue', {
+    p_name: pick.name, p_type: 'public',
+    p_city: pick.city || null, p_location: pick.location || null,
+    p_lat: pick.lat, p_lng: pick.lng
+  });
+  if (error) { toast(error.message || 'could not add'); return; }
+  const v = Array.isArray(data) ? data[0] : data;
+  if (v?.id) {
+    VENUES.unshift({
+      id: v.id, name: v.name, desc: v.location || v.city || '',
+      type: v.type, city: v.city || '', lat: v.lat, lng: v.lng,
+      play_count: 0, verified: false
+    });
+    selectedVenue = v.id;
+    localStorage.setItem('pm_venue', selectedVenue);
+    venueSearch = '';
+    renderVenuePicker();
+    toast('added: ' + v.name);
+  }
 }
 
 function refreshVenueGrid(el) {
