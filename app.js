@@ -28,8 +28,19 @@ try {
 // public spots, businesses, private spaces. Source of truth is Supabase.
 let VENUES = [];
 let venueSearch = '';
+let venueZip = localStorage.getItem('pm_zip') || '';
+let userLoc = null; // { lat, lng } from geolocation, ephemeral per session
 const VENUE_TYPE_ICON = { public: '🌳', business: '🏪', private: '🏠' };
 const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
+
+function haversineKm(a, b) {
+  const toRad = d => d * Math.PI / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const s = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
 
 async function loadVenues() {
   if (!sb) return;
@@ -67,12 +78,48 @@ const AV_COLORS = ['#E8502A','#2544D6','#6FD27B','#E8B84A','#BFA8E0','#FFD3B6','
 
 function filteredVenues() {
   const q = (venueSearch || '').trim().toLowerCase();
-  if (!q) return VENUES;
-  return VENUES.filter(v =>
-    v.name.toLowerCase().includes(q) ||
-    (v.desc || '').toLowerCase().includes(q) ||
-    (v.city || '').toLowerCase().includes(q)
-  );
+  const zip = (venueZip || '').trim();
+  let list = VENUES.slice();
+  if (zip) {
+    list = list.filter(v =>
+      (v.desc || '').includes(zip) ||
+      (v.city || '').toLowerCase().includes(zip.toLowerCase())
+    );
+  }
+  if (q) {
+    list = list.filter(v =>
+      v.name.toLowerCase().includes(q) ||
+      (v.desc || '').toLowerCase().includes(q) ||
+      (v.city || '').toLowerCase().includes(q)
+    );
+  }
+  if (userLoc) {
+    list = list.map(v => {
+      const dist = (v.lat != null && v.lng != null)
+        ? haversineKm(userLoc, { lat: v.lat, lng: v.lng })
+        : Infinity;
+      return Object.assign({}, v, { _dist: dist });
+    }).sort((a, b) => a._dist - b._dist);
+  }
+  return list;
+}
+
+function venuePillHtml(v) {
+  const icon = VENUE_TYPE_ICON[v.type] || '📍';
+  const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
+  const distLbl = (v._dist != null && isFinite(v._dist))
+    ? ' · ' + (v._dist < 1.6 ? (v._dist * 0.621).toFixed(1) + 'mi' : Math.round(v._dist * 0.621) + 'mi')
+    : '';
+  const verifiedBadge = v.verified
+    ? '<span class="vp-verified" title="table confirmed">✓</span>'
+    : '';
+  return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + (v.verified ? ' verified' : '') + '" data-venue="' + v.id + '" type="button">'
+    + '<span class="vp-icon">' + icon + '</span>'
+    + '<span class="vp-text">'
+    +   '<span class="vp-name">' + esc(v.name) + verifiedBadge + '</span>'
+    +   '<span class="vp-desc">' + esc(meta) + distLbl + '</span>'
+    + '</span>'
+    + '</button>';
 }
 
 function renderVenuePicker() {
@@ -80,30 +127,25 @@ function renderVenuePicker() {
   if (!el) return;
   const list = filteredVenues();
   const searchVal = esc(venueSearch || '');
+  const zipVal = esc(venueZip || '');
   let html = '';
+  html += '<div class="pm-loc-row">';
+  html += '<button class="pm-loc-btn' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button">📍 ' + (userLoc ? 'using location' : 'use my location') + '</button>';
+  html += '<input class="pm-loc-zip" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="10" placeholder="zip / city" value="' + zipVal + '"/>';
+  html += '</div>';
   html += '<div class="venue-search-row">';
   html += '<input class="venue-search" id="venue-search" type="text" placeholder="search places…" value="' + searchVal + '" autocomplete="off"/>';
   html += '<button class="venue-add-btn" id="venue-add-btn" type="button">+ add place</button>';
   html += '</div>';
   if (!list.length) {
     html += '<div class="venue-empty">';
-    html += venueSearch
+    html += (venueSearch || venueZip)
       ? 'no matches — tap <b>+ add place</b> to put it on the map'
       : 'no places yet — be the first: <b>+ add place</b>';
     html += '</div>';
   } else {
     html += '<div class="venue-pill-grid">';
-    html += list.map(v => {
-      const icon = VENUE_TYPE_ICON[v.type] || '📍';
-      const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
-      return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '" type="button">'
-        + '<span class="vp-icon">' + icon + '</span>'
-        + '<span class="vp-text">'
-        +   '<span class="vp-name">' + esc(v.name) + '</span>'
-        +   '<span class="vp-desc">' + esc(meta) + '</span>'
-        + '</span>'
-        + '</button>';
-    }).join('');
+    html += list.map(venuePillHtml).join('');
     html += '</div>';
   }
   el.innerHTML = html;
@@ -112,32 +154,59 @@ function renderVenuePicker() {
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       venueSearch = e.target.value;
-      // re-render list portion only to keep input focus
-      const grid = el.querySelector('.venue-pill-grid, .venue-empty');
-      if (!grid) return;
-      const list2 = filteredVenues();
-      if (!list2.length) {
-        grid.outerHTML = '<div class="venue-empty">no matches — tap <b>+ add place</b> to put it on the map</div>';
-      } else {
-        const gridHtml = list2.map(v => {
-          const icon = VENUE_TYPE_ICON[v.type] || '📍';
-          const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
-          return '<button class="venue-pill' + (v.id === selectedVenue ? ' active' : '') + '" data-venue="' + v.id + '" type="button">'
-            + '<span class="vp-icon">' + icon + '</span>'
-            + '<span class="vp-text">'
-            +   '<span class="vp-name">' + esc(v.name) + '</span>'
-            +   '<span class="vp-desc">' + esc(meta) + '</span>'
-            + '</span>'
-            + '</button>';
-        }).join('');
-        grid.outerHTML = '<div class="venue-pill-grid">' + gridHtml + '</div>';
-        bindVenuePills(el);
+      refreshVenueGrid(el);
+    });
+  }
+
+  const zipInput = el.querySelector('#pm-loc-zip');
+  if (zipInput) {
+    zipInput.addEventListener('input', (e) => {
+      venueZip = e.target.value;
+      if (venueZip) localStorage.setItem('pm_zip', venueZip);
+      else localStorage.removeItem('pm_zip');
+      refreshVenueGrid(el);
+    });
+  }
+
+  const nearBtn = el.querySelector('#pm-loc-near');
+  if (nearBtn) {
+    nearBtn.addEventListener('click', () => {
+      if (userLoc) {
+        userLoc = null;
+        renderVenuePicker();
+        return;
       }
+      if (!navigator.geolocation) { toast('location not available'); return; }
+      nearBtn.textContent = '📍 locating…';
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          renderVenuePicker();
+        },
+        err => {
+          nearBtn.textContent = '📍 use my location';
+          toast('location denied');
+        },
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+      );
     });
   }
 
   el.querySelector('#venue-add-btn')?.addEventListener('click', openAddVenueModal);
   bindVenuePills(el);
+}
+
+function refreshVenueGrid(el) {
+  const grid = el.querySelector('.venue-pill-grid, .venue-empty');
+  if (!grid) return;
+  const list2 = filteredVenues();
+  if (!list2.length) {
+    grid.outerHTML = '<div class="venue-empty">no matches — tap <b>+ add place</b> to put it on the map</div>';
+  } else {
+    const gridHtml = list2.map(venuePillHtml).join('');
+    grid.outerHTML = '<div class="venue-pill-grid">' + gridHtml + '</div>';
+    bindVenuePills(el);
+  }
 }
 
 function bindVenuePills(el) {
@@ -1761,10 +1830,6 @@ function renderMe() {
     rowEmail.classList.toggle('ok', !!cachedEmail || !!me.email_verified);
     rowEmail.title = cachedEmail ? ('email: ' + cachedEmail) : (me.email_verified ? 'email verified' : 'link email');
   }
-  const rowPhone = document.getElementById('row-phone');
-  if (rowPhone) {
-    rowPhone.classList.toggle('ok', !!me.phone || !!profile.phone);
-  }
 
   // ── settings panel + link-email banner live in #me-wrap (legacy) ──
   w.innerHTML =
@@ -1843,13 +1908,6 @@ function renderMe() {
       } else {
         showLinkEmail();
       }
-    });
-  }
-  const rowPhoneEl = document.getElementById('row-phone');
-  if (rowPhoneEl && !rowPhoneEl._wired) {
-    rowPhoneEl._wired = true;
-    rowPhoneEl.addEventListener('click', () => {
-      toast('phone setup coming soon');
     });
   }
 

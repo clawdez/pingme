@@ -366,6 +366,41 @@ button { font: inherit; color: inherit; }
 .venue-picker {
   display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px;
 }
+.pm-loc-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.pm-loc-btn {
+  flex: 1 1 auto;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'Permanent Marker'; font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pm-loc-btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+.pm-loc-btn.active { background: var(--sage, #6FD27B); }
+.pm-loc-zip {
+  width: 110px;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: var(--cream); color: var(--ink);
+  box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 15px;
+}
+.vp-verified {
+  display: inline-block; margin-left: 6px;
+  background: var(--sage, #6FD27B); color: var(--ink);
+  border: 1.5px solid var(--ink);
+  border-radius: 50%;
+  width: 16px; height: 16px; line-height: 13px;
+  text-align: center;
+  font-size: 11px; font-family: 'Permanent Marker';
+  vertical-align: middle;
+}
+.venue-pill.verified { box-shadow: 2px 2px 0 var(--sage, #6FD27B), 4px 4px 0 var(--ink); }
 .venue-search-row { display: flex; gap: 8px; }
 .venue-search {
   flex: 1; min-width: 0;
