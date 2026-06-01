@@ -1547,10 +1547,21 @@ function openInviteToVenue(target) {
 /* ── NOTIS — T7 welcome card ── */
 function renderNotis() {
   const notisSub = document.getElementById('notis-sub');
-  const pingList = document.getElementById('ping-list');
+  const pingList = document.getElementById('me-ping-list') || document.getElementById('ping-list');
+  if (!pingList) return;
   const u = pings.filter(p => p.unread).length;
   const rr = pings.filter(p => !p.unread).length;
-  notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
+  if (notisSub) notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
+
+  // Update bell badge in the new pings header
+  const pBadge = document.getElementById('me-pings-badge');
+  if (pBadge) {
+    pBadge.textContent = u;
+    pBadge.style.display = u > 0 ? 'grid' : 'none';
+  }
+  // Toggle clear-all visibility
+  const clearBtn = document.getElementById('clear-pings');
+  if (clearBtn) clearBtn.style.display = pings.length ? 'inline-flex' : 'none';
 
   // T7: welcome card when no pings yet
   if (pings.length === 0) {
@@ -1685,14 +1696,21 @@ function renderMe() {
   const w = document.getElementById('me-wrap');
 
   if (!profile) {
-    w.innerHTML =
-      '<div class="me-hero-min">' +
-      '<div class="me-av-tap" style="background:var(--muted-2);font-size:20px;width:52px;height:52px">?</div>' +
-      '<div class="me-hero-text">' +
-      '<div class="me-name-min" style="font-size:20px">not signed in</div>' +
-      '</div>' +
-      '</div>' +
-      '<button class="setup-primary" style="font-size:20px;padding:14px;border-radius:16px" onclick="showSetup()">sign in to play</button>';
+    // Populate fixed elements with empty/signed-out state
+    const avEl = document.getElementById('me-av-tap');
+    if (avEl) { avEl.textContent = '?'; avEl.style.background = 'var(--muted-2)'; }
+    const nameEl = document.getElementById('me-name-text');
+    if (nameEl) nameEl.textContent = 'not signed in';
+    const statusEl = document.getElementById('me-status-line');
+    if (statusEl) statusEl.textContent = 'sign in to play';
+    const eloEl = document.querySelector('#stat-elo .ms-num');
+    if (eloEl) eloEl.textContent = '—';
+    const gamesEl = document.getElementById('stat-games');
+    if (gamesEl) gamesEl.textContent = '—';
+    const rankEl = document.querySelector('#stat-rank .ms-num');
+    if (rankEl) rankEl.textContent = '—';
+    if (w) w.innerHTML =
+      '<button class="setup-primary" style="font-size:20px;padding:14px;border-radius:16px;width:100%" onclick="showSetup()">sign in to play</button>';
     return;
   }
 
@@ -1700,22 +1718,19 @@ function renderMe() {
   const col = profile.color || AV_COLORS[Math.abs(hash(profile.name)) % AV_COLORS.length];
   const me = roster.find(r => r.id === profile.id) || profile;
 
-  let nowIc = '&#9898;', nowHd = "you're away", nowSub = 'drag the ball to change your status';
+  // Status line for the fixed status element
+  let statusHtml = "you're off right now";
   if (me.status === 'playing') {
-    nowIc = '&#127955;';
-    nowHd = 'playing at ' + (me.venue || getVenueName());
     const m = me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    nowSub = 'since ' + timeStr() + ' &middot; ' + m + ' min in';
+    statusHtml = 'playing at ' + (me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
   } else if (me.status === 'down') {
-    nowIc = '&#9203;';
     const dur = me.duration === 30 ? '30 min' : me.duration === 60 ? '1 hour' : '2 hours';
-    nowHd = 'down for ' + dur;
-    nowSub = timeLeft(me) + ' remaining';
+    statusHtml = 'down for ' + dur + ' &middot; ' + timeLeft(me) + ' remaining';
   }
 
   const notifOn = typeof Notification !== 'undefined' && Notification.permission === 'granted' && !localStorage.getItem('pm_notif_off');
 
-  // Stats: ELO, wins, losses, plays signaled, win %
+  // Stats: ELO, games (plays), rank
   const elo = (me.elo != null ? me.elo : 1200);
   const wins = me.wins || 0;
   const losses = me.losses || 0;
@@ -1723,24 +1738,36 @@ function renderMe() {
   const totalMatches = wins + losses;
   const winPct = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : null;
 
-  // Layout: avatar + name + gear → stats → notis feed
+  // ── Populate FIXED elements (new redesigned profile DOM) ──
+  const avEl = document.getElementById('me-av-tap');
+  if (avEl) { avEl.textContent = ini; avEl.style.background = col; }
+  const nameEl = document.getElementById('me-name-text');
+  if (nameEl) {
+    nameEl.innerHTML = esc(profile.name) + (me.email_verified ? ' <span class="me-verified" title="verified">&#10004;</span>' : '');
+  }
+  const statusEl = document.getElementById('me-status-line');
+  if (statusEl) statusEl.innerHTML = statusHtml;
+  const eloEl = document.querySelector('#stat-elo .ms-num');
+  if (eloEl) eloEl.textContent = elo;
+  const gamesEl = document.getElementById('stat-games');
+  if (gamesEl) gamesEl.textContent = plays;
+  const rankEl = document.querySelector('#stat-rank .ms-num');
+  if (rankEl) rankEl.textContent = computeMyRankText();
+
+  // Email / phone row state
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
+  const rowEmail = document.getElementById('row-email');
+  if (rowEmail) {
+    rowEmail.classList.toggle('ok', !!cachedEmail || !!me.email_verified);
+    rowEmail.title = cachedEmail ? ('email: ' + cachedEmail) : (me.email_verified ? 'email verified' : 'link email');
+  }
+  const rowPhone = document.getElementById('row-phone');
+  if (rowPhone) {
+    rowPhone.classList.toggle('ok', !!me.phone || !!profile.phone);
+  }
+
+  // ── settings panel + link-email banner live in #me-wrap (legacy) ──
   w.innerHTML =
-    '<div class="me-hero-min">' +
-    '<button class="me-av-tap" id="me-av-btn" style="background:' + col + '" title="tap to change color">' + ini + '</button>' +
-    '<div class="me-hero-text">' +
-    '<div class="me-name-min" id="me-name-display">' + esc(profile.name) + (me.email_verified ? ' <span class="me-verified" title="verified">&#10004;</span>' : '') + ' <span class="me-name-edit">&#9998;</span></div>' +
-    '</div>' +
-    '<button class="me-gear" id="me-gear">&#9881;</button>' +
-    '</div>' +
-
-    '<div class="me-stats">' +
-      '<div class="me-stat"><span class="me-stat-num">' + elo + '</span><span class="me-stat-lbl">elo</span></div>' +
-      '<div class="me-stat"><span class="me-stat-num">' + wins + '</span><span class="me-stat-lbl">wins</span></div>' +
-      '<div class="me-stat"><span class="me-stat-num">' + losses + '</span><span class="me-stat-lbl">losses</span></div>' +
-      '<div class="me-stat"><span class="me-stat-num">' + (winPct != null ? winPct + '%' : '—') + '</span><span class="me-stat-lbl">win rate</span></div>' +
-      '<div class="me-stat"><span class="me-stat-num">' + plays + '</span><span class="me-stat-lbl">plays</span></div>' +
-    '</div>' +
-
     '<div class="me-settings-dropdown" id="me-settings-dd">' +
     '<button class="me-dd-item" id="sr-notif-link">' +
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
@@ -1757,22 +1784,95 @@ function renderMe() {
     '&#9993; link email (save account)</button>' +
     '<div class="me-linked-email" id="me-linked-email" style="display:none"></div>';
 
-  // Avatar: tap cycles color
+  // Stub elements so older code that reads them doesn't crash
+  // (me-name-display + me-av-btn are now the fixed elements above)
+  const meNameDisplayStub = document.createElement('div');
+  meNameDisplayStub.id = 'me-name-display'; meNameDisplayStub.style.display = 'none';
+  w.appendChild(meNameDisplayStub);
+
+  // Avatar: tap cycles color (new fixed element: #me-av-tap)
   let colorIdx = AV_COLORS.indexOf(col);
   if (colorIdx === -1) colorIdx = 0;
-  document.getElementById('me-av-btn').addEventListener('click', async () => {
-    colorIdx = (colorIdx + 1) % AV_COLORS.length;
-    const newColor = AV_COLORS[colorIdx];
-    document.getElementById('me-av-btn').style.background = newColor;
-    profile.color = newColor;
-    updateProfileAv();
-    if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
-  });
+  const meAvBtn = document.getElementById('me-av-tap');
+  if (meAvBtn && !meAvBtn._wired) {
+    meAvBtn._wired = true;
+    meAvBtn.addEventListener('click', async () => {
+      colorIdx = (colorIdx + 1) % AV_COLORS.length;
+      const newColor = AV_COLORS[colorIdx];
+      meAvBtn.style.background = newColor;
+      profile.color = newColor;
+      updateProfileAv();
+      if (sb) await sb.from('profiles').update({ color: newColor }).eq('id', profile.id);
+    });
+  }
 
-  // Gear toggle
-  document.getElementById('me-gear').addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.toggle('open');
-  });
+  // Gear toggle (top-right gear icon on the redesigned profile page)
+  const gearBtn = document.getElementById('me-gear-top');
+  if (gearBtn && !gearBtn._wired) {
+    gearBtn._wired = true;
+    gearBtn.addEventListener('click', () => {
+      document.getElementById('me-settings-dd')?.classList.toggle('open');
+    });
+  }
+
+  // Stat-row clicks → open rank / elo sheets
+  const statRank = document.getElementById('stat-rank');
+  if (statRank && !statRank._wired) {
+    statRank._wired = true;
+    statRank.addEventListener('click', () => {
+      renderLeaderboard();
+      document.getElementById('sheet-rank')?.classList.add('open');
+    });
+  }
+  const statElo = document.getElementById('stat-elo');
+  if (statElo && !statElo._wired) {
+    statElo._wired = true;
+    statElo.addEventListener('click', () => {
+      renderEloSheet();
+      document.getElementById('sheet-elo')?.classList.add('open');
+    });
+  }
+
+  // Email/Phone row icons
+  const rowEmailEl = document.getElementById('row-email');
+  if (rowEmailEl && !rowEmailEl._wired) {
+    rowEmailEl._wired = true;
+    rowEmailEl.addEventListener('click', () => {
+      if (rowEmailEl.classList.contains('ok')) {
+        toast(rowEmailEl.title || 'email linked');
+      } else {
+        showLinkEmail();
+      }
+    });
+  }
+  const rowPhoneEl = document.getElementById('row-phone');
+  if (rowPhoneEl && !rowPhoneEl._wired) {
+    rowPhoneEl._wired = true;
+    rowPhoneEl.addEventListener('click', () => {
+      toast('phone setup coming soon');
+    });
+  }
+
+  // Name edit (pencil icon)
+  const nameEditBtn = document.getElementById('me-name-edit');
+  if (nameEditBtn && !nameEditBtn._wired) {
+    nameEditBtn._wired = true;
+    nameEditBtn.addEventListener('click', () => startNameChange());
+  }
+  // Clear pings button
+  const clrBtn = document.getElementById('clear-pings');
+  if (clrBtn && !clrBtn._wired) {
+    clrBtn._wired = true;
+    clrBtn.addEventListener('click', async () => {
+      if (!profile) return;
+      if (!confirm('clear all pings?')) return;
+      await sb.from('pings').delete().eq('to_id', profile.id);
+      pings.length = 0;
+      renderNotis();
+      updateNotisBadge();
+      toast('pings cleared');
+    });
+  }
 
   // Test notification
   document.getElementById('sr-test-notif').addEventListener('click', () => {
@@ -1858,7 +1958,6 @@ function renderMe() {
   // Link email — show blue banner for anonymous users, or show linked email
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
   if (cachedEmail) {
     linkedEmailEl.style.display = '';
     linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
@@ -2376,61 +2475,67 @@ window.reqNotif = function () {
 /* ── QR SHARE ── */
 function showQrShare() {
   const url = getShareUrl();
-  const wrap = document.getElementById('qr-canvas-wrap');
-  wrap.innerHTML = '';
+  const wrap = document.getElementById('qr-box');
+  if (wrap) {
+    wrap.innerHTML = '';
 
-  if (typeof qrcode !== 'undefined') {
-    const qr = qrcode(0, 'M');
-    qr.addData(url);
-    qr.make();
-    // Create styled QR with the retro theme
-    const size = 200;
-    const modules = qr.getModuleCount();
-    const cellSize = Math.floor(size / modules);
-    const canvas = document.createElement('canvas');
-    canvas.width = cellSize * modules;
-    canvas.height = cellSize * modules;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#F4EDDC';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = '#141210';
-    for (let r = 0; r < modules; r++) {
-      for (let c = 0; c < modules; c++) {
-        if (qr.isDark(r, c)) {
-          ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+    if (typeof qrcode !== 'undefined') {
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      // Create styled QR with the retro theme
+      const size = 160;
+      const modules = qr.getModuleCount();
+      const cellSize = Math.floor(size / modules);
+      const canvas = document.createElement('canvas');
+      canvas.width = cellSize * modules;
+      canvas.height = cellSize * modules;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#F4EDDC';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#141210';
+      for (let r = 0; r < modules; r++) {
+        for (let c = 0; c < modules; c++) {
+          if (qr.isDark(r, c)) {
+            ctx.fillRect(c * cellSize, r * cellSize, cellSize, cellSize);
+          }
         }
       }
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      canvas.style.maxWidth = '160px';
+      canvas.style.maxHeight = '160px';
+      wrap.appendChild(canvas);
+    } else {
+      wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
     }
-    canvas.style.width = '200px';
-    canvas.style.height = '200px';
-    canvas.style.borderRadius = '14px';
-    canvas.style.border = '2.5px solid #141210';
-    canvas.style.boxShadow = '4px 4px 0 #141210';
-    wrap.appendChild(canvas);
-  } else {
-    wrap.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">QR failed to load</div>';
   }
 
-  document.getElementById('qr-copy').onclick = () => {
-    navigator.clipboard.writeText(url)
-      .then(() => { toast('link copied'); })
-      .catch(() => toast('copy failed'));
-  };
+  // Update visible share link text
+  const linkText = document.getElementById('share-link');
+  if (linkText) linkText.textContent = url.replace(/^https?:\/\//, '');
 
-  // Show native share button if supported
-  const shareBtn = document.getElementById('qr-share-native');
-  if (navigator.share) {
-    shareBtn.style.display = '';
-    shareBtn.onclick = () => {
-      navigator.share({ title: 'pingme', text: 'see who\'s playing ping pong rn', url }).catch(() => {});
+  // Copy / native-share button (one button, branches on capability)
+  const copyBtn = document.getElementById('copy-link');
+  if (copyBtn) {
+    copyBtn.textContent = navigator.share ? 'share invite link' : 'copy invite link';
+    copyBtn.onclick = () => {
+      if (navigator.share) {
+        navigator.share({ title: 'pingme', text: "see who's playing ping pong rn", url })
+          .catch(() => {
+            if (navigator.clipboard) navigator.clipboard.writeText(url).then(() => toast('link copied')).catch(() => toast('copy failed'));
+          });
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(() => toast('link copied')).catch(() => toast('copy failed'));
+      } else {
+        toast('copy failed');
+      }
     };
-  } else {
-    shareBtn.style.display = 'none';
   }
 
-  // Close profile modal, open QR
+  // Close profile modal, open share
   document.getElementById('sheet-me').classList.remove('open');
-  document.getElementById('sheet-qr').classList.add('open');
+  document.getElementById('sheet-share').classList.add('open');
 }
 
 /* ── CHAT (removed — using SMS deep links instead) ── */
