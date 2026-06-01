@@ -156,13 +156,15 @@ function renderVenuePicker() {
   const searchVal = esc(venueSearch || '');
   const zipVal = esc(venueZip || '');
   let html = '';
-  html += '<div class="pm-loc-row">';
-  html += '<button class="pm-loc-btn' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button">📍 ' + (userLoc ? 'using location' : 'use my location') + '</button>';
-  html += '<input class="pm-loc-zip" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="10" placeholder="zip / city" value="' + zipVal + '"/>';
-  html += '</div>';
+  html += '<div class="vp-controls">';
   html += '<div class="venue-search-row">';
   html += '<input class="venue-search" id="venue-search" type="text" placeholder="search places…" value="' + searchVal + '" autocomplete="off"/>';
-  html += '<button class="venue-add-btn" id="venue-add-btn" type="button">+ add place</button>';
+  html += '<button class="venue-add-btn" id="venue-add-btn" type="button" title="add place">+</button>';
+  html += '</div>';
+  html += '<div class="pm-loc-row">';
+  html += '<button class="pm-loc-btn' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button" title="use my location">📍<span class="pm-loc-lbl">' + (userLoc ? 'near me' : 'near me') + '</span></button>';
+  html += '<input class="pm-loc-zip" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="10" placeholder="zip" value="' + zipVal + '"/>';
+  html += '</div>';
   html += '</div>';
   if (!list.length) {
     html += '<div class="venue-empty">';
