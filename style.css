@@ -1949,7 +1949,23 @@ button { font: inherit; color: inherit; }
   display: grid; place-items: center; padding: 0;
 }
 .id-icon svg { width: 21px; height: 21px; }
+.id-icon { position: relative; }
 .id-icon.ok { background: var(--sage, #6FD27B); }
+.id-icon.ok svg path,
+.id-icon.ok svg rect { stroke-width: 2.5; }
+.id-icon.ok::after {
+  content: '';
+  position: absolute;
+  right: -4px; bottom: -4px;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--ink, #141210);
+  border: 2px solid var(--cream, #f5efe3);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'><path d='M2.5 6.5 L5 9 L9.5 3.5' fill='none' stroke='%23f5efe3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-size: 12px 12px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
 .id-icon:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 .me-name-row { display: inline-flex; align-items: center; gap: 6px; }
 .me-page .me-name-text { font-family: 'Permanent Marker'; font-size: 28px; }
