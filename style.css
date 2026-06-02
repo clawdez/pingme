@@ -2119,26 +2119,22 @@ button { font: inherit; color: inherit; }
 .me-gear-top svg { width: 20px; height: 20px; }
 
 /* ---- banner + avatar ---- */
+/* Original design: large cream dots clustered top-right over cobalt gradient. */
 .me-banner {
   position: relative; height: 110px;
-  /* Original horizontal orientation — dots at the bottom (Ez reverted the flip). */
   background:
-    radial-gradient(circle at 22% 86%, rgba(244,237,220,.85) 0 6px, transparent 7px),
-    radial-gradient(circle at 36% 92%, rgba(244,237,220,.7) 0 4px, transparent 5px),
-    radial-gradient(circle at 52% 88%, rgba(244,237,220,.8) 0 5px, transparent 6px),
-    radial-gradient(circle at 68% 94%, rgba(244,237,220,.7) 0 5px, transparent 6px),
-    radial-gradient(circle at 82% 86%, rgba(244,237,220,.85) 0 6px, transparent 7px),
+    radial-gradient(circle at 78% 30%, rgba(244,237,220,.9) 0 14px, transparent 15px),
+    radial-gradient(circle at 86% 48%, rgba(244,237,220,.8) 0 20px, transparent 21px),
+    radial-gradient(circle at 68% 58%, rgba(244,237,220,.7) 0 16px, transparent 17px),
     linear-gradient(160deg, var(--cobalt) 0%, #5b76e6 100%);
   border-bottom: 2.5px solid var(--ink);
-  transform: none; /* explicitly NO vertical flip */
 }
-/* OVERRIDE older .me-av-tap: bottom-left positioned avatar in banner.
-   Big avatar restored per Ez — sits half-overhanging the banner. */
+/* Avatar overhangs the bottom-left of the banner — small size per Ez. */
 .me-page .me-av-tap {
-  position: absolute; bottom: -56px; left: 20px;
-  width: 124px; height: 124px; border-radius: 50%; flex: 0 0 auto;
-  border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink);
-  font-family: 'Permanent Marker'; font-size: 44px; color: var(--cream);
+  position: absolute; bottom: -28px; left: 20px;
+  width: 76px; height: 76px; border-radius: 50%; flex: 0 0 auto;
+  border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
+  font-family: 'Permanent Marker'; font-size: 28px; color: var(--cream);
   cursor: pointer; transition: transform .1s;
   display: grid; place-items: center;
   z-index: 2;
@@ -2146,10 +2142,9 @@ button { font: inherit; color: inherit; }
 .me-page .me-av-tap:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 
 /* ---- identity row ---- */
-/* Avatar overhangs the bottom-left of the banner; icons sit on the right.
-   With the big-avatar restoration the id-row sits BELOW the avatar with
-   left padding clear of the overhang. */
-.me-id { padding: 72px 24px 0; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* Small avatar tucks bottom-left of banner; name + icons share the row to
+   the right of it. */
+.me-id { padding: 14px 22px 0 110px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; }
 .me-id-main { flex: 1; min-width: 0; text-align: left; }
 .me-id-icons { display: flex; gap: 8px; flex: 0 0 auto; }
 .id-icon {

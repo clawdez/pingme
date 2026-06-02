@@ -2307,19 +2307,10 @@ function renderMe() {
     });
   }
 
-  // Settings icon: also bind directly (in addition to global delegation) so
-  // mobile Safari taps fire reliably even when other handlers race.
-  if (settingsBtn && !settingsBtn._wired) {
-    settingsBtn._wired = true;
-    const fire = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const dd = document.getElementById('me-settings-dd');
-      if (dd) dd.classList.toggle('open');
-    };
-    settingsBtn.addEventListener('click', fire);
-    settingsBtn.addEventListener('touchend', fire);
-  }
+  // Settings icon click is handled by the global delegated capture-phase
+  // listener (handleSettingsIconTap). Binding directly here caused a
+  // double-toggle on mobile (touchend AND click both firing), which
+  // immediately re-closed the dropdown after opening.
 
   // Email-link entry inside the settings dropdown
   const linkEmailItem = document.getElementById('sr-link-email');
