@@ -1193,19 +1193,45 @@ let profileAvFiring = false;
 function handleProfileAv(e) {
   if (profileAvFiring) return;
   profileAvFiring = true;
-  if (e.type === 'touchend') e.preventDefault();
-  document.getElementById('sheet-me').classList.add('open');
-  renderMe();
-  renderNotis();
-  // Mark pings as read when modal opens
-  if (profile && pings.some(p => p.unread)) {
-    sb.from('pings').update({ unread: false }).eq('to_id', profile.id).eq('unread', true)
-      .then(() => { pings.forEach(p => p.unread = false); updateNotisBadge(); });
-  }
+  // Reset the firing flag no matter what — prevents lock-out if renderMe throws,
+  // which would otherwise make the avatar permanently un-clickable.
   setTimeout(() => { profileAvFiring = false; }, 300);
+  try {
+    if (e.type === 'touchend') e.preventDefault();
+    document.getElementById('sheet-me').classList.add('open');
+    renderMe();
+    renderNotis();
+    // Mark pings as read when modal opens
+    if (profile && pings.some(p => p.unread)) {
+      sb.from('pings').update({ unread: false }).eq('to_id', profile.id).eq('unread', true)
+        .then(() => { pings.forEach(p => p.unread = false); updateNotisBadge(); });
+    }
+  } catch (err) {
+    console.error('profile open failed:', err);
+  }
 }
 document.getElementById('profile-av').addEventListener('click', handleProfileAv);
 document.getElementById('profile-av').addEventListener('touchend', handleProfileAv);
+
+// Global delegation for the email icon — wires once at startup, independent of
+// renderMe's timing. Previously the handler was wired inside renderMe behind a
+// `_wired` flag, so if renderMe early-returned (e.g. profile still loading) the
+// first open, the email button silently did nothing afterward.
+let emailIconFiring = false;
+function handleEmailIconTap(e) {
+  const btn = e.target.closest('#row-email');
+  if (!btn) return;
+  if (emailIconFiring) return;
+  emailIconFiring = true;
+  setTimeout(() => { emailIconFiring = false; }, 300);
+  if (e.type === 'touchend') e.preventDefault();
+  e.stopPropagation();
+  // Ensure the profile sheet is open so showLinkEmail's DOM targets exist
+  document.getElementById('sheet-me')?.classList.add('open');
+  try { showLinkEmail(); } catch (err) { console.error('email tap failed:', err); }
+}
+document.addEventListener('click', handleEmailIconTap);
+document.addEventListener('touchend', handleEmailIconTap);
 
 /* ── SHEETS ── */
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
@@ -2199,23 +2225,8 @@ function renderMe() {
     });
   }
 
-  // Email/Phone row icons — handle both click + touchend so iOS doesn't drop taps
-  const rowEmailEl = document.getElementById('row-email');
-  if (rowEmailEl && !rowEmailEl._wired) {
-    rowEmailEl._wired = true;
-    let emailTapFiring = false;
-    const handleEmailTap = (e) => {
-      if (emailTapFiring) return;
-      emailTapFiring = true;
-      if (e && e.type === 'touchend') e.preventDefault();
-      // Always make sure the profile sheet is open so showLinkEmail's DOM targets exist
-      document.getElementById('sheet-me')?.classList.add('open');
-      showLinkEmail();
-      setTimeout(() => { emailTapFiring = false; }, 300);
-    };
-    rowEmailEl.addEventListener('click', handleEmailTap);
-    rowEmailEl.addEventListener('touchend', handleEmailTap);
-  }
+  // Email row icon click handler is wired globally at script startup
+  // (see handleEmailIconTap). Don't wire here.
 
   // Name edit (pencil icon)
   const nameEditBtn = document.getElementById('me-name-edit');
@@ -2411,6 +2422,10 @@ function showLinkEmail() {
       if (notisSection) notisSection.style.display = '';
       renderMe();
     });
+    // Surface the panel visibly: scroll it into view and toast so the user knows
+    // their tap registered (previously the inline swap was easy to miss).
+    requestAnimationFrame(() => meWrap.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+    toast(cachedEmail ? ('email: ' + cachedEmail) : 'email linked');
     return;
   }
 
