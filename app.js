@@ -38,7 +38,7 @@ const VENUE_TYPE_ICON = {
   business: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="9" width="16" height="12"/><path d="M3 9 L21 9 L19 4 L5 4 Z"/></svg>',
   private:  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11 L12 4 L20 11 L20 21 L4 21 Z"/><path d="M10 21 L10 14 L14 14 L14 21"/></svg>'
 };
-const VENUE_PIN_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 22 C 5 14 5 9 12 3 C 19 9 19 14 12 22 Z"/><circle cx="12" cy="10" r="2.5"/></svg>';
+const VENUE_PIN_ICON = '<svg viewBox="0 0 40 40" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M20 35 C20 35 31 24.5 31 16 C31 9.5 26 5 20 5 C14 5 9 9.5 9 16 C9 24.5 20 35 20 35 Z"/><circle cx="20" cy="16" r="4.5"/></svg>';
 const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
 
 function haversineKm(a, b) {
@@ -187,8 +187,9 @@ function renderVenuePicker() {
   let html = '';
   html += '<div class="vp-controls">';
   html += '<div class="venue-search-row">';
-  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search" value="' + searchVal + '" autocomplete="off"/>';
-  html += '<button class="pm-add-venue-mini" id="pm-add-venue" type="button" title="add a venue">+</button>';
+  html += '<span class="vsr-search-ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><circle cx="17" cy="17" r="10"/><path d="M24.5 24.5 L33 33"/></svg></span>';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="Search" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<button class="pm-add-venue-mini" id="pm-add-venue" type="button" title="add a venue" aria-label="add venue"><svg width="22" height="22" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M20 8 L20 32 M8 20 L32 20"/></svg></button>';
   html += '</div>';
   // City tag row (Luma-style) — only render if there are 2+ cities or location is on
   const cities = cityTagOptions();
@@ -423,7 +424,7 @@ function openAddVenueModal() {
         <h3>add a place</h3>
         <div class="av-sub">search for it — park, bar, gym, anywhere with a table</div>
         <div class="av-search-wrap">
-          <input class="av-input av-search" id="av-search" autocomplete="off" placeholder="search a place…"/>
+          <input class="av-input av-search" id="av-search" autocomplete="off" placeholder="Search"/>
           <div class="av-results" id="av-results"></div>
         </div>
         <div class="av-picked" id="av-picked" style="display:none"></div>
@@ -1223,21 +1224,91 @@ document.getElementById('profile-av').addEventListener('click', handleProfileAv)
 document.getElementById('profile-av').addEventListener('touchend', handleProfileAv);
 
 // Settings gear icon delegation — toggles the settings dropdown regardless of
-// renderMe timing.
+// renderMe timing. Bug fix (mobile): we were stopping propagation BEFORE
+// preventDefault, which on some iOS Safari builds turned the touchend into a
+// no-op (the synthetic click never reached the gear). Now we always
+// preventDefault first AND dedupe across click+touchend by stamping the event.
 let settingsIconFiring = false;
 function handleSettingsIconTap(e) {
   const btn = e.target.closest('#row-settings');
   if (!btn) return;
-  if (settingsIconFiring) return;
+  // Dedupe click after touchend on the same gesture
+  if (settingsIconFiring) { e.preventDefault?.(); return; }
   settingsIconFiring = true;
-  setTimeout(() => { settingsIconFiring = false; }, 300);
-  if (e.type === 'touchend') e.preventDefault();
+  setTimeout(() => { settingsIconFiring = false; }, 350);
+  e.preventDefault();
   e.stopPropagation();
   document.getElementById('sheet-me')?.classList.add('open');
-  document.getElementById('me-settings-dd')?.classList.toggle('open');
+  const dd = document.getElementById('me-settings-dd');
+  if (dd) dd.classList.toggle('open');
+  else {
+    // Settings panel not mounted yet (e.g. signed-out): make sure renderMe runs
+    try { renderMe(); } catch (_) {}
+    setTimeout(() => document.getElementById('me-settings-dd')?.classList.add('open'), 0);
+  }
 }
-document.addEventListener('click', handleSettingsIconTap);
-document.addEventListener('touchend', handleSettingsIconTap);
+document.addEventListener('click', handleSettingsIconTap, true);
+document.addEventListener('touchend', handleSettingsIconTap, { passive: false, capture: true });
+
+// Email id-icon click → open email actions (verify / change email)
+let emailIconFiring = false;
+function handleEmailIconTap(e) {
+  const btn = e.target.closest('#row-email');
+  if (!btn) return;
+  if (emailIconFiring) { e.preventDefault?.(); return; }
+  emailIconFiring = true;
+  setTimeout(() => { emailIconFiring = false; }, 350);
+  e.preventDefault();
+  e.stopPropagation();
+  openEmailActions();
+}
+document.addEventListener('click', handleEmailIconTap, true);
+document.addEventListener('touchend', handleEmailIconTap, { passive: false, capture: true });
+
+function openEmailActions() {
+  if (!profile) { showSetup(); return; }
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
+  const verified = !!(profile && profile.email_verified) || !!cachedEmail;
+  let el = document.getElementById('sheet-email-actions');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-email-actions';
+    document.body.appendChild(el);
+  }
+  el.innerHTML =
+    '<div class="sheet-scrim" data-dismiss></div>' +
+    '<div class="modal-center">' +
+      '<button class="modal-close" data-dismiss>&times;</button>' +
+      '<h3>' + (verified ? 'email on file' : 'link your email') + '</h3>' +
+      (verified
+        ? '<div class="ping-confirm-sub">' + esc(cachedEmail || 'verified') + '</div>'
+        : '<div class="ping-confirm-sub">save your account so you can log in on other devices</div>') +
+      '<div class="email-actions-row">' +
+        (verified
+          ? '<button class="ping-confirm-btn" id="ea-change" style="background:var(--cobalt);color:var(--cream)">change email</button>'
+          : '<button class="ping-confirm-btn" id="ea-verify">verify email</button>') +
+      '</div>' +
+    '</div>';
+  el.classList.add('open');
+  el.querySelectorAll('[data-dismiss]').forEach(d =>
+    d.addEventListener('click', () => el.classList.remove('open'))
+  );
+  const verifyBtn = el.querySelector('#ea-verify');
+  if (verifyBtn) verifyBtn.addEventListener('click', () => {
+    el.classList.remove('open');
+    document.getElementById('sheet-me').classList.add('open');
+    showLinkEmail();
+  });
+  const changeBtn = el.querySelector('#ea-change');
+  if (changeBtn) changeBtn.addEventListener('click', () => {
+    localStorage.removeItem('pm_linked_email');
+    if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
+    el.classList.remove('open');
+    document.getElementById('sheet-me').classList.add('open');
+    showLinkEmail();
+  });
+}
 
 /* ── SHEETS ── */
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
@@ -1250,9 +1321,13 @@ function handleDismiss(e) {
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
   // Reset firing locks immediately so re-entry to profile is instant.
+  // Bug (c): when closing the profile sheet, ALL debounce flags must reset —
+  // previously a stale lock would block re-entry on a fast re-tap.
   if (wrap.id === 'sheet-me') {
     profileAvFiring = false;
     settingsIconFiring = false;
+    emailIconFiring = false;
+    confirmPingFiring = false;
     document.getElementById('me-settings-dd')?.classList.remove('open');
   }
   // If ping confirm dismissed, revert to previous state
@@ -1830,15 +1905,21 @@ function openRaiderSheet(r) {
   if (canAct) {
     const showInvite = r.status === 'down';
     const favOn = isFavorite(r.id);
-    const starFill = favOn ? 'var(--cream, #F4EDDC)' : 'none';
-    const starStroke = favOn ? 'var(--cream, #F4EDDC)' : 'var(--ink, #141210)';
+    // Star colors flip boldly: mustard fill when favorited, outline-only ink when not.
+    const starFill = favOn ? '#E8B84A' : 'none';
+    const starStroke = favOn ? '#141210' : '#141210';
+    // Ping button uses the hand-drawn send icon. Single "Ping" word — challenge variant removed.
     html +=
       '<div class="rs-actions">' +
-      '<button class="rs-ping-btn" id="rs-ping-btn">ping</button>' +
-      '<button class="rs-msg-btn ' + (favOn ? 'rs-fav-on' : '') + '" id="rs-fav-icon" title="favorite">' +
-        '<svg viewBox="0 0 24 24" filter="url(#wobble)" width="22" height="22">' +
-          '<path d="M12 3.6 L14.5 9.2 L20.6 9.9 L16 14 L17.4 20 L12 16.8 L6.6 20 L8 14 L3.4 9.9 L9.5 9.2 Z" ' +
-          'fill="' + starFill + '" stroke="' + starStroke + '" stroke-width="2" stroke-linejoin="round"/>' +
+      '<button class="rs-ping-btn" id="rs-ping-btn">' +
+        '<svg class="rs-ping-ic" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)" width="18" height="18">' +
+          '<path d="M34 6 L4 17.5 L17 21.5 L21 33 Z"/><path d="M17 21.5 L34 6"/>' +
+        '</svg> Ping' +
+      '</button>' +
+      '<button class="rs-msg-btn ' + (favOn ? 'rs-fav-on' : '') + '" id="rs-fav-icon" title="favorite" aria-pressed="' + favOn + '">' +
+        '<svg viewBox="0 0 40 40" filter="url(#wobble)" width="24" height="24">' +
+          '<path d="M20 6 L24 16 L34.5 16.5 L26.5 23.5 L29 33.5 L20 27.5 L11 33.5 L13.5 23.5 L5.5 16.5 L16 16 Z" ' +
+          'fill="' + starFill + '" stroke="' + starStroke + '" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>' +
         '</svg>' +
       '</button>' +
       '</div>' +
@@ -1857,9 +1938,10 @@ function openRaiderSheet(r) {
         favIcon.classList.toggle('rs-fav-on', added);
         const star = favIcon.querySelector('path');
         if (star) {
-          star.setAttribute('fill', added ? 'var(--cream, #F4EDDC)' : 'none');
-          star.setAttribute('stroke', added ? 'var(--cream, #F4EDDC)' : 'var(--ink, #141210)');
+          star.setAttribute('fill', added ? '#E8B84A' : 'none');
+          star.setAttribute('stroke', '#141210');
         }
+        favIcon.setAttribute('aria-pressed', added ? 'true' : 'false');
         toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
       };
     }
@@ -2163,13 +2245,19 @@ function renderMe() {
   const rankEl = document.querySelector('#stat-rank .ms-num');
   if (rankEl) rankEl.textContent = computeMyRankText();
 
-  // Settings icon: green/ok when email is linked, flame otherwise
+  // Settings + email icons: email icon flips sage (verified) / flame (unverified).
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
   const isEmailLinked = !!cachedEmail || !!me.email_verified;
   const settingsBtn = document.getElementById('row-settings');
   if (settingsBtn) {
-    settingsBtn.classList.toggle('ok', isEmailLinked);
+    // Settings icon stays in default ink/cream styling — don't tie it to email.
+    settingsBtn.classList.remove('ok');
     settingsBtn.title = 'settings';
+  }
+  const emailBtn = document.getElementById('row-email');
+  if (emailBtn) {
+    emailBtn.classList.toggle('ok', isEmailLinked);
+    emailBtn.title = isEmailLinked ? ('email verified' + (cachedEmail ? ' · ' + cachedEmail : '')) : 'verify email';
   }
 
   // ── settings panel + link-email banner live in #me-wrap (legacy) ──
