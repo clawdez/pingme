@@ -29,6 +29,7 @@ try {
 let VENUES = [];
 let venueSearch = '';
 let venueZip = localStorage.getItem('pm_zip') || '';
+let selectedCity = localStorage.getItem('pm_city') || ''; // '' = all, or '__near__'
 let userLoc = null; // { lat, lng } from geolocation, ephemeral per session
 const VENUE_TYPE_ICON = { public: '🌳', business: '🏪', private: '🏠' };
 const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
@@ -80,6 +81,10 @@ function filteredVenues() {
   const q = (venueSearch || '').trim().toLowerCase();
   const zip = (venueZip || '').trim();
   let list = VENUES.slice();
+  // City tag filter — '__near__' uses location/distance, '' = all, else match city
+  if (selectedCity && selectedCity !== '__near__') {
+    list = list.filter(v => (v.city || '').toLowerCase() === selectedCity.toLowerCase());
+  }
   if (zip) {
     list = list.filter(v =>
       (v.desc || '').includes(zip) ||
@@ -100,8 +105,25 @@ function filteredVenues() {
         : Infinity;
       return Object.assign({}, v, { _dist: dist });
     }).sort((a, b) => a._dist - b._dist);
+    // "near me" tag — cap to a sensible radius (~80km) and keep distance-sorted
+    if (selectedCity === '__near__') {
+      list = list.filter(v => isFinite(v._dist) && v._dist <= 80);
+    }
   }
   return list;
+}
+
+// Distinct cities present in VENUES, ordered by total play_count (most-active first).
+function cityTagOptions() {
+  const counts = new Map();
+  for (const v of VENUES) {
+    const c = (v.city || '').trim();
+    if (!c) continue;
+    counts.set(c, (counts.get(c) || 0) + (v.play_count || 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([city]) => city);
 }
 
 function renderVenueSections(list) {
@@ -162,6 +184,17 @@ function renderVenuePicker() {
   html += '<button class="pm-loc-mini' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button" title="use my location">📍</button>';
   html += '<input class="pm-loc-zip pm-loc-zip-mini" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="6" placeholder="zip" value="' + zipVal + '"/>';
   html += '</div>';
+  // City tag row (Luma-style) — only render if there are 2+ cities or location is on
+  const cities = cityTagOptions();
+  if (cities.length >= 2 || userLoc) {
+    let tags = '';
+    if (userLoc) tags += '<button class="city-tag' + (selectedCity === '__near__' ? ' active' : '') + '" data-city="__near__" type="button">📍 near me</button>';
+    tags += '<button class="city-tag' + (selectedCity === '' ? ' active' : '') + '" data-city="" type="button">all</button>';
+    for (const c of cities) {
+      tags += '<button class="city-tag' + (selectedCity.toLowerCase() === c.toLowerCase() ? ' active' : '') + '" data-city="' + esc(c) + '" type="button">' + esc(c) + '</button>';
+    }
+    html += '<div class="city-tag-row">' + tags + '</div>';
+  }
   html += '</div>';
   if (!list.length) {
     html += '<div class="venue-empty">no matches yet — keep typing to add it</div>';
@@ -223,6 +256,25 @@ function renderVenuePicker() {
     });
   }
 
+  // City tag chips
+  el.querySelectorAll('.city-tag').forEach(btn => {
+    btn.addEventListener('click', () => {
+      selectedCity = btn.dataset.city || '';
+      if (selectedCity) localStorage.setItem('pm_city', selectedCity);
+      else localStorage.removeItem('pm_city');
+      // If user picks "near me" but no location yet, request it
+      if (selectedCity === '__near__' && !userLoc && navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => { userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude }; renderVenuePicker(); },
+          () => { selectedCity = ''; localStorage.removeItem('pm_city'); renderVenuePicker(); toast('location denied'); },
+          { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+        );
+        return;
+      }
+      renderVenuePicker();
+    });
+  });
+
   bindVenuePills(el);
   scheduleVenueSuggest(el);
 }
@@ -238,9 +290,8 @@ function scheduleVenueSuggest(el) {
   const seq = ++_vpSugSeq;
   sugEl.innerHTML = '<div class="vp-sug-loading">looking up "' + esc(q) + '"…</div>';
   _vpSugTimer = setTimeout(async () => {
-    const raw = await nominatimSearch(q);
+    const items = (await findPingPongSpots(q, userLoc)).slice(0, 4);
     if (seq !== _vpSugSeq) return;
-    const items = raw.map(formatNomResult).filter(r => r.name).slice(0, 4);
     if (!items.length) { sugEl.innerHTML = ''; return; }
     const nameSet = new Set(VENUES.map(v => v.name.toLowerCase().trim()));
     const fresh = items.filter(r => !nameSet.has(r.name.toLowerCase().trim()));
@@ -334,6 +385,60 @@ function formatNomResult(r) {
   return { name, city, location: tail || (r.display_name || ''), lat: parseFloat(r.lat), lng: parseFloat(r.lon) };
 }
 
+// Distance helper (meters) for sorting nearby results.
+function haversineM(a, b) {
+  const R = 6371000;
+  const toR = d => d * Math.PI / 180;
+  const dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const x = Math.sin(dLat/2)**2 + Math.cos(toR(a.lat))*Math.cos(toR(b.lat))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(x));
+}
+
+// Generic nearby places — bars, parks, cafes, community centers, anywhere
+// people commonly play. Returns named POIs sorted by distance.
+async function overpassNearbyPlaces(loc, radiusM = 2500) {
+  if (!loc || !Number.isFinite(loc.lat) || !Number.isFinite(loc.lng)) return [];
+  const area = '(around:' + radiusM + ',' + loc.lat + ',' + loc.lng + ')';
+  const filters = [
+    '["amenity"~"bar|pub|cafe|restaurant|community_centre|social_facility|biergarten|nightclub"]',
+    '["leisure"~"park|sports_centre|playground|garden|fitness_centre|pitch"]',
+    '["tourism"~"hotel|hostel|attraction"]',
+    '["shop"="mall"]',
+  ];
+  const parts = filters.map(f => 'node' + f + '["name"]' + area + ';').join('');
+  const body = '[out:json][timeout:15];(' + parts + ');out center 60;';
+  try {
+    const res = await fetch('https://overpass-api.de/api/interpreter', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + encodeURIComponent(body),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.elements || []).map(e => {
+      const lat = e.lat ?? e.center?.lat;
+      const lng = e.lon ?? e.center?.lon;
+      const tags = e.tags || {};
+      const name = tags.name || tags['name:en'];
+      if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      const loc2 = [tags['addr:street'], tags['addr:city'], tags['addr:state']].filter(Boolean).join(', ');
+      const city = tags['addr:city'] || '';
+      return { name, city, location: loc2, lat, lng, _d: haversineM(loc, { lat, lng }) };
+    }).filter(Boolean).sort((a, b) => a._d - b._d);
+  } catch { return []; }
+}
+
+// Typed search → generic Nominatim (any place, anywhere).
+// Empty query w/ location → nearby places from Overpass.
+async function findPingPongSpots(query, loc) {
+  const q = (query || '').trim();
+  if (q.length >= 2) {
+    const raw = await nominatimSearch(q);
+    return raw.map(formatNomResult).filter(r => r.name);
+  }
+  return (await overpassNearbyPlaces(loc)).slice(0, 12);
+}
+
 function openAddVenueModal() {
   if (!profile) { toast('sign in first'); return; }
   let el = document.getElementById('sheet-add-venue');
@@ -384,9 +489,8 @@ function openAddVenueModal() {
       resultsEl.innerHTML = '<div class="av-result-loading">searching…</div>';
       resultsEl.style.display = 'block';
       _avSearchTimer = setTimeout(async () => {
-        const raw = await nominatimSearch(q);
+        const items = await findPingPongSpots(q, userLoc);
         if (seq !== _avSearchSeq) return;
-        const items = raw.map(formatNomResult).filter(r => r.name);
         if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">no matches</div>'; return; }
         resultsEl.innerHTML = items.map((r, i) =>
           '<button class="av-result" type="button" data-i="' + i + '">'
@@ -459,6 +563,37 @@ function openAddVenueModal() {
     _avPicked = null;
   }
   el.classList.add('open');
+  // If we have a location, pre-populate with nearby places from OSM.
+  // 1-tap add: tapping a nearby result submits immediately (default type=public).
+  if (userLoc) {
+    const resultsEl = el.querySelector('#av-results');
+    if (resultsEl) {
+      const seq = ++_avSearchSeq;
+      resultsEl.style.display = 'block';
+      resultsEl.innerHTML = '<div class="av-result-loading">finding places near you…</div>';
+      overpassNearbyPlaces(userLoc).then(items => {
+        if (seq !== _avSearchSeq) return;
+        if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">nothing nearby — type a name</div>'; return; }
+        const shown = items.slice(0, 12);
+        resultsEl.innerHTML = '<div class="av-result-label">📍 tap one to add</div>' + shown.map((r, i) =>
+          '<button class="av-result" type="button" data-i="' + i + '">'
+          + '<span class="avr-name">' + esc(r.name) + '</span>'
+          + '<span class="avr-meta">' + esc([r.city, r.location].filter(Boolean).join(' · ')) + '</span>'
+          + '</button>'
+        ).join('');
+        resultsEl.querySelectorAll('.av-result').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            if (btn._submitting) return;
+            btn._submitting = true;
+            btn.classList.add('av-result-loading');
+            const pick = shown[parseInt(btn.dataset.i, 10)];
+            await quickAddVenue(pick);
+            el.classList.remove('open');
+          });
+        });
+      });
+    }
+  }
 }
 const VAPID_PUBLIC = 'BL_BNqvydfkgV7pGo0T9gYToFkih9PEMirDsTGNjl8DFAUrK2eQP53NCQ1eH-BjpZRcLjXpDjmaQ56ZY2VCuqTQ';
 
@@ -814,8 +949,18 @@ async function loadOrCreateProfile(user) {
   if (existing) {
     profile = await restoreTimers(existing);
     homeState = profile.status || 'off';
-    // Nudge anonymous users to link email (once)
-    if (!user.email && !localStorage.getItem('pm_link_nudge')) {
+    // Nudge anonymous users to link email (once) — skip anyone already verified
+    // or with a cached linked email (returning user on a fresh install).
+    const alreadyLinked = !!existing.email_verified
+      || !!localStorage.getItem('pm_linked_email')
+      || !!user.email;
+    if (alreadyLinked) {
+      // Clean up any stale "connect email" system pings if they verified elsewhere
+      sb.from('pings').delete()
+        .eq('to_id', user.id).eq('verb', 'system')
+        .then(() => updateNotisBadge(), () => {});
+      localStorage.setItem('pm_link_nudge', '1');
+    } else if (!localStorage.getItem('pm_link_nudge')) {
       localStorage.setItem('pm_link_nudge', '1');
       sb.from('pings').insert({
         from_id: user.id, to_id: user.id,
@@ -911,6 +1056,14 @@ async function loadPings() {
     .order('created_at', { ascending: false })
     .limit(20);
   if (!error && data) pings = data;
+  // Don't surface "connect email" nudges to verified users — clear them locally and remotely
+  const me = roster.find(r => r.id === profile.id);
+  const linked = !!(me && me.email_verified) || !!localStorage.getItem('pm_linked_email');
+  if (linked && pings.some(p => p.verb === 'system')) {
+    const stale = pings.filter(p => p.verb === 'system').map(p => p.id);
+    pings = pings.filter(p => p.verb !== 'system');
+    if (stale.length) sb.from('pings').delete().in('id', stale).then(() => {}, () => {});
+  }
 }
 
 let profilesChannel = null;
@@ -2083,17 +2236,26 @@ function renderMe() {
     });
   }
 
-  // Email/Phone row icons
+  // Email/Phone row icons — handle both click + touchend so iOS doesn't drop taps
   const rowEmailEl = document.getElementById('row-email');
   if (rowEmailEl && !rowEmailEl._wired) {
     rowEmailEl._wired = true;
-    rowEmailEl.addEventListener('click', () => {
+    let emailTapFiring = false;
+    const handleEmailTap = (e) => {
+      if (emailTapFiring) return;
+      emailTapFiring = true;
+      if (e && e.type === 'touchend') e.preventDefault();
       if (rowEmailEl.classList.contains('ok')) {
         toast(rowEmailEl.title || 'email linked');
       } else {
+        // Make sure the profile sheet is open so showLinkEmail's DOM targets exist
+        document.getElementById('sheet-me')?.classList.add('open');
         showLinkEmail();
       }
-    });
+      setTimeout(() => { emailTapFiring = false; }, 300);
+    };
+    rowEmailEl.addEventListener('click', handleEmailTap);
+    rowEmailEl.addEventListener('touchend', handleEmailTap);
   }
 
   // Name edit (pencil icon)

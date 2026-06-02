@@ -406,6 +406,29 @@ button { font: inherit; color: inherit; }
 }
 .venue-pill.verified { box-shadow: 2px 2px 0 var(--sage, #6FD27B), 4px 4px 0 var(--ink); }
 .venue-search-row { display: flex; gap: 6px; margin-bottom: 0; align-items: center; }
+.city-tag-row {
+  display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+  padding: 4px 2px 6px; margin: 0 -2px;
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.city-tag-row::-webkit-scrollbar { display: none; }
+.city-tag {
+  flex: 0 0 auto;
+  border: 2px solid var(--ink);
+  border-radius: 999px;
+  padding: 4px 12px;
+  background: var(--cream);
+  color: var(--ink);
+  font-family: 'Permanent Marker', sans-serif;
+  font-size: 12px;
+  letter-spacing: .4px;
+  cursor: pointer;
+  white-space: nowrap;
+  text-transform: lowercase;
+  transition: transform .08s;
+}
+.city-tag:active { transform: translate(1px, 1px); }
+.city-tag.active { background: var(--ink); color: var(--cream); }
 .pm-loc-mini {
   flex: 0 0 auto;
   width: 36px; height: 36px;
@@ -578,6 +601,11 @@ button { font: inherit; color: inherit; }
   text-align: center; padding: 12px 8px;
   font-family: 'Caveat', cursive; font-size: 15px; opacity: .65;
 }
+.av-result-label {
+  padding: 8px 10px 6px;
+  font-family: 'Caveat', cursive; font-size: 14px;
+  opacity: .7; letter-spacing: .3px;
+}
 .av-picked {
   display: flex; align-items: flex-start; gap: 10px;
   border: 2px dashed var(--ink); border-radius: 14px;
@@ -674,35 +702,33 @@ button { font: inherit; color: inherit; }
 
 /* ============ THE TABLE (ping pong themed roster) ============ */
 .the-table {
-  padding: 14px 22px 28px;
+  padding: 8px 16px 24px;
   flex: 1;
 }
 .table-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin: 0 2px 12px;
-  padding-bottom: 10px;
-  border-bottom: 2.5px solid var(--ink);
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin: 0 2px 8px;
+  padding-bottom: 6px;
+  border-bottom: 1.5px solid var(--ink);
 }
 .table-title {
-  font-family: 'Permanent Marker'; font-size: 24px;
+  font-family: 'Permanent Marker'; font-size: 20px;
   transform: rotate(-1.5deg);
-  display: flex; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 6px;
 }
-.tt-icon { flex: 0 0 auto; overflow: visible; }
+.tt-icon { flex: 0 0 auto; overflow: visible; width: 20px; height: 20px; }
 .table-sub {
   font-family: 'Space Grotesk'; font-weight: 600;
-  font-size: 13px; color: var(--muted);
+  font-size: 12px; color: var(--muted);
 }
-.table-sections { display: flex; flex-direction: column; gap: 20px; }
+.table-sections { display: flex; flex-direction: column; gap: 12px; }
 .table-section { }
 .section-label {
-  font-family: 'Permanent Marker'; font-size: 15px;
-  letter-spacing: .03em; color: var(--ink);
-  margin-bottom: 10px;
-  display: flex; align-items: center; gap: 10px;
-  padding: 6px 12px;
-  background: rgba(20,18,16,.04);
-  border-radius: 10px;
+  font-family: 'Permanent Marker'; font-size: 13px;
+  letter-spacing: .03em; color: var(--muted);
+  margin-bottom: 6px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 2px;
 }
 .section-label .s-dot { flex: 0 0 auto; }
 .section-label .section-count {
@@ -710,7 +736,7 @@ button { font: inherit; color: inherit; }
   color: var(--muted); margin-left: auto;
 }
 .fav-label { color: var(--mustard); }
-.s-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.s-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .s-dot.green { background: var(--sage); box-shadow: 0 0 0 3px rgba(111,210,123,.25); animation: blink 1.3s ease-in-out infinite; }
 .s-dot.yellow { background: var(--mustard); box-shadow: 0 0 0 3px rgba(232,184,74,.25); }
 .s-dot.gray { background: var(--muted-2); }
@@ -725,9 +751,9 @@ button { font: inherit; color: inherit; }
 
 /* ── Bubble grid roster ── */
 .bub-grid {
-  display: flex; flex-wrap: wrap; gap: 14px;
+  display: flex; flex-wrap: wrap; gap: 10px 12px;
   justify-content: flex-start;
-  padding: 4px 0;
+  padding: 2px 0;
 }
 .rbub {
   display: flex; flex-direction: column; align-items: center;
