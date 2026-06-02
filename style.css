@@ -2097,7 +2097,7 @@ button { font: inherit; color: inherit; }
 }
 @keyframes mePageIn { from { transform: translateX(14px); opacity: .4; } to { transform: none; opacity: 1; } }
 .me-back {
-  position: absolute; top: 14px; left: 14px; z-index: 6;
+  position: absolute; top: 14px; right: 14px; z-index: 6;
   width: 38px; height: 38px; border-radius: 50%;
   border: 2.5px solid var(--ink); background: var(--cream);
   box-shadow: 2px 2px 0 var(--ink); cursor: pointer;
@@ -2137,7 +2137,7 @@ button { font: inherit; color: inherit; }
 .me-page .me-av-tap:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 
 /* ---- identity row ---- */
-.me-id { padding: 30px 20px 0; text-align: left; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.me-id { padding: 30px 24px 0; text-align: left; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .me-id-main { flex: 1; min-width: 0; }
 .me-id-icons { display: flex; gap: 8px; flex: 0 0 auto; }
 .id-icon {
@@ -2202,7 +2202,7 @@ button { font: inherit; color: inherit; }
 .me-stat[role=button]:active { transform: translateY(1px); }
 
 /* ---- pings list inside profile ---- */
-.me-pings { text-align: left; padding: 14px 20px 32px; border-top: 2px solid var(--ink); }
+.me-pings { text-align: left; padding: 14px 24px 32px; border-top: 2px solid var(--ink); }
 .me-pings-head {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
 }

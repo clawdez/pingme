@@ -253,13 +253,13 @@ function scheduleVenueSuggest(el) {
   const seq = ++_vpSugSeq;
   sugEl.innerHTML = '<div class="vp-sug-loading">looking up "' + esc(q) + '"…</div>';
   _vpSugTimer = setTimeout(async () => {
-    const items = (await findPingPongSpots(q, userLoc)).slice(0, 4);
+    const items = (await findPingPongSpots(q, userLoc)).slice(0, 8);
     if (seq !== _vpSugSeq) return;
     if (!items.length) { sugEl.innerHTML = ''; return; }
     const nameSet = new Set(VENUES.map(v => v.name.toLowerCase().trim()));
     const fresh = items.filter(r => !nameSet.has(r.name.toLowerCase().trim()));
     if (!fresh.length) { sugEl.innerHTML = ''; return; }
-    sugEl.innerHTML = '<div class="vp-sug-label">add a new spot</div>' + fresh.map((r, i) =>
+    sugEl.innerHTML = '<div class="vp-sug-label">tap to add</div>' + fresh.map((r, i) =>
       '<button class="vp-sug-row" type="button" data-i="' + i + '">'
       + '<span class="vp-sug-plus">+</span>'
       + '<span class="vp-sug-text">'
