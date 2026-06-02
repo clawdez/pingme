@@ -2119,15 +2119,15 @@ button { font: inherit; color: inherit; }
 .me-banner {
   position: relative; height: 110px;
   background:
-    radial-gradient(circle at 78% 30%, rgba(244,237,220,.9) 0 14px, transparent 15px),
-    radial-gradient(circle at 86% 48%, rgba(244,237,220,.8) 0 20px, transparent 21px),
-    radial-gradient(circle at 68% 58%, rgba(244,237,220,.7) 0 16px, transparent 17px),
-    linear-gradient(160deg, var(--cobalt) 0%, #5b76e6 100%);
+    radial-gradient(circle at 22% 30%, rgba(244,237,220,.9) 0 14px, transparent 15px),
+    radial-gradient(circle at 14% 48%, rgba(244,237,220,.8) 0 20px, transparent 21px),
+    radial-gradient(circle at 32% 58%, rgba(244,237,220,.7) 0 16px, transparent 17px),
+    linear-gradient(200deg, var(--cobalt) 0%, #5b76e6 100%);
   border-bottom: 2.5px solid var(--ink);
 }
-/* OVERRIDE older .me-av-tap: bottom-left positioned avatar in banner */
+/* OVERRIDE older .me-av-tap: bottom-right positioned avatar in banner (flipped from left) */
 .me-page .me-av-tap {
-  position: absolute; bottom: -28px; left: 20px;
+  position: absolute; bottom: -28px; right: 20px;
   width: 76px; height: 76px; border-radius: 50%; flex: 0 0 auto;
   border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
   font-family: 'Permanent Marker'; font-size: 26px; color: var(--cream);
@@ -2137,8 +2137,10 @@ button { font: inherit; color: inherit; }
 .me-page .me-av-tap:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 
 /* ---- identity row ---- */
-.me-id { padding: 30px 24px 0; text-align: left; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.me-id-main { flex: 1; min-width: 0; }
+/* Avatar overhangs the bottom-right of the banner. Settings icon sits on the
+   left so it never collides with the avatar; name fills the middle. */
+.me-id { padding: 16px 116px 0 24px; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-direction: row-reverse; }
+.me-id-main { flex: 1; min-width: 0; text-align: left; }
 .me-id-icons { display: flex; gap: 8px; flex: 0 0 auto; }
 .id-icon {
   width: 38px; height: 38px; border-radius: 50%;
@@ -2309,3 +2311,23 @@ button { font: inherit; color: inherit; }
 /* settings panel in profile page (the legacy #me-wrap mounted inside .me-card) */
 .me-page #me-wrap:empty { display: none; }
 .me-page #me-wrap { padding: 14px 20px 0; }
+
+/* email-status dot inside the settings dropdown */
+.me-dd-dot {
+  display: inline-block;
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: var(--flame, #E8502A);
+  border: 2px solid var(--ink);
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.me-dd-dot.on { background: var(--sage, #6FD27B); }
+.me-dd-item.me-dd-ok { color: var(--muted); }
+
+/* favorite-styled msg slot in the player profile action row */
+.rs-msg-btn.rs-fav-on {
+  background: var(--mustard, #E8C547);
+  color: var(--ink);
+}
+.rs-msg-btn svg { display: block; }

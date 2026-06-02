@@ -1213,25 +1213,22 @@ function handleProfileAv(e) {
 document.getElementById('profile-av').addEventListener('click', handleProfileAv);
 document.getElementById('profile-av').addEventListener('touchend', handleProfileAv);
 
-// Global delegation for the email icon — wires once at startup, independent of
-// renderMe's timing. Previously the handler was wired inside renderMe behind a
-// `_wired` flag, so if renderMe early-returned (e.g. profile still loading) the
-// first open, the email button silently did nothing afterward.
-let emailIconFiring = false;
-function handleEmailIconTap(e) {
-  const btn = e.target.closest('#row-email');
+// Settings gear icon delegation — toggles the settings dropdown regardless of
+// renderMe timing.
+let settingsIconFiring = false;
+function handleSettingsIconTap(e) {
+  const btn = e.target.closest('#row-settings');
   if (!btn) return;
-  if (emailIconFiring) return;
-  emailIconFiring = true;
-  setTimeout(() => { emailIconFiring = false; }, 300);
+  if (settingsIconFiring) return;
+  settingsIconFiring = true;
+  setTimeout(() => { settingsIconFiring = false; }, 300);
   if (e.type === 'touchend') e.preventDefault();
   e.stopPropagation();
-  // Ensure the profile sheet is open so showLinkEmail's DOM targets exist
   document.getElementById('sheet-me')?.classList.add('open');
-  try { showLinkEmail(); } catch (err) { console.error('email tap failed:', err); }
+  document.getElementById('me-settings-dd')?.classList.toggle('open');
 }
-document.addEventListener('click', handleEmailIconTap);
-document.addEventListener('touchend', handleEmailIconTap);
+document.addEventListener('click', handleSettingsIconTap);
+document.addEventListener('touchend', handleSettingsIconTap);
 
 /* ── SHEETS ── */
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
@@ -1243,6 +1240,12 @@ function handleDismiss(e) {
   if (!wrap) return;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
+  // Reset firing locks immediately so re-entry to profile is instant.
+  if (wrap.id === 'sheet-me') {
+    profileAvFiring = false;
+    settingsIconFiring = false;
+    document.getElementById('me-settings-dd')?.classList.remove('open');
+  }
   // If ping confirm dismissed, revert to previous state
   if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
     homeState = profile.status || 'off';
@@ -1800,7 +1803,6 @@ function openRaiderSheet(r) {
     '<div class="rs-name">' + esc(r.name) + (isMe ? ' <span class="rs-you">you</span>' : '') + '</div>' +
     '<div class="rs-status ' + statusClass + '"><span class="rs-dot"></span>' + statusText + '</div>' +
     '</div>' +
-    (canAct ? '<button class="rs-fav-icon" id="rs-fav-icon">' + (isFavorite(r.id) ? '\u2605' : '\u2606') + '</button>' : '') +
     '</div>';
 
   // Context line
@@ -1813,19 +1815,22 @@ function openRaiderSheet(r) {
     html += '<div class="rs-ambient">' + esc(r.ambient) + '</div>';
   }
 
-  // Action buttons — ping is primary, text is secondary (SMS deep link)
+  // Action buttons — ping is primary, favorite is secondary (matches app icon style)
   if (canAct) {
-    const hasPhone = r.phone && r.phone.length >= 10;
     const showInvite = r.status === 'down';
+    const favOn = isFavorite(r.id);
     html +=
       '<div class="rs-actions">' +
-      '<button class="rs-ping-btn" id="rs-ping-btn">&#127955; ping ' + esc(r.name) + '</button>' +
-      (hasPhone
-        ? '<a class="rs-msg-btn" href="sms:' + esc(r.phone) + '?body=' + encodeURIComponent((profile?.name || 'hey') + ' — down for ping pong?') + '" id="rs-msg-btn">&#128172;</a>'
-        : '<button class="rs-msg-btn rs-msg-disabled" id="rs-msg-btn" disabled title="no phone number">&#128172;</button>') +
+      '<button class="rs-ping-btn" id="rs-ping-btn">ping</button>' +
+      '<button class="rs-msg-btn ' + (favOn ? 'rs-fav-on' : '') + '" id="rs-fav-icon" title="favorite">' +
+        '<svg viewBox="0 0 24 24" filter="url(#wobble)" width="22" height="22">' +
+          '<path d="M12 3.6 L14.5 9.2 L20.6 9.9 L16 14 L17.4 20 L12 16.8 L6.6 20 L8 14 L3.4 9.9 L9.5 9.2 Z" ' +
+          'fill="' + (favOn ? 'var(--mustard, #E8C547)' : 'none') + '" stroke="#141210" stroke-width="2" stroke-linejoin="round"/>' +
+        '</svg>' +
+      '</button>' +
       '</div>' +
-      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">&#128205; down to play at...</button>' : '') +
-      (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">&#127935; challenge to a match</button>' : '');
+      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">down to play at…</button>' : '') +
+      (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">challenge</button>' : '');
   }
 
   modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;
@@ -1837,11 +1842,11 @@ function openRaiderSheet(r) {
     if (favIcon) {
       favIcon.onclick = () => {
         const added = toggleFavorite(r.id);
-        favIcon.textContent = added ? '\u2605' : '\u2606';
-        favIcon.classList.toggle('rs-fav-active', added);
+        favIcon.classList.toggle('rs-fav-on', added);
+        const star = favIcon.querySelector('path');
+        if (star) star.setAttribute('fill', added ? 'var(--mustard, #E8C547)' : 'none');
         toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
       };
-      favIcon.classList.toggle('rs-fav-active', isFavorite(r.id));
     }
 
     // Ping
@@ -2150,17 +2155,25 @@ function renderMe() {
   const rankEl = document.querySelector('#stat-rank .ms-num');
   if (rankEl) rankEl.textContent = computeMyRankText();
 
-  // Email / phone row state
+  // Settings icon: green/ok when email is linked, flame otherwise
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
-  const rowEmail = document.getElementById('row-email');
-  if (rowEmail) {
-    rowEmail.classList.toggle('ok', !!cachedEmail || !!me.email_verified);
-    rowEmail.title = cachedEmail ? ('email: ' + cachedEmail) : (me.email_verified ? 'email verified' : 'link email');
+  const isEmailLinked = !!cachedEmail || !!me.email_verified;
+  const settingsBtn = document.getElementById('row-settings');
+  if (settingsBtn) {
+    settingsBtn.classList.toggle('ok', isEmailLinked);
+    settingsBtn.title = 'settings';
   }
 
   // ── settings panel + link-email banner live in #me-wrap (legacy) ──
+  const emailLabel = isEmailLinked
+    ? ('email verified' + (cachedEmail ? ' · ' + esc(cachedEmail) : ''))
+    : 'link email';
   w.innerHTML =
     '<div class="me-settings-dropdown" id="me-settings-dd">' +
+    '<button class="me-dd-item ' + (isEmailLinked ? 'me-dd-ok' : '') + '" id="sr-link-email">' +
+      '<span class="me-dd-dot ' + (isEmailLinked ? 'on' : '') + '"></span>' +
+      ' ' + emailLabel +
+    '</button>' +
     '<button class="me-dd-item" id="sr-notif-link">' +
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
       ' notifications' +
@@ -2198,12 +2211,15 @@ function renderMe() {
     });
   }
 
-  // Gear toggle (top-right gear icon on the redesigned profile page)
-  const gearBtn = document.getElementById('me-gear-top');
-  if (gearBtn && !gearBtn._wired) {
-    gearBtn._wired = true;
-    gearBtn.addEventListener('click', () => {
-      document.getElementById('me-settings-dd')?.classList.toggle('open');
+  // Settings icon click is delegated globally (handleSettingsIconTap) — no
+  // need to wire it here.
+
+  // Email-link entry inside the settings dropdown
+  const linkEmailItem = document.getElementById('sr-link-email');
+  if (linkEmailItem) {
+    linkEmailItem.addEventListener('click', () => {
+      document.getElementById('me-settings-dd')?.classList.remove('open');
+      showLinkEmail();
     });
   }
 
