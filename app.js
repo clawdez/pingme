@@ -180,9 +180,8 @@ function renderVenuePicker() {
   let html = '';
   html += '<div class="vp-controls">';
   html += '<div class="venue-search-row">';
-  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search or add a place…" value="' + searchVal + '" autocomplete="off"/>';
-  html += '<button class="pm-loc-mini' + (userLoc ? ' active' : '') + '" id="pm-loc-near" type="button" title="use my location">📍</button>';
-  html += '<input class="pm-loc-zip pm-loc-zip-mini" id="pm-loc-zip" type="text" inputmode="numeric" maxlength="6" placeholder="zip" value="' + zipVal + '"/>';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<button class="pm-add-venue-mini" id="pm-add-venue" type="button" title="add a venue">+</button>';
   html += '</div>';
   // City tag row (Luma-style) — only render if there are 2+ cities or location is on
   const cities = cityTagOptions();
@@ -215,45 +214,9 @@ function renderVenuePicker() {
     });
   }
 
-  const zipInput = el.querySelector('#pm-loc-zip');
-  if (zipInput) {
-    zipInput.addEventListener('input', (e) => {
-      venueZip = e.target.value;
-      if (venueZip) localStorage.setItem('pm_zip', venueZip);
-      else localStorage.removeItem('pm_zip');
-      refreshVenueGrid(el);
-    });
-  }
-
-  const nearBtn = el.querySelector('#pm-loc-near');
-  if (nearBtn) {
-    nearBtn.addEventListener('click', () => {
-      if (userLoc) {
-        userLoc = null;
-        renderVenuePicker();
-        return;
-      }
-      if (!navigator.geolocation) { toast('location not available'); return; }
-      nearBtn.textContent = '📍 locating…';
-      navigator.geolocation.getCurrentPosition(
-        pos => {
-          userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-          // Persist on profile so push-notify radius filtering works
-          if (sb && profile?.id) {
-            sb.from('profiles').update({
-              last_lat: userLoc.lat, last_lng: userLoc.lng,
-              last_loc_at: new Date().toISOString()
-            }).eq('id', profile.id).then(() => {}, () => {});
-          }
-          renderVenuePicker();
-        },
-        err => {
-          nearBtn.textContent = '📍 use my location';
-          toast('location denied');
-        },
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
-      );
-    });
+  const addBtn = el.querySelector('#pm-add-venue');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => openAddVenueModal());
   }
 
   // City tag chips
@@ -2245,11 +2208,11 @@ function renderMe() {
       if (emailTapFiring) return;
       emailTapFiring = true;
       if (e && e.type === 'touchend') e.preventDefault();
+      // Always make sure the profile sheet is open so showLinkEmail's DOM targets exist
+      document.getElementById('sheet-me')?.classList.add('open');
       if (rowEmailEl.classList.contains('ok')) {
         toast(rowEmailEl.title || 'email linked');
       } else {
-        // Make sure the profile sheet is open so showLinkEmail's DOM targets exist
-        document.getElementById('sheet-me')?.classList.add('open');
         showLinkEmail();
       }
       setTimeout(() => { emailTapFiring = false; }, 300);
@@ -2360,18 +2323,26 @@ function renderMe() {
     }
   });
 
-  // Link email — show blue banner for anonymous users, or show linked email
+  // Link email — show blue banner only for users without a linked/verified email
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  if (cachedEmail) {
-    linkedEmailEl.style.display = '';
-    linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
+  const isLinked = !!cachedEmail || !!me.email_verified;
+  if (isLinked) {
+    if (cachedEmail) {
+      linkedEmailEl.style.display = '';
+      linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
+    } else {
+      linkedEmailEl.style.display = '';
+      linkedEmailEl.textContent = '✓ email linked';
+    }
     linkAcctBanner.style.display = 'none';
   } else {
-    // Show link banner immediately for anonymous users — don't block on async getSession
     linkAcctBanner.style.display = profile ? '' : 'none';
   }
-  linkAcctBanner.addEventListener('click', () => showLinkEmail());
+  if (!linkAcctBanner._wired) {
+    linkAcctBanner._wired = true;
+    linkAcctBanner.addEventListener('click', () => showLinkEmail());
+  }
 
   // Share link
   document.getElementById('sr-invite').addEventListener('click', showQrShare);
