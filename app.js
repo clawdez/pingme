@@ -31,7 +31,14 @@ let venueSearch = '';
 let venueZip = localStorage.getItem('pm_zip') || '';
 let selectedCity = localStorage.getItem('pm_city') || ''; // '' = all, or '__near__'
 let userLoc = null; // { lat, lng } from geolocation, ephemeral per session
-const VENUE_TYPE_ICON = { public: '🌳', business: '🏪', private: '🏠' };
+// Sketch-style SVG glyphs so venue type indicators match the rest of the app
+// (no emoji). Each glyph fits in a 20px box and uses currentColor for stroke.
+const VENUE_TYPE_ICON = {
+  public:   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 L5 13 L9 13 L4 21 L20 21 L15 13 L19 13 Z"/></svg>',
+  business: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="9" width="16" height="12"/><path d="M3 9 L21 9 L19 4 L5 4 Z"/></svg>',
+  private:  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11 L12 4 L20 11 L20 21 L4 21 Z"/><path d="M10 21 L10 14 L14 14 L14 21"/></svg>'
+};
+const VENUE_PIN_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 22 C 5 14 5 9 12 3 C 19 9 19 14 12 22 Z"/><circle cx="12" cy="10" r="2.5"/></svg>';
 const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
 
 function haversineKm(a, b) {
@@ -154,7 +161,7 @@ function renderVenueSections(list) {
 }
 
 function venuePillHtml(v) {
-  const icon = VENUE_TYPE_ICON[v.type] || '📍';
+  const icon = VENUE_TYPE_ICON[v.type] || VENUE_PIN_ICON;
   const meta = [VENUE_TYPE_LABEL[v.type] || v.type, v.desc].filter(Boolean).join(' · ');
   const distLbl = (v._dist != null && isFinite(v._dist))
     ? ' · ' + (v._dist < 1.6 ? (v._dist * 0.621).toFixed(1) + 'mi' : Math.round(v._dist * 0.621) + 'mi')
@@ -187,7 +194,7 @@ function renderVenuePicker() {
   const cities = cityTagOptions();
   if (cities.length >= 2 || userLoc) {
     let tags = '';
-    if (userLoc) tags += '<button class="city-tag' + (selectedCity === '__near__' ? ' active' : '') + '" data-city="__near__" type="button">📍 near me</button>';
+    if (userLoc) tags += '<button class="city-tag' + (selectedCity === '__near__' ? ' active' : '') + '" data-city="__near__" type="button">near me</button>';
     tags += '<button class="city-tag' + (selectedCity === '' ? ' active' : '') + '" data-city="" type="button">all</button>';
     for (const c of cities) {
       tags += '<button class="city-tag' + (selectedCity.toLowerCase() === c.toLowerCase() ? ' active' : '') + '" data-city="' + esc(c) + '" type="button">' + esc(c) + '</button>';
@@ -421,9 +428,9 @@ function openAddVenueModal() {
         </div>
         <div class="av-picked" id="av-picked" style="display:none"></div>
         <div class="av-types">
-          <button class="av-type active" data-type="public" type="button">🌳 public</button>
-          <button class="av-type" data-type="business" type="button">🏪 business</button>
-          <button class="av-type" data-type="private" type="button">🏠 private</button>
+          <button class="av-type active" data-type="public" type="button">public</button>
+          <button class="av-type" data-type="business" type="button">business</button>
+          <button class="av-type" data-type="private" type="button">private</button>
         </div>
         <button class="ping-confirm-btn" id="av-submit">add it</button>
         <div class="av-error" id="av-error"></div>
@@ -447,14 +454,16 @@ function openAddVenueModal() {
       _avPicked = null;
       pickedEl.style.display = 'none';
       if (_avSearchTimer) clearTimeout(_avSearchTimer);
-      if (q.length < 2) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+      // Bump the seq immediately on every keystroke so any in-flight
+      // location-prefill / older search results get discarded when they return.
       const seq = ++_avSearchSeq;
+      if (q.length < 1) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
       resultsEl.innerHTML = '<div class="av-result-loading">searching…</div>';
       resultsEl.style.display = 'block';
       _avSearchTimer = setTimeout(async () => {
-        const items = await findPingPongSpots(q, userLoc);
+        const items = await nominatimSearch(q).then(raw => raw.map(formatNomResult).filter(r => r.name));
         if (seq !== _avSearchSeq) return;
-        if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">no matches</div>'; return; }
+        if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">no matches — try a fuller name</div>'; return; }
         resultsEl.innerHTML = items.map((r, i) =>
           '<button class="av-result" type="button" data-i="' + i + '">'
           + '<span class="avr-name">' + esc(r.name) + '</span>'
@@ -469,7 +478,7 @@ function openAddVenueModal() {
             resultsEl.style.display = 'none';
             resultsEl.innerHTML = '';
             pickedEl.style.display = 'block';
-            pickedEl.innerHTML = '<span class="avp-pin">📍</span>'
+            pickedEl.innerHTML = '<span class="avp-pin"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s7-7 7-13a7 7 0 1 0-14 0c0 6 7 13 7 13z"/><circle cx="12" cy="9" r="2.5"/></svg></span>'
               + '<span class="avp-text"><b>' + esc(pick.name) + '</b><br/><span class="avp-meta">'
               + esc([pick.city, pick.location].filter(Boolean).join(' · ')) + '</span></span>';
           });
@@ -538,7 +547,7 @@ function openAddVenueModal() {
         if (seq !== _avSearchSeq) return;
         if (!items.length) { resultsEl.innerHTML = '<div class="av-result-loading">nothing nearby — type a name</div>'; return; }
         const shown = items.slice(0, 12);
-        resultsEl.innerHTML = '<div class="av-result-label">📍 tap one to add</div>' + shown.map((r, i) =>
+        resultsEl.innerHTML = '<div class="av-result-label">nearby — tap one to add</div>' + shown.map((r, i) =>
           '<button class="av-result" type="button" data-i="' + i + '">'
           + '<span class="avr-name">' + esc(r.name) + '</span>'
           + '<span class="avr-meta">' + esc([r.city, r.location].filter(Boolean).join(' · ')) + '</span>'
@@ -1815,22 +1824,25 @@ function openRaiderSheet(r) {
     html += '<div class="rs-ambient">' + esc(r.ambient) + '</div>';
   }
 
-  // Action buttons — ping is primary, favorite is secondary (matches app icon style)
+  // Action buttons — ping is primary, favorite (star) is the only secondary.
+  // Challenge removed: ping covers "want to play". Star color flips boldly so
+  // it's obvious whether you've favorited this player.
   if (canAct) {
     const showInvite = r.status === 'down';
     const favOn = isFavorite(r.id);
+    const starFill = favOn ? 'var(--cream, #F4EDDC)' : 'none';
+    const starStroke = favOn ? 'var(--cream, #F4EDDC)' : 'var(--ink, #141210)';
     html +=
       '<div class="rs-actions">' +
       '<button class="rs-ping-btn" id="rs-ping-btn">ping</button>' +
       '<button class="rs-msg-btn ' + (favOn ? 'rs-fav-on' : '') + '" id="rs-fav-icon" title="favorite">' +
         '<svg viewBox="0 0 24 24" filter="url(#wobble)" width="22" height="22">' +
           '<path d="M12 3.6 L14.5 9.2 L20.6 9.9 L16 14 L17.4 20 L12 16.8 L6.6 20 L8 14 L3.4 9.9 L9.5 9.2 Z" ' +
-          'fill="' + (favOn ? 'var(--mustard, #E8C547)' : 'none') + '" stroke="#141210" stroke-width="2" stroke-linejoin="round"/>' +
+          'fill="' + starFill + '" stroke="' + starStroke + '" stroke-width="2" stroke-linejoin="round"/>' +
         '</svg>' +
       '</button>' +
       '</div>' +
-      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">down to play at…</button>' : '') +
-      (FEATURES.matchTracking ? '<button class="rs-challenge-btn" id="rs-challenge-btn">challenge</button>' : '');
+      (showInvite ? '<button class="rs-challenge-btn" id="rs-invite-venue-btn" style="background:var(--cobalt);color:#F4EDDC">down to play at…</button>' : '');
   }
 
   modal.innerHTML = '<button class="modal-close" data-dismiss>&times;</button>' + html;
@@ -1844,7 +1856,10 @@ function openRaiderSheet(r) {
         const added = toggleFavorite(r.id);
         favIcon.classList.toggle('rs-fav-on', added);
         const star = favIcon.querySelector('path');
-        if (star) star.setAttribute('fill', added ? 'var(--mustard, #E8C547)' : 'none');
+        if (star) {
+          star.setAttribute('fill', added ? 'var(--cream, #F4EDDC)' : 'none');
+          star.setAttribute('stroke', added ? 'var(--cream, #F4EDDC)' : 'var(--ink, #141210)');
+        }
         toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
       };
     }
@@ -1870,14 +1885,7 @@ function openRaiderSheet(r) {
       }, 800);
     };
 
-    // Challenge to a match
-    const chBtn = document.getElementById('rs-challenge-btn');
-    if (chBtn) {
-      chBtn.onclick = () => {
-        document.getElementById('sheet-raider').classList.remove('open');
-        if (window.pmMatch?.open) window.pmMatch.open(r.id);
-      };
-    }
+    // (Challenge button removed — ping is the single primary action.)
 
     // Invite to a venue (handshake) — only when target is down
     const invBtn = document.getElementById('rs-invite-venue-btn');
@@ -1968,7 +1976,7 @@ function renderNotis() {
   if (pings.length === 0) {
     pingList.innerHTML =
       '<div class="notis-welcome">' +
-      '<div class="nw-icon">&#127955;</div>' +
+      '<div class="nw-icon"><svg width="36" height="36" viewBox="0 0 40 40" filter="url(#wobble)"><ellipse cx="22" cy="18" rx="14" ry="14" fill="none" stroke="#141210" stroke-width="2.4"/><rect x="6" y="26" width="14" height="6" rx="2" fill="none" stroke="#141210" stroke-width="2.4" transform="rotate(-22 13 29)"/><circle cx="32" cy="10" r="2.4" fill="none" stroke="#141210" stroke-width="1.8"/></svg></div>' +
       '<div class="nw-title">your notis will live here</div>' +
       '<div class="nw-body">' +
       '<div class="nw-item">&middot; when someone\'s looking for a game</div>' +
@@ -1983,7 +1991,7 @@ function renderNotis() {
   pingList.innerHTML = pings.map(p => {
     const from = p.from || {};
     const isSystem = p.verb === 'system';
-    const avText = isSystem ? '&#9993;' : (from.name || '??').slice(0, 2).toUpperCase();
+    const avText = isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase();
     const color = isSystem ? '#2563eb' : (from.color || '#E8502A');
     const who = isSystem ? 'pingme' : (from.name || 'someone');
     const ago = timeAgo(p.created_at);
@@ -2008,7 +2016,7 @@ function renderNotis() {
         '</div>';
     } else if (isInvite && acted === 'accepted' && FEATURES.matchTracking) {
       actions = '<div class="ping-actions">' +
-        '<button class="pa-btn primary pa-start-match" data-from="' + p.from_id + '">&#127955; tap to start match</button>' +
+        '<button class="pa-btn primary pa-start-match" data-from="' + p.from_id + '">tap to start match</button>' +
         '</div>';
     } else {
       actions = '<div class="ping-actions"><button class="pa-btn taken">&#10003; ' + esc(acted) + '</button></div>';
@@ -2211,8 +2219,19 @@ function renderMe() {
     });
   }
 
-  // Settings icon click is delegated globally (handleSettingsIconTap) — no
-  // need to wire it here.
+  // Settings icon: also bind directly (in addition to global delegation) so
+  // mobile Safari taps fire reliably even when other handlers race.
+  if (settingsBtn && !settingsBtn._wired) {
+    settingsBtn._wired = true;
+    const fire = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const dd = document.getElementById('me-settings-dd');
+      if (dd) dd.classList.toggle('open');
+    };
+    settingsBtn.addEventListener('click', fire);
+    settingsBtn.addEventListener('touchend', fire);
+  }
 
   // Email-link entry inside the settings dropdown
   const linkEmailItem = document.getElementById('sr-link-email');

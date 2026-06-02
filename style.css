@@ -541,7 +541,8 @@ button { font: inherit; color: inherit; }
 }
 .venue-pill:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 .venue-pill.active { background: var(--ink); color: var(--cream); }
-.vp-icon { font-size: 17px; line-height: 1; }
+.vp-icon { font-size: 17px; line-height: 1; display: inline-flex; align-items: center; color: var(--ink); }
+.vp-icon svg { width: 18px; height: 18px; display: block; }
 .vp-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
 .vp-name {
   font-family: 'Permanent Marker'; font-size: 13px; line-height: 1.1;
@@ -623,7 +624,8 @@ button { font: inherit; color: inherit; }
   padding: 10px 12px; margin-bottom: 12px;
   background: #FFF8E6;
 }
-.av-picked .avp-pin { font-size: 20px; line-height: 1.1; }
+.av-picked .avp-pin { font-size: 20px; line-height: 1.1; color: var(--ink); display: inline-flex; align-items: center; }
+.av-picked .avp-pin svg { width: 18px; height: 18px; display: block; }
 .av-picked .avp-text {
   flex: 1; min-width: 0;
   font-family: 'Permanent Marker'; font-size: 14px; line-height: 1.25;
@@ -2119,15 +2121,15 @@ button { font: inherit; color: inherit; }
 .me-banner {
   position: relative; height: 110px;
   background:
-    radial-gradient(circle at 22% 30%, rgba(244,237,220,.9) 0 14px, transparent 15px),
-    radial-gradient(circle at 14% 48%, rgba(244,237,220,.8) 0 20px, transparent 21px),
-    radial-gradient(circle at 32% 58%, rgba(244,237,220,.7) 0 16px, transparent 17px),
-    linear-gradient(200deg, var(--cobalt) 0%, #5b76e6 100%);
+    radial-gradient(circle at 78% 30%, rgba(244,237,220,.9) 0 14px, transparent 15px),
+    radial-gradient(circle at 86% 48%, rgba(244,237,220,.8) 0 20px, transparent 21px),
+    radial-gradient(circle at 68% 58%, rgba(244,237,220,.7) 0 16px, transparent 17px),
+    linear-gradient(160deg, var(--cobalt) 0%, #5b76e6 100%);
   border-bottom: 2.5px solid var(--ink);
 }
-/* OVERRIDE older .me-av-tap: bottom-right positioned avatar in banner (flipped from left) */
+/* OVERRIDE older .me-av-tap: bottom-left positioned avatar in banner */
 .me-page .me-av-tap {
-  position: absolute; bottom: -28px; right: 20px;
+  position: absolute; bottom: -28px; left: 20px;
   width: 76px; height: 76px; border-radius: 50%; flex: 0 0 auto;
   border: 3px solid var(--ink); box-shadow: 3px 3px 0 var(--ink);
   font-family: 'Permanent Marker'; font-size: 26px; color: var(--cream);
@@ -2137,9 +2139,8 @@ button { font: inherit; color: inherit; }
 .me-page .me-av-tap:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
 
 /* ---- identity row ---- */
-/* Avatar overhangs the bottom-right of the banner. Settings icon sits on the
-   left so it never collides with the avatar; name fills the middle. */
-.me-id { padding: 16px 116px 0 24px; text-align: left; display: flex; align-items: center; justify-content: flex-start; gap: 12px; flex-direction: row-reverse; }
+/* Avatar overhangs the bottom-left of the banner; gear sits on the right. */
+.me-id { padding: 16px 24px 0 116px; text-align: left; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .me-id-main { flex: 1; min-width: 0; text-align: left; }
 .me-id-icons { display: flex; gap: 8px; flex: 0 0 auto; }
 .id-icon {
@@ -2325,9 +2326,11 @@ button { font: inherit; color: inherit; }
 .me-dd-dot.on { background: var(--sage, #6FD27B); }
 .me-dd-item.me-dd-ok { color: var(--muted); }
 
-/* favorite-styled msg slot in the player profile action row */
+/* favorite slot in the player profile action row.
+   off = cream w/ ink outline star; on = flame bg w/ cream filled star. */
+.rs-msg-btn { background: var(--cream); }
 .rs-msg-btn.rs-fav-on {
-  background: var(--mustard, #E8C547);
-  color: var(--ink);
+  background: var(--flame, #E8502A);
+  color: var(--cream);
 }
 .rs-msg-btn svg { display: block; }
