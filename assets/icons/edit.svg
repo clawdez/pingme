@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" width="40" height="40">
+  <defs>
+    <filter id="wobble" x="-6%" y="-6%" width="112%" height="112%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="4" result="t"></feTurbulence>
+      <feDisplacementMap in="SourceGraphic" in2="t" scale="1.4"></feDisplacementMap>
+    </filter>
+  </defs>
+  <g fill="none" stroke="#141210" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)">
+    <path d="M6 34 L7.5 27 L26 8.5 L31.5 14 L13 32.5 Z"></path>
+    <path d="M23 11.5 L28.5 17"></path>
+    <path d="M6 34 L13 32.5"></path>
+  </g>
+</svg>

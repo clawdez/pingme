@@ -33,10 +33,12 @@ let selectedCity = localStorage.getItem('pm_city') || ''; // '' = all, or '__nea
 let userLoc = null; // { lat, lng } from geolocation, ephemeral per session
 // Sketch-style SVG glyphs so venue type indicators match the rest of the app
 // (no emoji). Each glyph fits in a 20px box and uses currentColor for stroke.
+// Hand-drawn venue type glyphs (Ez-supplied, 2026-06-02). 40x40 viewBox,
+// currentColor stroke so they inherit selection state.
 const VENUE_TYPE_ICON = {
-  public:   '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3 L5 13 L9 13 L4 21 L20 21 L15 13 L19 13 Z"/></svg>',
-  business: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="4" y="9" width="16" height="12"/><path d="M3 9 L21 9 L19 4 L5 4 Z"/></svg>',
-  private:  '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 11 L12 4 L20 11 L20 21 L4 21 Z"/><path d="M10 21 L10 14 L14 14 L14 21"/></svg>'
+  public:   '<svg viewBox="0 0 40 40" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><circle cx="20" cy="20" r="14.5"/><path d="M5.5 20 L34.5 20"/><path d="M20 5.5 C24 9.5 24 30.5 20 34.5 C16 30.5 16 9.5 20 5.5 Z"/><path d="M9 13.5 C13 16 27 16 31 13.5 M9 26.5 C13 24 27 24 31 26.5"/></svg>',
+  business: '<svg viewBox="0 0 40 40" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M5 34 L35 34"/><rect x="8" y="14" width="24" height="20" rx="2"/><path d="M14 14 L14 9.5 C14 8.5 14.7 8 15.5 8 L24.5 8 C25.3 8 26 8.5 26 9.5 L26 14"/><path d="M14 20 L14.01 20 M20 20 L20.01 20 M26 20 L26.01 20 M14 26 L14.01 26 M26 26 L26.01 26" stroke-width="3"/><path d="M18 34 L18 28 L22 28 L22 34"/></svg>',
+  private:  '<svg viewBox="0 0 40 40" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><rect x="9" y="18" width="22" height="15" rx="3"/><path d="M13.5 18 L13.5 13.5 C13.5 9 16.5 6.5 20 6.5 C23.5 6.5 26.5 9 26.5 13.5 L26.5 18"/><circle cx="20" cy="24.5" r="2.2" fill="currentColor" stroke="none"/><path d="M20 26.5 L20 29.5"/></svg>'
 };
 const VENUE_PIN_ICON = '<svg viewBox="0 0 40 40" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M20 35 C20 35 31 24.5 31 16 C31 9.5 26 5 20 5 C14 5 9 9.5 9 16 C9 24.5 20 35 20 35 Z"/><circle cx="20" cy="16" r="4.5"/></svg>';
 const VENUE_TYPE_LABEL = { public: 'public', business: 'business', private: 'private' };
