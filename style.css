@@ -498,11 +498,13 @@ button { font: inherit; color: inherit; }
 .venue-search {
   flex: 1; min-width: 0;
   border: 2px solid var(--ink); border-radius: 12px;
-  padding: 8px 12px; font: inherit; font-size: 14px;
+  padding: 10px 12px; font: inherit;
+  /* iOS Safari auto-zooms inputs whose font-size is < 16px. Keep at 16px. */
+  font-size: 16px;
   background: var(--cream); color: var(--ink);
   box-shadow: 2px 2px 0 var(--ink);
   outline: none;
-  min-height: 36px;
+  min-height: 40px;
 }
 .venue-search:focus { background: #FFF8E6; }
 .venue-add-btn {
@@ -583,7 +585,9 @@ button { font: inherit; color: inherit; }
 .av-input {
   width: 100%;
   border: 2px solid var(--ink); border-radius: 12px;
-  padding: 10px 12px; font: inherit; font-size: 15px;
+  padding: 10px 12px; font: inherit;
+  /* iOS Safari auto-zooms inputs whose font-size is < 16px. Keep at 16px. */
+  font-size: 16px;
   background: var(--cream); color: var(--ink);
   box-shadow: 2px 2px 0 var(--ink);
   outline: none;
@@ -750,21 +754,25 @@ button { font: inherit; color: inherit; }
 .table-section { }
 .section-label {
   font-family: 'Permanent Marker'; font-size: 13px;
-  letter-spacing: .03em; color: var(--muted);
+  letter-spacing: .03em; color: var(--ink);
   margin-bottom: 6px;
   display: flex; align-items: center; gap: 8px;
   padding: 0 2px;
+  opacity: .8;
 }
 .section-label .s-dot { flex: 0 0 auto; }
 .section-label .section-count {
   font-family: 'Space Grotesk'; font-weight: 700; font-size: 12px;
   color: var(--muted); margin-left: auto;
 }
-.fav-label { color: var(--mustard); }
+/* Toned-down section accents — soft, consistent halos with better contrast
+   against the cream background. Previously the green/mustard glow rings
+   clashed at full saturation. */
+.fav-label { color: var(--ink); opacity: .85; }
 .s-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.s-dot.green { background: var(--sage); box-shadow: 0 0 0 3px rgba(111,210,123,.25); animation: blink 1.3s ease-in-out infinite; }
-.s-dot.yellow { background: var(--mustard); box-shadow: 0 0 0 3px rgba(232,184,74,.25); }
-.s-dot.gray { background: var(--muted-2); }
+.s-dot.green { background: var(--sage); box-shadow: 0 0 0 2px rgba(111,210,123,.15); animation: blink 1.3s ease-in-out infinite; }
+.s-dot.yellow { background: var(--mustard); box-shadow: 0 0 0 2px rgba(232,184,74,.15); }
+.s-dot.gray { background: var(--muted-2); box-shadow: 0 0 0 2px rgba(20,18,16,.06); }
 .section-list { }
 .empty-roster {
   text-align: center; padding: 40px 10px;
@@ -799,11 +807,12 @@ button { font: inherit; color: inherit; }
   box-shadow: 2.5px 2.5px 0 var(--ink);
   position: relative;
 }
+/* Softer status halos around roster avatars — less neon, easier on the eyes. */
 .bub-playing .rbub-av {
-  box-shadow: 0 0 0 3px rgba(111,210,123,.4), 2.5px 2.5px 0 var(--ink);
+  box-shadow: 0 0 0 2px rgba(111,210,123,.22), 2.5px 2.5px 0 var(--ink);
 }
 .bub-down .rbub-av {
-  box-shadow: 0 0 0 3px rgba(232,184,74,.35), 2.5px 2.5px 0 var(--ink);
+  box-shadow: 0 0 0 2px rgba(232,184,74,.22), 2.5px 2.5px 0 var(--ink);
 }
 .bub-away .rbub-av { opacity: .7; }
 .bub-away .rbub-av { color: var(--ink); }
@@ -870,7 +879,9 @@ button { font: inherit; color: inherit; }
   display: flex; align-items: center; justify-content: center;
 }
 .sheet-wrap.open { pointer-events: auto; opacity: 1; }
-.sheet-scrim { position: absolute; inset: 0; background: rgba(20,18,16,.45); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+/* Scrim kept for tap-anywhere-to-dismiss, but visually transparent so the
+   background stays visible behind the popup (no full-screen dimming). */
+.sheet-scrim { position: absolute; inset: 0; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
 /* Centered modal card */
 .modal-center {

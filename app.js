@@ -1233,6 +1233,11 @@ document.addEventListener('click', (e) => {
   const setBtn = e.target.closest('#row-settings');
   const emBtn  = e.target.closest('#row-email');
   if (!setBtn && !emBtn) return;
+  // Guard: only open these overlays when the profile sheet is actually open.
+  // Prevents them appearing over the homepage if the buttons are accessed
+  // via a synthetic event while #sheet-me is closed.
+  const meOpen = document.getElementById('sheet-me')?.classList.contains('open');
+  if (!meOpen) return;
   const now = Date.now();
   if (now - lastIconTap < 250) return; // simple debounce
   lastIconTap = now;
@@ -1240,6 +1245,14 @@ document.addEventListener('click', (e) => {
   e.stopPropagation();
   if (setBtn) { openSettingsOverlay(); return; }
   if (emBtn) { openEmailOverlay(); return; }
+});
+
+// When the profile sheet closes, close any settings/email overlays riding
+// above it so they can't end up floating over the homepage.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#sheet-me [data-dismiss], #sheet-me .me-back')) return;
+  document.getElementById('sheet-settings')?.classList.remove('open');
+  document.getElementById('sheet-email')?.classList.remove('open');
 });
 
 // Any settings item tap also dismisses the overlay
@@ -1253,13 +1266,19 @@ document.addEventListener('click', (e) => {
 // Profile visibility: public / business / private — stored in localStorage
 // (no schema change required for now). Cycles on tap; the row in the settings
 // overlay shows the current state with the matching hand-drawn icon.
-const VIS_ORDER = ['public', 'business', 'private'];
+// business option deferred — see ideas box. Hidden from cycle for now; the
+// SVG below is intentionally left in place so we can re-enable later.
+const VIS_ORDER = ['public', 'private']; // ['public', 'business', 'private']
 const VIS_ICONS = {
   public:   '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><circle cx="20" cy="20" r="14.5"/><path d="M5.5 20 L34.5 20"/><path d="M20 5.5 C24 9.5 24 30.5 20 34.5 C16 30.5 16 9.5 20 5.5 Z"/><path d="M9 13.5 C13 16 27 16 31 13.5 M9 26.5 C13 24 27 24 31 26.5"/></svg>',
   business: '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M5 34 L35 34"/><rect x="8" y="14" width="24" height="20" rx="2"/><path d="M14 14 L14 9.5 C14 8.5 14.7 8 15.5 8 L24.5 8 C25.3 8 26 8.5 26 9.5 L26 14"/><path d="M18 34 L18 28 L22 28 L22 34"/></svg>',
   private:  '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><rect x="9" y="18" width="22" height="15" rx="3"/><path d="M13.5 18 L13.5 13.5 C13.5 9 16.5 6.5 20 6.5 C23.5 6.5 26.5 9 26.5 13.5 L26.5 18"/><circle cx="20" cy="24.5" r="2.2" fill="currentColor" stroke="none"/></svg>'
 };
-function getVisibility() { return localStorage.getItem('pm_visibility') || 'public'; }
+function getVisibility() {
+  const v = localStorage.getItem('pm_visibility') || 'public';
+  // business option deferred — coerce any stale 'business' value to 'public'.
+  return VIS_ORDER.includes(v) ? v : 'public';
+}
 function setVisibility(v) { localStorage.setItem('pm_visibility', v); }
 
 function openSettingsOverlay() {
@@ -1358,7 +1377,7 @@ function openSettingsOverlay() {
     document.getElementById('sheet-settings')?.classList.remove('open');
     const url = getShareUrl();
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(url).then(() => toast('invite link copied')).catch(() => toast('copy failed'));
+      navigator.clipboard.writeText(url).then(() => toast('invite code copied')).catch(() => toast('copy failed'));
     } else {
       toast('copy failed');
     }
@@ -2665,8 +2684,18 @@ function renderMe() {
     linkAcctBanner.addEventListener('click', () => showLinkEmail());
   }
 
-  // Share link
-  document.getElementById('sr-invite').addEventListener('click', showQrShare);
+  // Invite a friend → copy the user's invite link/code to clipboard, no share sheet.
+  document.getElementById('sr-invite').addEventListener('click', () => {
+    document.getElementById('me-settings-dd')?.classList.remove('open');
+    const url = getShareUrl();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url)
+        .then(() => toast('invite code copied'))
+        .catch(() => toast('copy failed'));
+    } else {
+      toast('copy failed');
+    }
+  });
 
   // Sign out
   document.getElementById('sr-signout').addEventListener('click', async () => {
