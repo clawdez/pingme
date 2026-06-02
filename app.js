@@ -1236,21 +1236,60 @@ document.addEventListener('click', (e) => {
   lastIconTap = now;
   e.preventDefault();
   e.stopPropagation();
-  if (setBtn) {
-    document.getElementById('sheet-me')?.classList.add('open');
-    let dd = document.getElementById('me-settings-dd');
-    if (!dd) {
-      try { renderMe(); } catch (_) {}
-      dd = document.getElementById('me-settings-dd');
-    }
-    if (dd) dd.classList.toggle('open');
-    // close any open inline email card so the dropdown isn't crowded
-    document.getElementById('me-email-inline')?.remove();
-    document.getElementById('me-email-confirm')?.remove();
-    return;
-  }
-  if (emBtn) handleEmailTap();
+  if (setBtn) { openSettingsOverlay(); return; }
+  if (emBtn) { openEmailOverlay(); return; }
 });
+
+// Any settings item tap also dismisses the overlay
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('#settings-list .me-dd-item');
+  if (!item) return;
+  // small delay so the item's own handler fires first
+  setTimeout(() => document.getElementById('sheet-settings')?.classList.remove('open'), 0);
+});
+
+function openSettingsOverlay() {
+  // Ensure the settings dropdown markup exists (renderMe builds it inside #me-wrap)
+  try { renderMe(); } catch (_) {}
+  const dd = document.getElementById('me-settings-dd');
+  const list = document.getElementById('settings-list');
+  if (list) {
+    list.innerHTML = '';
+    if (dd) {
+      // Move the rendered settings items into the overlay so all the
+      // event listeners renderMe wired up keep working.
+      while (dd.firstChild) list.appendChild(dd.firstChild);
+    }
+  }
+  document.getElementById('sheet-settings')?.classList.add('open');
+}
+
+function openEmailOverlay() {
+  if (!profile) { showSetup(); return; }
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
+  const verified = !!(profile && profile.email_verified) || !!cachedEmail;
+  const title = document.getElementById('email-overlay-title');
+  const sub = document.getElementById('email-overlay-sub');
+  const cta = document.getElementById('email-overlay-cta');
+  if (title) title.textContent = verified ? 'email connected' : 'link your email';
+  if (sub) {
+    sub.textContent = verified
+      ? (cachedEmail || 'your email is verified')
+      : 'save your account so you can log in on other devices';
+  }
+  if (cta) {
+    cta.textContent = verified ? 'change email' : 'verify email';
+    cta.onclick = () => {
+      if (verified) {
+        localStorage.removeItem('pm_linked_email');
+        if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
+      }
+      document.getElementById('sheet-email')?.classList.remove('open');
+      showLinkEmail();
+    };
+  }
+  document.getElementById('sheet-email')?.classList.add('open');
+}
 
 // Two-step email tap:
 //   1st tap (per profile sheet open)   → small "your email has been connected" pill
