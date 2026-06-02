@@ -187,8 +187,7 @@ function renderVenuePicker() {
   let html = '';
   html += '<div class="vp-controls">';
   html += '<div class="venue-search-row">';
-  html += '<span class="vsr-search-ic" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><circle cx="17" cy="17" r="10"/><path d="M24.5 24.5 L33 33"/></svg></span>';
-  html += '<input class="venue-search" id="venue-search" type="text" placeholder="Search" value="' + searchVal + '" autocomplete="off"/>';
+  html += '<input class="venue-search" id="venue-search" type="text" placeholder="search a place" value="' + searchVal + '" autocomplete="off"/>';
   html += '<button class="pm-add-venue-mini" id="pm-add-venue" type="button" title="add a venue" aria-label="add venue"><svg width="22" height="22" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M20 8 L20 32 M8 20 L32 20"/></svg></button>';
   html += '</div>';
   // City tag row (Luma-style) — only render if there are 2+ cities or location is on
@@ -1267,47 +1266,41 @@ document.addEventListener('touchend', handleEmailIconTap, { passive: false, capt
 
 function openEmailActions() {
   if (!profile) { showSetup(); return; }
+  // Stay on the profile page — render an inline card inside the profile
+  // sheet instead of stacking another full-screen modal.
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
   const verified = !!(profile && profile.email_verified) || !!cachedEmail;
-  let el = document.getElementById('sheet-email-actions');
-  if (!el) {
-    el = document.createElement('div');
-    el.className = 'sheet-wrap';
-    el.id = 'sheet-email-actions';
-    document.body.appendChild(el);
+  document.getElementById('sheet-me')?.classList.add('open');
+  document.getElementById('me-settings-dd')?.classList.remove('open');
+
+  let card = document.getElementById('me-email-inline');
+  if (!card) {
+    card = document.createElement('div');
+    card.id = 'me-email-inline';
+    card.className = 'me-email-inline';
+    const w = document.getElementById('me-wrap');
+    if (w) w.insertAdjacentElement('afterend', card);
   }
-  el.innerHTML =
-    '<div class="sheet-scrim" data-dismiss></div>' +
-    '<div class="modal-center">' +
-      '<button class="modal-close" data-dismiss>&times;</button>' +
-      '<h3>' + (verified ? 'email on file' : 'link your email') + '</h3>' +
-      (verified
-        ? '<div class="ping-confirm-sub">' + esc(cachedEmail || 'verified') + '</div>'
-        : '<div class="ping-confirm-sub">save your account so you can log in on other devices</div>') +
-      '<div class="email-actions-row">' +
-        (verified
-          ? '<button class="ping-confirm-btn" id="ea-change" style="background:var(--cobalt);color:var(--cream)">change email</button>'
-          : '<button class="ping-confirm-btn" id="ea-verify">verify email</button>') +
-      '</div>' +
-    '</div>';
-  el.classList.add('open');
-  el.querySelectorAll('[data-dismiss]').forEach(d =>
-    d.addEventListener('click', () => el.classList.remove('open'))
-  );
-  const verifyBtn = el.querySelector('#ea-verify');
-  if (verifyBtn) verifyBtn.addEventListener('click', () => {
-    el.classList.remove('open');
-    document.getElementById('sheet-me').classList.add('open');
+  card.innerHTML =
+    '<button class="me-email-x" type="button" aria-label="close">&times;</button>' +
+    '<div class="me-email-title">' + (verified ? 'email on file' : 'link your email') + '</div>' +
+    '<div class="me-email-sub">' +
+      (verified ? esc(cachedEmail || 'verified') : 'save your account so you can log in on other devices') +
+    '</div>' +
+    '<button class="me-email-cta" type="button">' +
+      (verified ? 'change email' : 'verify email') +
+    '</button>';
+  card.classList.add('open');
+  card.querySelector('.me-email-x')?.addEventListener('click', () => card.remove());
+  card.querySelector('.me-email-cta')?.addEventListener('click', () => {
+    if (verified) {
+      localStorage.removeItem('pm_linked_email');
+      if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
+    }
+    card.remove();
     showLinkEmail();
   });
-  const changeBtn = el.querySelector('#ea-change');
-  if (changeBtn) changeBtn.addEventListener('click', () => {
-    localStorage.removeItem('pm_linked_email');
-    if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
-    el.classList.remove('open');
-    document.getElementById('sheet-me').classList.add('open');
-    showLinkEmail();
-  });
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 /* ── SHEETS ── */

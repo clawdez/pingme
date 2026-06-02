@@ -395,16 +395,21 @@ button { font: inherit; color: inherit; }
   min-height: 32px;
 }
 .vp-verified {
-  display: inline-block; margin-left: 6px;
-  background: var(--sage, #6FD27B); color: var(--ink);
+  display: inline-flex; margin-left: 6px;
+  align-items: center; justify-content: center;
+  background: var(--mustard, #E8B84A); color: var(--ink);
   border: 1.5px solid var(--ink);
-  border-radius: 50%;
-  width: 16px; height: 16px; line-height: 13px;
-  text-align: center;
-  font-size: 11px; font-family: 'Permanent Marker';
+  border-radius: 4px;
+  padding: 1px 5px 0;
+  font-size: 0;
   vertical-align: middle;
 }
-.venue-pill.verified { box-shadow: 2px 2px 0 var(--sage, #6FD27B), 4px 4px 0 var(--ink); }
+.vp-verified::before {
+  content: 'verified';
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700;
+  font-size: 8px; letter-spacing: .06em; text-transform: uppercase;
+}
+.venue-pill.verified { box-shadow: 2px 2px 0 var(--cobalt, #2544D6), 4px 4px 0 var(--ink); }
 .venue-search-row { display: flex; gap: 6px; margin-bottom: 0; align-items: center; }
 .city-tag-row {
   display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
@@ -440,7 +445,7 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .pm-loc-mini:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
-.pm-loc-mini.active { background: var(--sage, #6FD27B); }
+.pm-loc-mini.active { background: var(--cobalt, #2544D6); color: var(--cream, #F4EDDC); }
 .pm-loc-zip-mini { width: 56px; min-height: 36px; padding: 6px 8px; font-size: 13px; }
 .pm-add-venue-mini {
   flex: 0 0 auto;
@@ -1215,11 +1220,19 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .me-verified {
-  display: inline-block; font-size: 14px; color: #fff;
-  background: var(--cobalt, #2563eb);
-  width: 18px; height: 18px; line-height: 18px; text-align: center;
-  border-radius: 50%; margin-left: 4px; vertical-align: 2px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: 'Space Grotesk'; font-weight: 700;
+  font-size: 9px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink, #141210);
+  background: var(--mustard, #E8B84A);
+  border: 1.5px solid var(--ink, #141210);
+  border-radius: 4px;
+  padding: 2px 5px 1px;
+  margin-left: 6px; vertical-align: 3px;
+  box-shadow: 1.5px 1.5px 0 var(--ink, #141210);
+  font-size: 0;
 }
+.me-verified::before { content: 'verified'; font-size: 9px; }
 .me-name-input {
   font-family: 'Permanent Marker'; font-size: 28px; line-height: 1;
   border: none; border-bottom: 2.5px solid var(--cobalt);
@@ -2158,9 +2171,9 @@ button { font: inherit; color: inherit; }
 .id-icon svg path,
 .id-icon svg rect { stroke: var(--cream, #F4EDDC); }
 .id-icon { position: relative; }
-.id-icon.ok { background: var(--sage, #6FD27B); }
+.id-icon.ok { background: var(--cobalt, #2544D6); }
 .id-icon.ok svg path,
-.id-icon.ok svg rect { stroke: var(--ink, #141210); }
+.id-icon.ok svg rect { stroke: var(--cream, #F4EDDC); }
 .id-icon.ok svg path,
 .id-icon.ok svg rect { stroke-width: 2.5; }
 .id-icon.ok::after {
@@ -2177,6 +2190,46 @@ button { font: inherit; color: inherit; }
   background-repeat: no-repeat;
 }
 .id-icon:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+
+/* Inline email-actions card lives INSIDE the profile sheet so it never
+   looks like a separate "home page" popup. */
+.me-email-inline {
+  position: relative;
+  margin: 12px 18px 4px;
+  border: 2.5px solid var(--ink, #141210);
+  border-radius: 16px;
+  background: var(--straw, #FFE8A3);
+  box-shadow: 3px 3px 0 var(--ink, #141210);
+  padding: 14px 16px 16px;
+  text-align: left;
+}
+.me-email-inline .me-email-x {
+  position: absolute; top: 6px; right: 8px;
+  background: none; border: none; cursor: pointer;
+  font-size: 22px; line-height: 1; color: var(--ink, #141210);
+  padding: 4px 8px;
+}
+.me-email-inline .me-email-title {
+  font-family: 'Permanent Marker'; font-size: 17px;
+  color: var(--ink, #141210); margin-bottom: 4px;
+}
+.me-email-inline .me-email-sub {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 15px; color: var(--muted, #5D5444);
+  margin-bottom: 10px;
+  word-break: break-all;
+}
+.me-email-inline .me-email-cta {
+  display: inline-block;
+  font-family: 'Permanent Marker'; font-size: 15px;
+  background: var(--cobalt, #2544D6); color: var(--cream, #F4EDDC);
+  border: 2.5px solid var(--ink, #141210); border-radius: 12px;
+  box-shadow: 2px 2px 0 var(--ink, #141210);
+  padding: 8px 16px; cursor: pointer;
+}
+.me-email-inline .me-email-cta:active {
+  transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink, #141210);
+}
 .me-name-row { display: inline-flex; align-items: center; gap: 6px; }
 .me-page .me-name-text { font-family: 'Permanent Marker'; font-size: 28px; }
 .me-page .me-name-edit {
