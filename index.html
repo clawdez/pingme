@@ -215,6 +215,28 @@ if ('serviceWorker' in navigator) {
           <div id="ping-list" style="display:none"></div>
         </div>
       </div>
+
+    </div>
+  </div>
+
+  <!-- Settings overlay (above profile page) -->
+  <div class="sheet-wrap" id="sheet-settings">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center">
+      <button class="modal-close" data-dismiss>&times;</button>
+      <h3>settings</h3>
+      <div class="settings-list" id="settings-list"></div>
+    </div>
+  </div>
+
+  <!-- Email overlay (above profile page) -->
+  <div class="sheet-wrap" id="sheet-email">
+    <div class="sheet-scrim" data-dismiss></div>
+    <div class="modal-center">
+      <button class="modal-close" data-dismiss>&times;</button>
+      <h3 id="email-overlay-title">your email</h3>
+      <div class="email-overlay-sub" id="email-overlay-sub"></div>
+      <button class="email-overlay-cta" id="email-overlay-cta" type="button"></button>
     </div>
   </div>
 
@@ -273,26 +295,6 @@ if ('serviceWorker' in navigator) {
     </div>
   </div>
 
-  <!-- Settings overlay -->
-  <div class="sheet-wrap" id="sheet-settings">
-    <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center">
-      <button class="modal-close" data-dismiss>&times;</button>
-      <h3>settings</h3>
-      <div class="settings-list" id="settings-list"></div>
-    </div>
-  </div>
-
-  <!-- Email overlay -->
-  <div class="sheet-wrap" id="sheet-email">
-    <div class="sheet-scrim" data-dismiss></div>
-    <div class="modal-center">
-      <button class="modal-close" data-dismiss>&times;</button>
-      <h3 id="email-overlay-title">your email</h3>
-      <div class="email-overlay-sub" id="email-overlay-sub"></div>
-      <button class="email-overlay-cta" id="email-overlay-cta" type="button"></button>
-    </div>
-  </div>
 
 </div>
 

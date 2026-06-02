@@ -1250,19 +1250,153 @@ document.addEventListener('click', (e) => {
   setTimeout(() => document.getElementById('sheet-settings')?.classList.remove('open'), 0);
 });
 
+// Profile visibility: public / business / private — stored in localStorage
+// (no schema change required for now). Cycles on tap; the row in the settings
+// overlay shows the current state with the matching hand-drawn icon.
+const VIS_ORDER = ['public', 'business', 'private'];
+const VIS_ICONS = {
+  public:   '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><circle cx="20" cy="20" r="14.5"/><path d="M5.5 20 L34.5 20"/><path d="M20 5.5 C24 9.5 24 30.5 20 34.5 C16 30.5 16 9.5 20 5.5 Z"/><path d="M9 13.5 C13 16 27 16 31 13.5 M9 26.5 C13 24 27 24 31 26.5"/></svg>',
+  business: '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M5 34 L35 34"/><rect x="8" y="14" width="24" height="20" rx="2"/><path d="M14 14 L14 9.5 C14 8.5 14.7 8 15.5 8 L24.5 8 C25.3 8 26 8.5 26 9.5 L26 14"/><path d="M18 34 L18 28 L22 28 L22 34"/></svg>',
+  private:  '<svg viewBox="0 0 40 40" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><rect x="9" y="18" width="22" height="15" rx="3"/><path d="M13.5 18 L13.5 13.5 C13.5 9 16.5 6.5 20 6.5 C23.5 6.5 26.5 9 26.5 13.5 L26.5 18"/><circle cx="20" cy="24.5" r="2.2" fill="currentColor" stroke="none"/></svg>'
+};
+function getVisibility() { return localStorage.getItem('pm_visibility') || 'public'; }
+function setVisibility(v) { localStorage.setItem('pm_visibility', v); }
+
 function openSettingsOverlay() {
-  // Ensure the settings dropdown markup exists (renderMe builds it inside #me-wrap)
-  try { renderMe(); } catch (_) {}
-  const dd = document.getElementById('me-settings-dd');
   const list = document.getElementById('settings-list');
-  if (list) {
-    list.innerHTML = '';
-    if (dd) {
-      // Move the rendered settings items into the overlay so all the
-      // event listeners renderMe wired up keep working.
-      while (dd.firstChild) list.appendChild(dd.firstChild);
-    }
+  if (!list) return;
+
+  if (!profile) {
+    list.innerHTML =
+      '<button class="me-dd-item" id="set-signin">sign in to play</button>';
+    document.getElementById('set-signin').addEventListener('click', () => {
+      document.getElementById('sheet-settings')?.classList.remove('open');
+      showSetup();
+    });
+    document.getElementById('sheet-settings')?.classList.add('open');
+    return;
   }
+
+  const notifOn = typeof Notification !== 'undefined'
+    && Notification.permission === 'granted'
+    && !localStorage.getItem('pm_notif_off');
+  const vis = getVisibility();
+
+  list.innerHTML =
+    '<button class="me-dd-item set-vis" id="set-visibility">' +
+      '<span class="set-vis-ic">' + VIS_ICONS[vis] + '</span>' +
+      '<span class="set-vis-text">profile · ' + vis + '</span>' +
+      '<span class="set-vis-hint">tap to change</span>' +
+    '</button>' +
+    '<button class="me-dd-item" id="set-notif">' +
+      '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="set-notif-tog"><span class="knob"></span></span>' +
+      ' notifications' +
+    '</button>' +
+    '<button class="me-dd-item" id="set-test-notif">test notification</button>' +
+    '<button class="me-dd-item" id="set-invite">invite a friend</button>' +
+    '<button class="me-dd-item me-dd-danger" id="set-signout">sign out</button>' +
+    '<button class="me-dd-item me-dd-danger" id="set-delete">delete account</button>';
+
+  // Visibility cycler
+  document.getElementById('set-visibility').addEventListener('click', () => {
+    const cur = getVisibility();
+    const next = VIS_ORDER[(VIS_ORDER.indexOf(cur) + 1) % VIS_ORDER.length];
+    setVisibility(next);
+    openSettingsOverlay(); // re-render in place
+    toast('profile · ' + next);
+  });
+
+  // Notifications toggle
+  document.getElementById('set-notif').addEventListener('click', async () => {
+    if (!('Notification' in window)) {
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      toast(isIOS && !window.navigator.standalone
+        ? 'tap Share → Add to Home Screen first'
+        : 'notifications not supported');
+      return;
+    }
+    const tog = document.getElementById('set-notif-tog');
+    if (Notification.permission === 'granted') {
+      const wasOn = tog.classList.contains('on');
+      tog.classList.toggle('on');
+      localStorage.setItem('pm_notif_off', wasOn ? '1' : '');
+      if (!wasOn && typeof registerPushSubscription === 'function') {
+        await registerPushSubscription();
+      }
+      toast(wasOn ? 'notifications off' : 'notifications on');
+    } else if (Notification.permission === 'denied') {
+      toast('blocked — check browser settings');
+    } else {
+      const p = await Notification.requestPermission();
+      if (p === 'granted') {
+        tog.classList.add('on');
+        localStorage.removeItem('pm_notif_off');
+        if (typeof registerPushSubscription === 'function') await registerPushSubscription();
+        toast('notifications on');
+      } else {
+        toast('notifications blocked');
+      }
+    }
+  });
+
+  document.getElementById('set-test-notif').addEventListener('click', () => {
+    document.getElementById('sheet-settings')?.classList.remove('open');
+    if (!('Notification' in window) || Notification.permission !== 'granted') {
+      toast('enable notifications first');
+      return;
+    }
+    new Notification('pingme', {
+      body: (profile.name || 'someone') + ' wants to play!',
+      icon: '/icon-192.png',
+      tag: 'pm-test',
+      renotify: true
+    });
+    toast('check your notification');
+  });
+
+  document.getElementById('set-invite').addEventListener('click', () => {
+    document.getElementById('sheet-settings')?.classList.remove('open');
+    document.getElementById('sheet-share')?.classList.add('open');
+  });
+
+  document.getElementById('set-signout').addEventListener('click', async () => {
+    if (!confirm('sign out?')) return;
+    document.getElementById('sheet-settings')?.classList.remove('open');
+    if (profile?.id && sb) {
+      await sb.from('profiles').update({
+        status: 'off', venue: null, duration: null, started_at: null
+      }).eq('id', profile.id);
+      await sb.auth.signOut();
+    }
+    localStorage.removeItem('pm_linked_email');
+    const myId = profile?.id;
+    profile = null; homeState = 'off';
+    if (myId) roster = roster.filter(r => r.id !== myId);
+    placeBall(SNAP.off, true);
+    app.dataset.homeState = 'off';
+    toast('signed out');
+    document.getElementById('sheet-me').classList.remove('open');
+    renderHome();
+  });
+
+  document.getElementById('set-delete').addEventListener('click', async () => {
+    if (!confirm('delete your account? this cannot be undone.')) return;
+    if (!confirm('are you sure? all your data will be permanently deleted.')) return;
+    document.getElementById('sheet-settings')?.classList.remove('open');
+    const myId = profile?.id;
+    if (myId && sb) await sb.from('profiles').delete().eq('id', myId);
+    if (sb) await sb.auth.signOut();
+    ['pm_linked_email','pm_auth','pm_venue','pm_favorites','pm_link_nudge','pm_notif_off'].forEach(k => localStorage.removeItem(k));
+    profile = null; homeState = 'off';
+    if (myId) roster = roster.filter(r => r.id !== myId);
+    placeBall(SNAP.off, true);
+    app.dataset.homeState = 'off';
+    toast('account deleted');
+    document.getElementById('sheet-me').classList.remove('open');
+    renderHome();
+    setTimeout(showSetup, 300);
+  });
+
   document.getElementById('sheet-settings')?.classList.add('open');
 }
 
@@ -2336,17 +2470,12 @@ function renderMe() {
     : 'link email';
   w.innerHTML =
     '<div class="me-settings-dropdown" id="me-settings-dd">' +
-    '<button class="me-dd-item ' + (isEmailLinked ? 'me-dd-ok' : '') + '" id="sr-link-email">' +
-      '<span class="me-dd-dot ' + (isEmailLinked ? 'on' : '') + '"></span>' +
-      ' ' + emailLabel +
-    '</button>' +
     '<button class="me-dd-item" id="sr-notif-link">' +
       '<span class="tog-switch ' + (notifOn ? 'on' : '') + '" id="notif-tog"><span class="knob"></span></span>' +
       ' notifications' +
     '</button>' +
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
-    '<button class="me-dd-item" id="sr-invite">share link</button>' +
-    '<button class="me-dd-item" id="sr-name-change">change name</button>' +
+    '<button class="me-dd-item" id="sr-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
     '</div>' +
@@ -2449,11 +2578,7 @@ function renderMe() {
     toast('check your notification');
   });
 
-  // Name change from dropdown
-  document.getElementById('sr-name-change').addEventListener('click', () => {
-    document.getElementById('me-settings-dd').classList.remove('open');
-    startNameChange();
-  });
+  // (name change is handled by the pencil icon next to the name)
 
   // Name change — tap name
   function startNameChange() {

@@ -2259,15 +2259,15 @@ button { font: inherit; color: inherit; }
   transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink, #141210);
 }
 
-/* ---- settings + email overlays (proper popups, not inline) ---- */
-/* Float ABOVE the profile sheet (#sheet-me, z:30) with a softer scrim so the
-   profile section stays visible behind — popups read as "in profile" not
-   "on the home screen". */
-#sheet-settings, #sheet-email { z-index: 45; }
+/* ---- settings + email overlays ---- */
+/* #sheet-me (profile page) sits at z-index 250 when open, so these popups
+   must float ABOVE that or they vanish behind the profile page and the
+   user sees them stacked over the home screen instead. */
+#sheet-settings, #sheet-email { z-index: 260; }
+/* Scrim is solid cream so the overlay reads as "inside the profile card"
+   rather than floating above the home screen. */
 #sheet-settings .sheet-scrim, #sheet-email .sheet-scrim {
-  background: rgba(20,18,16,.22);
-  backdrop-filter: blur(3px);
-  -webkit-backdrop-filter: blur(3px);
+  background: var(--cream);
 }
 #sheet-settings .modal-center, #sheet-email .modal-center {
   text-align: left;
@@ -2282,6 +2282,16 @@ button { font: inherit; color: inherit; }
   overflow: hidden;
 }
 .settings-list .me-dd-item { font-size: 14px; padding: 14px 16px; }
+.settings-list .set-vis {
+  display: flex; align-items: center; gap: 10px;
+  text-align: left;
+}
+.settings-list .set-vis .set-vis-ic { display: inline-flex; line-height: 0; }
+.settings-list .set-vis .set-vis-text { flex: 1; text-transform: lowercase; }
+.settings-list .set-vis .set-vis-hint {
+  font-family: 'Caveat', cursive; font-weight: 700;
+  font-size: 14px; color: var(--muted);
+}
 .email-overlay-sub {
   font-family: 'Caveat', cursive; font-weight: 700;
   font-size: 17px; color: var(--muted);
