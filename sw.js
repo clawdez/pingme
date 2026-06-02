@@ -1,4 +1,4 @@
-const CACHE = 'pingme-v30';
+const CACHE = 'pingme-v31';
 const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/icons.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
