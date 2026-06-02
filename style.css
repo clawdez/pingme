@@ -545,7 +545,14 @@ button { font: inherit; color: inherit; }
   text-align: left;
 }
 .venue-pill:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
-.venue-pill.active { background: var(--ink); color: var(--cream); }
+.venue-pill.active {
+  background: var(--sage, #6FD27B);
+  color: var(--ink);
+  border-width: 3px;
+  box-shadow: 3px 3px 0 var(--ink);
+  transform: translate(-1px,-1px);
+}
+.venue-pill.active .vp-icon { color: var(--ink); }
 .vp-icon { font-size: 17px; line-height: 1; display: inline-flex; align-items: center; color: var(--ink); }
 .vp-icon svg { width: 18px; height: 18px; display: block; }
 .vp-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
@@ -558,7 +565,7 @@ button { font: inherit; color: inherit; }
   font-size: 11px; opacity: .55;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.venue-pill.active .vp-desc { opacity: .7; }
+.venue-pill.active .vp-desc { opacity: .8; color: var(--ink); }
 
 /* compact rally modal */
 .modal-rally { padding: 16px 16px 14px; }
@@ -2253,7 +2260,19 @@ button { font: inherit; color: inherit; }
 }
 
 /* ---- settings + email overlays (proper popups, not inline) ---- */
-#sheet-settings .modal-center, #sheet-email .modal-center { text-align: left; }
+/* Float ABOVE the profile sheet (#sheet-me, z:30) with a softer scrim so the
+   profile section stays visible behind — popups read as "in profile" not
+   "on the home screen". */
+#sheet-settings, #sheet-email { z-index: 45; }
+#sheet-settings .sheet-scrim, #sheet-email .sheet-scrim {
+  background: rgba(20,18,16,.22);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+#sheet-settings .modal-center, #sheet-email .modal-center {
+  text-align: left;
+  max-width: 320px;
+}
 .settings-list {
   display: flex; flex-direction: column;
   border: 2px solid var(--ink);
