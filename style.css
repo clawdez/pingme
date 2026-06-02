@@ -2264,10 +2264,11 @@ button { font: inherit; color: inherit; }
    must float ABOVE that or they vanish behind the profile page and the
    user sees them stacked over the home screen instead. */
 #sheet-settings, #sheet-email { z-index: 260; }
-/* Scrim is solid cream so the overlay reads as "inside the profile card"
-   rather than floating above the home screen. */
+/* Transparent scrim — overlay floats above the profile page without hiding
+   the profile content beneath. Tap-anywhere-to-dismiss still works because
+   the scrim element is still present, just visually invisible. */
 #sheet-settings .sheet-scrim, #sheet-email .sheet-scrim {
-  background: var(--cream);
+  background: transparent;
 }
 #sheet-settings .modal-center, #sheet-email .modal-center {
   text-align: left;

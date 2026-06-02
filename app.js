@@ -1356,7 +1356,12 @@ function openSettingsOverlay() {
 
   document.getElementById('set-invite').addEventListener('click', () => {
     document.getElementById('sheet-settings')?.classList.remove('open');
-    document.getElementById('sheet-share')?.classList.add('open');
+    const url = getShareUrl();
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => toast('invite link copied')).catch(() => toast('copy failed'));
+    } else {
+      toast('copy failed');
+    }
   });
 
   document.getElementById('set-signout').addEventListener('click', async () => {
