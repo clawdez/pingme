@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>pingme — icon set</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Permanent+Marker&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --cream:#F4EDDC; --paper:#D8CEB5; --ink:#141210; --muted:#5D5444; --muted-2:#7A7060;
+  --flame:#E8502A; --cobalt:#2544D6; --mustard:#E8B84A; --straw:#FFE8A3; --sage:#6FD27B; --peach:#FFE4D1;
+}
+*{box-sizing:border-box;}
+body{
+  margin:0; font-family:'Space Grotesk',system-ui,sans-serif; color:var(--ink);
+  background:var(--cream);
+  background-image:
+    radial-gradient(circle at 18% 10%, rgba(20,18,16,.04) 0, transparent 42%),
+    radial-gradient(circle at 84% 88%, rgba(20,18,16,.035) 0, transparent 46%);
+  padding:40px 28px 80px;
+}
+.wrap{max-width:1080px;margin:0 auto;}
+header h1{font-family:'Permanent Marker';font-size:46px;line-height:1;margin:0 0 8px;}
+header h1 .me{color:var(--flame);}
+header p{font-family:'Caveat',cursive;font-weight:700;font-size:21px;color:var(--muted);margin:0 0 6px;}
+
+.toolbar{
+  display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 30px;
+}
+.swatch{
+  display:inline-flex;align-items:center;gap:8px;cursor:pointer;
+  border:2.5px solid var(--ink);border-radius:999px;padding:6px 14px 6px 8px;
+  background:var(--cream);box-shadow:2px 2px 0 var(--ink);
+  font-family:'Space Grotesk';font-weight:700;font-size:13px;
+}
+.swatch:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink);}
+.swatch .chip{width:18px;height:18px;border-radius:50%;border:2px solid var(--ink);}
+.swatch.active{background:var(--ink);color:var(--cream);}
+.swatch.active .chip{border-color:var(--cream);}
+
+.grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:18px;
+}
+.icard{
+  border:2.5px solid var(--ink);border-radius:22px;background:var(--cream);
+  box-shadow:5px 6px 0 var(--ink);
+  padding:22px 14px 16px;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:14px;
+  transform:rotate(-.3deg);
+}
+.icard:nth-child(even){transform:rotate(.3deg);}
+.icard:nth-child(3n){transform:rotate(.5deg);}
+.chip-btn{
+  width:64px;height:64px;border-radius:50%;
+  border:2.5px solid var(--ink);background:var(--cream);
+  box-shadow:3px 3px 0 var(--ink);
+  display:grid;place-items:center;
+  transition:transform .1s, background .2s;
+}
+.icard:hover .chip-btn{transform:translate(-1px,-1px);}
+.chip-btn svg{width:34px;height:34px;display:block;color:var(--ink);}
+.icard .nm{font-family:'Permanent Marker';font-size:15px;line-height:1.1;}
+.icard .cap{font-family:'Caveat',cursive;font-weight:700;font-size:13px;color:var(--muted);margin-top:-8px;}
+
+/* accent fills toggled by JS data-accent */
+.accent-flame .chip-btn{background:var(--flame);}
+.accent-flame .chip-btn svg{color:var(--cream);}
+.accent-cobalt .chip-btn{background:var(--cobalt);}
+.accent-cobalt .chip-btn svg{color:var(--cream);}
+.accent-sage .chip-btn{background:var(--sage);}
+.accent-mustard .chip-btn{background:var(--mustard);}
+.accent-straw .chip-btn{background:var(--straw);}
+
+.section-tag{
+  font-family:'Permanent Marker';font-size:20px;margin:38px 0 14px;
+  display:flex;align-items:center;gap:12px;
+}
+.section-tag::after{content:'';flex:1;height:2.5px;background:
+  repeating-linear-gradient(90deg,var(--ink) 0 8px,transparent 8px 14px);opacity:.4;}
+
+/* size demo row */
+.sizes{display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap;
+  border:2.5px dashed var(--ink);border-radius:20px;padding:22px;background:rgba(255,255,255,.35);}
+.sizes .sz{display:flex;flex-direction:column;align-items:center;gap:8px;}
+.sizes .sz span{font-family:'Caveat',cursive;font-weight:700;font-size:13px;color:var(--muted);}
+.sizes svg{color:var(--ink);}
+
+footer{font-family:'Caveat',cursive;font-weight:700;font-size:15px;color:var(--muted-2);text-align:center;margin-top:46px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>ping<span class="me">me!</span> — icon set</h1>
+    <p>14 marks, one hand. 2.5px ink · round joins · wobble filter · cream base.</p>
+  </header>
+
+  <div class="toolbar">
+    <span style="font-family:'Space Grotesk';font-weight:700;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);">recolor:</span>
+    <button class="swatch active" data-accent="ink"><span class="chip" style="background:var(--cream)"></span>outline</button>
+    <button class="swatch" data-accent="flame"><span class="chip" style="background:var(--flame)"></span>flame</button>
+    <button class="swatch" data-accent="cobalt"><span class="chip" style="background:var(--cobalt)"></span>cobalt</button>
+    <button class="swatch" data-accent="sage"><span class="chip" style="background:var(--sage)"></span>sage</button>
+    <button class="swatch" data-accent="mustard"><span class="chip" style="background:var(--mustard)"></span>mustard</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="section-tag">stroke holds at any size</div>
+  <div class="sizes" id="sizes"></div>
+
+  <footer>tap a swatch to recolor every chip · drop any &lt;svg&gt; straight into the app</footer>
+</div>
+
+<!-- master defs: wobble filter shared by all icons -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <filter id="wobble" x="-6%" y="-6%" width="112%" height="112%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.022" numOctaves="2" seed="4" result="t"/>
+      <feDisplacementMap in="SourceGraphic" in2="t" scale="1.4"/>
+    </filter>
+  </defs>
+</svg>
+
+<script>
+// ---- shared svg attrs: hand-drawn ink stroke ----
+const S = 'fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"';
+const Sf = 'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"';
+
+// ---- the icon library (viewBox 0 0 40 40) ----
+const ICONS = {
+  settings: `<g ${S}>
+    <path d="M17 5 L23 5 L24 9.2 L27.4 11 L31.4 9.4 L34.4 14.6 L31.6 17.6 L31.6 22.4 L34.4 25.4 L31.4 30.6 L27.4 29 L24 30.8 L23 35 L17 35 L16 30.8 L12.6 29 L8.6 30.6 L5.6 25.4 L8.4 22.4 L8.4 17.6 L5.6 14.6 L8.6 9.4 L12.6 11 L16 9.2 Z"/>
+    <circle cx="20" cy="20" r="5.5"/>
+  </g>`,
+
+  bell: `<g ${S}>
+    <path d="M11 26 L29 26 L27.5 20 C27.5 12 24 9 20 9 C16 9 12.5 12 12.5 20 Z"/>
+    <path d="M16.5 26 C16.5 30 23.5 30 23.5 26"/>
+    <path d="M20 5 L20 9"/>
+  </g>`,
+
+  star: `<path d="M20 6 L24 16 L34.5 16.5 L26.5 23.5 L29 33.5 L20 27.5 L11 33.5 L13.5 23.5 L5.5 16.5 L16 16 Z" ${S}/>`,
+
+  starFilled: `<path d="M20 6 L24 16 L34.5 16.5 L26.5 23.5 L29 33.5 L20 27.5 L11 33.5 L13.5 23.5 L5.5 16.5 L16 16 Z" fill="var(--mustard)" ${Sf}/>`,
+
+  send: `<g ${S}>
+    <path d="M34 6 L4 17.5 L17 21.5 L21 33 Z"/>
+    <path d="M17 21.5 L34 6"/>
+  </g>`,
+
+  close: `<path d="M9 9 L31 31 M31 9 L9 31" ${S}/>`,
+
+  edit: `<g ${S}>
+    <path d="M6 34 L7.5 27 L26 8.5 L31.5 14 L13 32.5 Z"/>
+    <path d="M23 11.5 L28.5 17"/>
+    <path d="M6 34 L13 32.5"/>
+  </g>`,
+
+  email: `<g ${S}>
+    <rect x="5" y="9" width="30" height="22" rx="3"/>
+    <path d="M6.5 11 L20 22 L33.5 11"/>
+  </g>`,
+
+  phone: `<path d="M11 5 C9 5 6 6.5 6 11 C6 22 18 34 29 34 C33.5 34 35 31 35 29 L28 24 L23.5 27 C20 25 15 20 13 16.5 L16 12 Z" ${S}/>`,
+
+  verified: `<g ${S}>
+    <path d="M20 4 L24 7 L29 6.5 L30.5 11.5 L34.5 14.5 L32.5 19 L33 24 L28 26 L25.5 30.5 L20 29 L14.5 30.5 L12 26 L7 24 L7.5 19 L5.5 14.5 L9.5 11.5 L11 6.5 L16 7 Z"/>
+    <path d="M14.5 19.5 L18.5 23.5 L26 15" stroke-width="2.6"/>
+  </g>`,
+
+  add: `<path d="M20 8 L20 32 M8 20 L32 20" ${S}/>`,
+
+  search: `<g ${S}>
+    <circle cx="17" cy="17" r="10"/>
+    <path d="M24.5 24.5 L33 33"/>
+  </g>`,
+
+  pin: `<g ${S}>
+    <path d="M20 35 C20 35 31 24.5 31 16 C31 9.5 26 5 20 5 C14 5 9 9.5 9 16 C9 24.5 20 35 20 35 Z"/>
+    <circle cx="20" cy="16" r="4.5"/>
+  </g>`,
+
+  back: `<path d="M24 7 L11 20 L24 33 M11 20 L34 20" ${S}/>`,
+
+  qr: `<g ${S}>
+    <rect x="6" y="6" width="11" height="11" rx="2"/>
+    <rect x="23" y="6" width="11" height="11" rx="2"/>
+    <rect x="6" y="23" width="11" height="11" rx="2"/>
+    <path d="M10.5 10.5 L12.5 10.5 M27.5 10.5 L29.5 10.5 M10.5 27.5 L12.5 27.5" stroke-width="3.2"/>
+    <path d="M23 23 L27 23 L27 27 M31 23 L34 23 M23 31 L23 34 M27 30 L27 34 L31 34 M31 28 L34 28 M34 31 L34 34"/>
+  </g>`
+};
+
+const META = [
+  ['settings','settings','gear'],
+  ['bell','notifications','bell'],
+  ['star','favorite','empty'],
+  ['starFilled','favorited','filled'],
+  ['send','ping','send'],
+  ['close','close','dismiss'],
+  ['edit','edit','rename'],
+  ['email','email','contact'],
+  ['phone','phone','contact'],
+  ['verified','verified','badge'],
+  ['add','add venue','plus'],
+  ['search','search','find'],
+  ['pin','location','venue'],
+  ['back','back','return'],
+  ['qr','share','qr code'],
+];
+
+const grid = document.getElementById('grid');
+grid.innerHTML = META.map(([key,nm,cap])=>`
+  <div class="icard" data-icard>
+    <div class="chip-btn">
+      <svg viewBox="0 0 40 40" role="img" aria-label="${nm}">${ICONS[key]}</svg>
+    </div>
+    <div class="nm">${nm}</div>
+    <div class="cap">${cap}</div>
+  </div>
+`).join('');
+
+// size demo using the bell
+const sizes = document.getElementById('sizes');
+sizes.innerHTML = [20,28,40,56,72].map(px=>`
+  <div class="sz">
+    <svg width="${px}" height="${px}" viewBox="0 0 40 40">${ICONS.bell}</svg>
+    <span>${px}px</span>
+  </div>
+`).join('');
+
+// recolor swatches — only fill the round chip, keep glyph readable
+const accentMap = {ink:'', flame:'accent-flame', cobalt:'accent-cobalt', sage:'accent-sage', mustard:'accent-mustard'};
+document.querySelectorAll('.swatch').forEach(sw=>{
+  sw.addEventListener('click',()=>{
+    document.querySelectorAll('.swatch').forEach(s=>s.classList.remove('active'));
+    sw.classList.add('active');
+    const cls = accentMap[sw.dataset.accent];
+    document.querySelectorAll('[data-icard]').forEach(c=>{
+      c.classList.remove('accent-flame','accent-cobalt','accent-sage','accent-mustard','accent-straw');
+      if(cls) c.classList.add(cls);
+    });
+  });
+});
+</script>
+</body>
+</html>

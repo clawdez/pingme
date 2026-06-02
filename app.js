@@ -1222,47 +1222,83 @@ function handleProfileAv(e) {
 document.getElementById('profile-av').addEventListener('click', handleProfileAv);
 document.getElementById('profile-av').addEventListener('touchend', handleProfileAv);
 
-// Settings gear icon delegation — toggles the settings dropdown regardless of
-// renderMe timing. Bug fix (mobile): we were stopping propagation BEFORE
-// preventDefault, which on some iOS Safari builds turned the touchend into a
-// no-op (the synthetic click never reached the gear). Now we always
-// preventDefault first AND dedupe across click+touchend by stamping the event.
-let settingsIconFiring = false;
-function handleSettingsIconTap(e) {
-  const btn = e.target.closest('#row-settings');
-  if (!btn) return;
-  // Dedupe click after touchend on the same gesture
-  if (settingsIconFiring) { e.preventDefault?.(); return; }
-  settingsIconFiring = true;
-  setTimeout(() => { settingsIconFiring = false; }, 350);
+// Settings + email icons: rebuilt as a single delegated `click` handler
+// (no touchend), on the BUBBLE phase so other capture-phase handlers don't
+// swallow the tap. Mobile browsers synthesize click from touchend reliably;
+// listening to both was causing the no-op double-fire users reported.
+let lastIconTap = 0;
+document.addEventListener('click', (e) => {
+  const setBtn = e.target.closest('#row-settings');
+  const emBtn  = e.target.closest('#row-email');
+  if (!setBtn && !emBtn) return;
+  const now = Date.now();
+  if (now - lastIconTap < 250) return; // simple debounce
+  lastIconTap = now;
   e.preventDefault();
   e.stopPropagation();
+  if (setBtn) {
+    document.getElementById('sheet-me')?.classList.add('open');
+    let dd = document.getElementById('me-settings-dd');
+    if (!dd) {
+      try { renderMe(); } catch (_) {}
+      dd = document.getElementById('me-settings-dd');
+    }
+    if (dd) dd.classList.toggle('open');
+    // close any open inline email card so the dropdown isn't crowded
+    document.getElementById('me-email-inline')?.remove();
+    document.getElementById('me-email-confirm')?.remove();
+    return;
+  }
+  if (emBtn) handleEmailTap();
+});
+
+// Two-step email tap:
+//   1st tap (per profile sheet open)   → small "your email has been connected" pill
+//   2nd tap (or tap the pill itself)   → full inline manage card
+let emailFirstTapShown = false;
+function handleEmailTap() {
+  if (!profile) { showSetup(); return; }
+  const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
+  const verified = !!(profile && profile.email_verified) || !!cachedEmail;
   document.getElementById('sheet-me')?.classList.add('open');
-  const dd = document.getElementById('me-settings-dd');
-  if (dd) dd.classList.toggle('open');
-  else {
-    // Settings panel not mounted yet (e.g. signed-out): make sure renderMe runs
-    try { renderMe(); } catch (_) {}
-    setTimeout(() => document.getElementById('me-settings-dd')?.classList.add('open'), 0);
+  document.getElementById('me-settings-dd')?.classList.remove('open');
+
+  // If not yet verified, skip the confirm pill — go straight to verify flow
+  if (!verified) { emailFirstTapShown = false; openEmailActions(); return; }
+
+  if (!emailFirstTapShown) {
+    emailFirstTapShown = true;
+    showEmailConnectedPill();
+  } else {
+    document.getElementById('me-email-confirm')?.remove();
+    openEmailActions();
   }
 }
-document.addEventListener('click', handleSettingsIconTap, true);
-document.addEventListener('touchend', handleSettingsIconTap, { passive: false, capture: true });
 
-// Email id-icon click → open email actions (verify / change email)
-let emailIconFiring = false;
-function handleEmailIconTap(e) {
-  const btn = e.target.closest('#row-email');
-  if (!btn) return;
-  if (emailIconFiring) { e.preventDefault?.(); return; }
-  emailIconFiring = true;
-  setTimeout(() => { emailIconFiring = false; }, 350);
-  e.preventDefault();
-  e.stopPropagation();
-  openEmailActions();
+function showEmailConnectedPill() {
+  // Remove old card if any
+  document.getElementById('me-email-inline')?.remove();
+  let pill = document.getElementById('me-email-confirm');
+  if (!pill) {
+    pill = document.createElement('div');
+    pill.id = 'me-email-confirm';
+    pill.className = 'me-email-confirm';
+    const w = document.getElementById('me-wrap');
+    if (w) w.insertAdjacentElement('afterend', pill);
+  }
+  pill.innerHTML =
+    '<span class="mec-text">your email has been connected</span>' +
+    '<button class="mec-x" type="button" aria-label="close">&times;</button>';
+  pill.querySelector('.mec-x')?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    pill.remove();
+  });
+  pill.addEventListener('click', () => {
+    pill.remove();
+    openEmailActions();
+  });
+  pill.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
-document.addEventListener('click', handleEmailIconTap, true);
-document.addEventListener('touchend', handleEmailIconTap, { passive: false, capture: true });
 
 function openEmailActions() {
   if (!profile) { showSetup(); return; }
@@ -1318,10 +1354,10 @@ function handleDismiss(e) {
   // previously a stale lock would block re-entry on a fast re-tap.
   if (wrap.id === 'sheet-me') {
     profileAvFiring = false;
-    settingsIconFiring = false;
-    emailIconFiring = false;
     confirmPingFiring = false;
+    emailFirstTapShown = false;
     document.getElementById('me-settings-dd')?.classList.remove('open');
+    document.getElementById('me-email-confirm')?.remove();
   }
   // If ping confirm dismissed, revert to previous state
   if (wrap.id === 'sheet-ping-confirm' && profile && profile.status !== homeState) {
