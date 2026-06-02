@@ -205,6 +205,13 @@ function renderVenuePicker() {
       navigator.geolocation.getCurrentPosition(
         pos => {
           userLoc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          // Persist on profile so push-notify radius filtering works
+          if (sb && profile?.id) {
+            sb.from('profiles').update({
+              last_lat: userLoc.lat, last_lng: userLoc.lng,
+              last_loc_at: new Date().toISOString()
+            }).eq('id', profile.id).then(() => {}, () => {});
+          }
           renderVenuePicker();
         },
         err => {
@@ -227,7 +234,7 @@ function scheduleVenueSuggest(el) {
   if (!sugEl) return;
   const q = (venueSearch || '').trim();
   if (_vpSugTimer) clearTimeout(_vpSugTimer);
-  if (q.length < 3) { sugEl.innerHTML = ''; return; }
+  if (q.length < 2) { sugEl.innerHTML = ''; return; }
   const seq = ++_vpSugSeq;
   sugEl.innerHTML = '<div class="vp-sug-loading">looking up "' + esc(q) + '"…</div>';
   _vpSugTimer = setTimeout(async () => {
@@ -250,7 +257,7 @@ function scheduleVenueSuggest(el) {
     sugEl.querySelectorAll('.vp-sug-row').forEach(btn => {
       btn.addEventListener('click', () => quickAddVenue(fresh[parseInt(btn.dataset.i, 10)]));
     });
-  }, 380);
+  }, 220);
 }
 
 async function quickAddVenue(pick) {
@@ -309,7 +316,7 @@ let _avSearchSeq = 0;
 let _avPicked = null; // { name, city, location, lat, lng }
 
 async function nominatimSearch(query) {
-  if (!query || query.length < 3) return [];
+  if (!query || query.length < 2) return [];
   const url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&q=' + encodeURIComponent(query);
   try {
     const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -372,7 +379,7 @@ function openAddVenueModal() {
       _avPicked = null;
       pickedEl.style.display = 'none';
       if (_avSearchTimer) clearTimeout(_avSearchTimer);
-      if (q.length < 3) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
+      if (q.length < 2) { resultsEl.innerHTML = ''; resultsEl.style.display = 'none'; return; }
       const seq = ++_avSearchSeq;
       resultsEl.innerHTML = '<div class="av-result-loading">searching…</div>';
       resultsEl.style.display = 'block';
@@ -400,7 +407,7 @@ function openAddVenueModal() {
               + esc([pick.city, pick.location].filter(Boolean).join(' · ')) + '</span></span>';
           });
         });
-      }, 320);
+      }, 200);
     });
     el.querySelector('#av-submit').addEventListener('click', async () => {
       const err = el.querySelector('#av-error');
@@ -881,7 +888,7 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, last_lat, last_lng, notify_radius_km, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
   // Fallback if newer columns don't exist yet on this Supabase instance
@@ -998,9 +1005,24 @@ document.addEventListener('visibilitychange', async () => {
 
 // Notify all other users via push notification (called by the person changing status)
 // Fire-and-forget — don't block the UI. Sends in small batches to avoid hammering.
+// Recipients farther than their notify_radius_km from the playing venue are skipped
+// so Lubbock users don't get pinged about Austin pickup games (and vice versa).
 function pushStatusChange(msg) {
   if (!profile) return;
-  const others = roster.filter(r => r.id !== profile.id && r.name && r.name.trim() !== '' && r.name !== 'anon');
+  const v = getVenue();
+  const origin = (v && v.lat != null && v.lng != null)
+    ? { lat: v.lat, lng: v.lng }
+    : (userLoc || null);
+  const others = roster.filter(r => {
+    if (r.id === profile.id) return false;
+    if (!r.name || r.name.trim() === '' || r.name === 'anon') return false;
+    if (!origin) return true; // unknown origin → don't filter
+    const radius = (r.notify_radius_km == null) ? 80 : r.notify_radius_km;
+    if (radius <= 0) return true; // 0 means global
+    if (r.last_lat == null || r.last_lng == null) return true; // unknown → include
+    const d = haversineKm(origin, { lat: r.last_lat, lng: r.last_lng });
+    return d <= radius;
+  });
   // Send in batches of 5 with 200ms gaps
   const BATCH_SIZE = 5;
   others.forEach((r, i) => {
