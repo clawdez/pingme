@@ -2210,11 +2210,7 @@ function renderMe() {
       if (e && e.type === 'touchend') e.preventDefault();
       // Always make sure the profile sheet is open so showLinkEmail's DOM targets exist
       document.getElementById('sheet-me')?.classList.add('open');
-      if (rowEmailEl.classList.contains('ok')) {
-        toast(rowEmailEl.title || 'email linked');
-      } else {
-        showLinkEmail();
-      }
+      showLinkEmail();
       setTimeout(() => { emailTapFiring = false; }, 300);
     };
     rowEmailEl.addEventListener('click', handleEmailTap);
@@ -2400,6 +2396,24 @@ function showLinkEmail() {
   const meWrap = document.getElementById('me-wrap');
   const notisSection = document.getElementById('me-notis-section');
   if (notisSection) notisSection.style.display = 'none';
+
+  const cachedEmail = localStorage.getItem('pm_linked_email') || '';
+  const verified = !!(profile && profile.email_verified) || !!cachedEmail;
+  if (verified) {
+    meWrap.innerHTML =
+      '<div style="padding:16px 0;text-align:center">' +
+      '<div style="font-size:32px;margin-bottom:4px">&#10004;</div>' +
+      '<h3 class="link-email-h">email linked</h3>' +
+      '<div class="link-email-sub">' + (cachedEmail ? esc(cachedEmail) : 'your account is saved') + '</div>' +
+      '<button class="link-email-go-back" id="link-email-done">done</button>' +
+      '</div>';
+    document.getElementById('link-email-done').addEventListener('click', () => {
+      if (notisSection) notisSection.style.display = '';
+      renderMe();
+    });
+    return;
+  }
+
   meWrap.innerHTML =
     '<div style="padding:16px 0">' +
     '<h3 class="link-email-h">link your email</h3>' +
