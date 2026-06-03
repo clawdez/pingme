@@ -3,7 +3,7 @@
 // Feature flags — overridden on dev/preview deployments via window.PINGME_FEATURES in index.html
 const FEATURES = Object.assign({
   matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
-  accessCodes:   false,           // invite-only access codes
+  accessCodes:   true,            // invite-only access codes
   leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
 }, (typeof window !== 'undefined' && window.PINGME_FEATURES) || {});
 
@@ -283,6 +283,19 @@ function scheduleVenueSuggest(el) {
   }, 220);
 }
 
+// City scoping: remember the city of the venue the user just picked, so the
+// roster filter can keep Austin pings out of Lubbock (and vice-versa). Empty
+// home_city = legacy "see everyone" behavior.
+function adoptVenueCity(venueId) {
+  if (!profile || !venueId) return;
+  const v = VENUES.find(x => x.id === venueId);
+  const city = (v && v.city) ? String(v.city).trim().toLowerCase() : '';
+  if (!city) return;
+  if ((profile.home_city || '').toLowerCase() === city) return;
+  profile.home_city = city;
+  try { sb.rpc('set_home_city', { p_city: city }); } catch {}
+}
+
 async function quickAddVenue(pick) {
   if (!profile) { toast('sign in first'); return; }
   if (!pick?.name) return;
@@ -302,6 +315,7 @@ async function quickAddVenue(pick) {
     });
     selectedVenue = v.id;
     localStorage.setItem('pm_venue', selectedVenue);
+    adoptVenueCity(selectedVenue);
     venueSearch = '';
     renderVenuePicker();
     toast('added: ' + v.name);
@@ -326,6 +340,7 @@ function bindVenuePills(el) {
       if (e.type === 'touchend') e.preventDefault();
       selectedVenue = btn.dataset.venue;
       localStorage.setItem('pm_venue', selectedVenue);
+      adoptVenueCity(selectedVenue);
       el.querySelectorAll('.venue-pill').forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
     }
@@ -580,13 +595,21 @@ function clearRefParam() {
   try { const u = new URL(location.href); u.searchParams.delete('ref'); history.replaceState(null, '', u.pathname); } catch {}
 }
 function getShareUrl() {
-  return profile ? location.origin + '?ref=' + profile.id : location.origin;
+  if (!profile) return location.origin;
+  // Prefer an unused player-issued code so the recipient lands as an invited
+  // guest without needing to type anything. Falls back to ref-only if codes
+  // haven't been loaded yet.
+  const codes = Array.isArray(myInviteCodes) ? myInviteCodes : [];
+  const fresh = codes.find(c => (c.use_count || 0) < (c.max_uses || 1));
+  if (fresh) return location.origin + '?code=' + fresh.code + '&ref=' + profile.id;
+  return location.origin + '?ref=' + profile.id;
 }
 
 /* ── STATE ── */
 let profile = null;
 let roster = [];
 let pings = [];
+let myInviteCodes = []; // [{code, use_count, max_uses}]
 let homeState = 'off';
 let downDur = 60;
 let dragging = false;
@@ -949,6 +972,7 @@ async function loadOrCreateProfile(user) {
         setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
       }
     }
+    loadMyInviteCodes();
     return;
   }
   // T2B: don't default to 'anon' — use empty string so nameless users are filtered
@@ -963,7 +987,21 @@ async function loadOrCreateProfile(user) {
     // New profile: kick off access code claim flow (referral param or PINGME or prompt)
     setTimeout(() => { try { window.pmMatch?.claimAccessCode?.(); } catch {} }, 200);
   }
+  loadMyInviteCodes();
 }
+
+async function loadMyInviteCodes() {
+  if (!profile || !sb || !FEATURES.accessCodes) return;
+  try {
+    const { data, error } = await sb.rpc('issue_my_invite_codes', { p_total: 3 });
+    if (error) { console.warn('issue_my_invite_codes:', error.message); return; }
+    if (Array.isArray(data)) {
+      myInviteCodes = data;
+      try { renderMyInviteCodes(); } catch {}
+    }
+  } catch (e) { console.warn('issue_my_invite_codes throw:', e); }
+}
+window.loadMyInviteCodes = loadMyInviteCodes;
 
 /* ── WEB PUSH ── */
 function urlBase64ToUint8Array(base64String) {
@@ -1007,11 +1045,11 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, last_lat, last_lng, notify_radius_km, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, last_lat, last_lng, notify_radius_km, home_city, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
   // Fallback if newer columns don't exist yet on this Supabase instance
-  if (error && error.message && /play_count|email_verified|elo|wins|losses/.test(error.message)) {
+  if (error && error.message && /play_count|email_verified|elo|wins|losses|home_city/.test(error.message)) {
     const fallback = await sb.from('profiles')
       .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
       .order('updated_at', { ascending: false })
@@ -1019,7 +1057,26 @@ async function loadRoster() {
     data = fallback.data;
     error = fallback.error;
   }
-  if (!error && data) roster = data;
+  if (!error && data) roster = scopeRosterToCity(data);
+}
+
+// Filter roster so a user only sees players in their own city. Self always
+// passes. If the local user has no home_city yet, return everyone (legacy).
+// A roster row counts as "in my city" if either:
+//   - their home_city matches, OR
+//   - they're currently at a venue whose city matches.
+function scopeRosterToCity(rows) {
+  const myCity = (profile && profile.home_city || '').toLowerCase();
+  if (!myCity) return rows;
+  return rows.filter(r => {
+    if (profile && r.id === profile.id) return true;
+    if ((r.home_city || '').toLowerCase() === myCity) return true;
+    if (r.venue) {
+      const v = VENUES.find(x => x.id === r.venue);
+      if (v && (v.city || '').toLowerCase() === myCity) return true;
+    }
+    return false;
+  });
 }
 
 async function loadPings() {
@@ -1062,12 +1119,20 @@ function subscribeRealtime() {
   profilesChannel = sb.channel('profiles-realtime')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, (payload) => {
       lastRealtimeEvent = Date.now();
+      // City-scoped: drop realtime updates from players outside our city so
+      // Lubbock users don't get Austin notifications (and vice-versa).
+      const inScope = scopeRosterToCity([payload.new || payload.old]).length > 0;
       if (payload.eventType === 'INSERT') {
+        if (!inScope) return;
         const exists = roster.find(r => r.id === payload.new.id);
         if (!exists) roster.push(payload.new);
         else Object.assign(exists, payload.new);
       } else if (payload.eventType === 'UPDATE') {
         const r = roster.find(x => x.id === payload.new.id);
+        if (!inScope) {
+          if (r) roster = roster.filter(x => x.id !== payload.new.id);
+          return;
+        }
         if (r) Object.assign(r, payload.new);
         else roster.push(payload.new);
         if (profile && payload.new.id !== profile.id) {
@@ -1134,8 +1199,26 @@ document.addEventListener('visibilitychange', async () => {
 // Fire-and-forget — don't block the UI. Sends in small batches to avoid hammering.
 // Recipients farther than their notify_radius_km from the playing venue are skipped
 // so Lubbock users don't get pinged about Austin pickup games (and vice versa).
+// Silent on preview/dev hosts so testing never pings live users.
+// Production = usepingme.com / www.usepingme.com. Anything else (Vercel preview
+// URLs, localhost, custom dev hosts) suppresses outbound pushes.
+// Override either way with localStorage.pm_push_force = '1' (force on) or
+// localStorage.pm_push_off = '1' (force off, even on prod).
+function isPushAllowedHere() {
+  try {
+    if (localStorage.getItem('pm_push_off') === '1') return false;
+    if (localStorage.getItem('pm_push_force') === '1') return true;
+    const h = location.hostname;
+    return h === 'usepingme.com' || h === 'www.usepingme.com';
+  } catch (_) { return false; }
+}
+
 function pushStatusChange(msg) {
   if (!profile) return;
+  if (!isPushAllowedHere()) {
+    console.log('[pingme] push suppressed (non-prod host):', location.hostname, msg);
+    return;
+  }
   const v = getVenue();
   const origin = (v && v.lat != null && v.lng != null)
     ? { lat: v.lat, lng: v.lng }
@@ -1817,6 +1900,10 @@ function renderLiveZone() {
 function renderStrip() { renderLiveZone(); }
 
 async function sendPushNotification(toId, fromId, msg) {
+  if (!isPushAllowedHere()) {
+    console.log('[pingme] push suppressed (non-prod host):', location.hostname, { toId, msg });
+    return;
+  }
   try {
     const res = await fetch(SUPABASE_URL + '/functions/v1/send-push', {
       method: 'POST',
@@ -1833,6 +1920,11 @@ async function sendPushNotification(toId, fromId, msg) {
 
 async function pingEveryone() {
   if (!profile) return false;
+  if (!isPushAllowedHere()) {
+    console.log('[pingme] pingEveryone suppressed (non-prod host):', location.hostname);
+    toast('test mode — no pings sent');
+    return false;
+  }
   const now = Date.now();
   if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return false; }
   lastPingTime = now;
@@ -2036,6 +2128,41 @@ function renderLeaderboardList() {
   }).join('');
 }
 window.renderLeaderboard = renderLeaderboard;
+
+function renderMyInviteCodes() {
+  const wrap = document.getElementById('my-codes');
+  if (!wrap) return;
+  if (!profile) { wrap.innerHTML = '<div class="lb-empty">sign in to get your codes</div>'; return; }
+  if (!myInviteCodes || myInviteCodes.length === 0) {
+    wrap.innerHTML = '<div class="lb-empty">minting your codes…</div>';
+    return;
+  }
+  const origin = location.origin;
+  wrap.innerHTML = myInviteCodes.map(c => {
+    const used = (c.use_count || 0) >= (c.max_uses || 1);
+    const link = origin + '?code=' + c.code + '&ref=' + profile.id;
+    return '<div class="my-code-row' + (used ? ' my-code-used' : '') + '">' +
+      '<span class="my-code-val">' + esc(c.code) + '</span>' +
+      (used
+        ? '<span class="my-code-state">claimed</span>'
+        : '<button class="my-code-copy" data-link="' + esc(link) + '" data-code="' + esc(c.code) + '">share</button>') +
+      '</div>';
+  }).join('');
+  wrap.querySelectorAll('.my-code-copy').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const link = btn.getAttribute('data-link');
+      const code = btn.getAttribute('data-code');
+      const text = "ping pong @ pingme — code " + code + " · " + link;
+      if (navigator.share) {
+        navigator.share({ title: 'pingme invite', text, url: link })
+          .catch(() => { if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => toast('copied')); });
+      } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(link).then(() => toast('copied')).catch(() => toast('copy failed'));
+      }
+    });
+  });
+}
+window.renderMyInviteCodes = renderMyInviteCodes;
 
 function getOrCreateOffExpand() {
   let el = document.getElementById('off-expand-link');
@@ -2471,7 +2598,7 @@ function renderMe() {
   const gamesEl = document.getElementById('stat-games');
   if (gamesEl) gamesEl.textContent = plays;
   const rankEl = document.querySelector('#stat-rank .ms-num');
-  if (rankEl) rankEl.textContent = computeMyRankText();
+  if (rankEl) rankEl.textContent = (me.referral_count || 0);
 
   // Settings + email icons: email icon flips sage (verified) / flame (unverified).
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email');
@@ -2549,7 +2676,9 @@ function renderMe() {
   if (statRank && !statRank._wired) {
     statRank._wired = true;
     statRank.addEventListener('click', () => {
+      lbActiveTab = 'referrals';
       renderLeaderboard();
+      renderMyInviteCodes();
       document.getElementById('sheet-rank')?.classList.add('open');
     });
   }
