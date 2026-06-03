@@ -2631,8 +2631,9 @@ function renderMe() {
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
     '</div>' +
 
-    '<button class="me-link-acct-banner" id="me-link-acct" style="display:none">' +
-    '&#9993; link email (save account)</button>' +
+    // Blue "link email" banner removed — envelope icon in the id-icons row
+    // is the single entry point for linking/verifying email.
+    '<button class="me-link-acct-banner" id="me-link-acct" style="display:none" hidden></button>' +
     '<div class="me-linked-email" id="me-linked-email" style="display:none"></div>';
 
   // Stub elements so older code that reads them doesn't crash
@@ -2792,26 +2793,13 @@ function renderMe() {
     }
   });
 
-  // Link email — show blue banner only for users without a linked/verified email
+  // Link-email banner + linked-email confirmation text are intentionally
+  // not rendered in the profile body. The envelope icon in the id-icons
+  // row is the single source of truth for email status / linking.
   const linkAcctBanner = document.getElementById('me-link-acct');
   const linkedEmailEl = document.getElementById('me-linked-email');
-  const isLinked = !!cachedEmail || !!me.email_verified;
-  if (isLinked) {
-    if (cachedEmail) {
-      linkedEmailEl.style.display = '';
-      linkedEmailEl.textContent = '✓ linked to ' + cachedEmail;
-    } else {
-      linkedEmailEl.style.display = '';
-      linkedEmailEl.textContent = '✓ email linked';
-    }
-    linkAcctBanner.style.display = 'none';
-  } else {
-    linkAcctBanner.style.display = profile ? '' : 'none';
-  }
-  if (!linkAcctBanner._wired) {
-    linkAcctBanner._wired = true;
-    linkAcctBanner.addEventListener('click', () => showLinkEmail());
-  }
+  if (linkAcctBanner) linkAcctBanner.style.display = 'none';
+  if (linkedEmailEl) linkedEmailEl.style.display = 'none';
 
   // Invite a friend → copy the user's invite link/code to clipboard, no share sheet.
   document.getElementById('sr-invite').addEventListener('click', () => {
