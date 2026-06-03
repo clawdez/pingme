@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>pingme — session mode (dev)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#F4EDDC"/>
+<link rel="stylesheet" href="style.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Permanent+Marker&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  body { padding: 16px 14px 80px; font-family: 'Space Grotesk', system-ui, sans-serif; }
+  .dev-banner {
+    background: var(--mustard); color: var(--ink);
+    border: 2.5px solid var(--ink); border-radius: 10px;
+    padding: 8px 12px; font-weight: 700; font-size: 13px;
+    margin-bottom: 14px; display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 3px 3px 0 var(--ink);
+  }
+  .dev-banner .tag { font-family: 'Permanent Marker', cursive; letter-spacing: 0.5px; }
+  .dev-banner a { color: var(--ink); text-decoration: underline; font-size: 12px; }
+
+  h1.title { font-family: 'Permanent Marker', cursive; font-size: 32px; margin: 4px 0 2px; }
+  .sub { color: var(--muted); font-size: 14px; margin-bottom: 18px; }
+
+  /* ── Step 1: pick vibe ── */
+  .vibe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .vibe {
+    background: var(--cream); border: 2.5px solid var(--ink); border-radius: 14px;
+    padding: 14px 12px; box-shadow: 4px 4px 0 var(--ink); cursor: pointer;
+    transition: transform .08s, box-shadow .08s; text-align: left;
+  }
+  .vibe:active { transform: translate(2px,2px); box-shadow: 2px 2px 0 var(--ink); }
+  .vibe.selected { background: var(--straw); }
+  .vibe .emoji { font-size: 28px; display: block; margin-bottom: 4px; }
+  .vibe .label { font-weight: 700; font-size: 15px; }
+  .vibe .desc { font-size: 11px; color: var(--muted); margin-top: 2px; line-height: 1.3; }
+
+  /* ── Tables ── */
+  .tables { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+  .table-card {
+    background: var(--cream); border: 2.5px solid var(--ink); border-radius: 14px;
+    padding: 12px 14px; box-shadow: 4px 5px 0 var(--ink);
+  }
+  .table-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .table-name { font-family: 'Permanent Marker', cursive; font-size: 20px; }
+  .table-status {
+    font-size: 11px; padding: 3px 8px; border-radius: 99px; border: 2px solid var(--ink);
+    font-weight: 700; text-transform: uppercase;
+  }
+  .status-live { background: var(--sage); }
+  .status-open { background: var(--peach); }
+  .status-queued { background: var(--mustard); }
+  .players { font-size: 14px; color: var(--ink); margin: 4px 0; }
+  .player-badge {
+    display: inline-block; background: var(--paper); padding: 2px 8px;
+    border-radius: 6px; border: 1.5px solid var(--ink); margin-right: 4px; font-size: 13px;
+  }
+  .player-badge.high { background: var(--flame); color: var(--cream); }
+  .player-badge.mid { background: var(--mustard); }
+  .vibe-tag { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .table-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn {
+    flex: 1; background: var(--ink); color: var(--cream); border: 2.5px solid var(--ink);
+    border-radius: 10px; padding: 9px; font-weight: 700; font-size: 13px;
+    box-shadow: 3px 3px 0 var(--ink); cursor: pointer; font-family: inherit;
+  }
+  .btn.ghost { background: var(--cream); color: var(--ink); }
+  .btn:active { transform: translate(2px,2px); box-shadow: 1px 1px 0 var(--ink); }
+
+  /* ── Suggested match ── */
+  .suggest {
+    background: var(--cobalt); color: var(--cream);
+    border: 2.5px solid var(--ink); border-radius: 14px;
+    padding: 14px; box-shadow: 5px 5px 0 var(--ink);
+    margin-bottom: 18px;
+  }
+  .suggest h3 { font-family: 'Permanent Marker', cursive; font-size: 18px; margin: 0 0 6px; }
+  .suggest p { font-size: 14px; margin: 4px 0; line-height: 1.4; }
+  .suggest .why { font-size: 12px; opacity: .85; font-style: italic; }
+  .suggest-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .suggest .btn { background: var(--cream); color: var(--ink); }
+  .suggest .btn.skip { background: transparent; color: var(--cream); border-color: var(--cream); box-shadow: 3px 3px 0 var(--cream); }
+
+  /* ── Add casual / guest ── */
+  .quick-row {
+    display: flex; gap: 8px; margin-bottom: 14px;
+  }
+  .quick-btn {
+    flex: 1; background: var(--cream); border: 2.5px solid var(--ink); border-radius: 12px;
+    padding: 10px 6px; font-size: 12px; font-weight: 600; box-shadow: 3px 3px 0 var(--ink);
+    cursor: pointer; text-align: center;
+  }
+  .quick-btn .icon { font-size: 20px; display: block; margin-bottom: 2px; }
+
+  /* ── Dev log ── */
+  .dev-log {
+    background: var(--ink); color: var(--sage); font-family: ui-monospace, monospace;
+    font-size: 11px; padding: 10px; border-radius: 10px; max-height: 140px; overflow-y: auto;
+    margin-top: 20px;
+  }
+  .dev-log .ts { color: var(--mustard); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="dev-banner">
+  <span><span class="tag">🧪 DEV</span> session mode prototype</span>
+  <a href="index.html">← back to live app</a>
+</div>
+
+<h1 class="title">session @ Mozart's</h1>
+<div class="sub" id="ctx-sub">3 tables · 7 people here · pick your vibe</div>
+
+<!-- Step 1: pick vibe -->
+<section id="vibe-step">
+  <div class="vibe-grid">
+    <button class="vibe" data-vibe="chill">
+      <span class="emoji">😎</span>
+      <div class="label">just chilling</div>
+      <div class="desc">play whoever, no ranking, low-key</div>
+    </button>
+    <button class="vibe" data-vibe="real">
+      <span class="emoji">🔥</span>
+      <div class="label">play for real</div>
+      <div class="desc">ranked, want a real match, stats count</div>
+    </button>
+    <button class="vibe" data-vibe="friends">
+      <span class="emoji">👯</span>
+      <div class="label">with my friends</div>
+      <div class="desc">private game, don't match me with randos</div>
+    </button>
+    <button class="vibe" data-vibe="open">
+      <span class="emoji">🎯</span>
+      <div class="label">open to anything</div>
+      <div class="desc">let the app pick — surprise me</div>
+    </button>
+  </div>
+</section>
+
+<!-- Step 2: matched view -->
+<section id="active-step" class="hidden">
+
+  <div id="suggest-card" class="suggest hidden">
+    <h3>🎯 suggested match</h3>
+    <p><strong id="sg-text">—</strong></p>
+    <p class="why" id="sg-why">—</p>
+    <div class="suggest-actions">
+      <button class="btn" id="sg-accept">i'm down</button>
+      <button class="btn skip" id="sg-skip">nah, skip</button>
+    </div>
+  </div>
+
+  <div class="quick-row">
+    <button class="quick-btn" id="add-guest"><span class="icon">➕</span>add guest<br><span style="font-size:10px;color:var(--muted)">no app</span></button>
+    <button class="quick-btn" id="change-vibe"><span class="icon">🔄</span>change<br>vibe</button>
+    <button class="quick-btn" id="leave"><span class="icon">🚪</span>leave<br>session</button>
+  </div>
+
+  <div class="tables" id="tables"></div>
+</section>
+
+<div class="dev-log" id="log"></div>
+
+<script>
+// ─────────────────────────────────────────────────────
+// MOCK STATE — edit freely. No backend.
+// ─────────────────────────────────────────────────────
+const STATE = {
+  me: { name: 'you', skill: 'mid', vibe: null },
+  venue: 'Mozart\'s',
+  tables: [
+    {
+      id: 1, name: 'Table 1',
+      players: [
+        { name: 'Marcus', skill: 'high' },
+        { name: 'Sam', skill: 'low' }
+      ],
+      status: 'live', vibe: 'chill'
+    },
+    {
+      id: 2, name: 'Table 2',
+      players: [
+        { name: 'Jess', skill: 'high' },
+        { name: 'Diego', skill: 'low' }
+      ],
+      status: 'live', vibe: 'real'
+    },
+    {
+      id: 3, name: 'Table 3',
+      players: [], status: 'open', vibe: null
+    }
+  ],
+  queue: [
+    { name: 'Priya', skill: 'mid', vibe: 'real' },
+    { name: 'Tomás', skill: 'mid', vibe: 'open' }
+  ]
+};
+
+const log = (msg) => {
+  const el = document.getElementById('log');
+  const ts = new Date().toLocaleTimeString().slice(0,8);
+  el.innerHTML = `<div><span class="ts">${ts}</span> ${msg}</div>` + el.innerHTML;
+};
+
+// ─────────────────────────────────────────────────────
+// MATCH SUGGESTION ENGINE — simple, editable
+// ─────────────────────────────────────────────────────
+function suggestMatch() {
+  const me = STATE.me;
+  if (!me.vibe || me.vibe === 'friends') return null;
+
+  // Look for someone in queue or at imbalanced table that fits vibe
+  const skillRank = { low: 1, mid: 2, high: 3 };
+
+  // 1. Look for imbalanced match: a "high" playing a "low" — we could rotate
+  for (const t of STATE.tables) {
+    if (t.players.length !== 2) continue;
+    const diff = Math.abs(skillRank[t.players[0].skill] - skillRank[t.players[1].skill]);
+    if (diff >= 2 && me.vibe !== 'chill') {
+      // skill-mismatched table; suggest you join the high player
+      const high = t.players.find(p => p.skill === 'high');
+      if (high && skillRank[me.skill] >= 2) {
+        return {
+          text: `play ${high.name} on ${t.name}`,
+          why: `${high.name} is mismatched right now — closer to your level`,
+          tableId: t.id,
+          opponent: high.name
+        };
+      }
+    }
+  }
+
+  // 2. Someone in queue with matching vibe + similar skill
+  const fit = STATE.queue.find(q => q.vibe === me.vibe && q.skill === me.skill);
+  if (fit) {
+    const openTable = STATE.tables.find(t => t.status === 'open');
+    return {
+      text: `play ${fit.name} on ${openTable ? openTable.name : 'next open table'}`,
+      why: `${fit.name} is also vibing ${me.vibe} at your level`,
+      tableId: openTable?.id,
+      opponent: fit.name
+    };
+  }
+
+  // 3. Fallback: any open table
+  const open = STATE.tables.find(t => t.status === 'open');
+  if (open) {
+    return {
+      text: `grab ${open.name}`,
+      why: `it's open — call your shot or wait for someone`,
+      tableId: open.id,
+      opponent: null
+    };
+  }
+
+  return { text: 'all tables busy', why: 'hang tight, you\'re in the queue', tableId: null };
+}
+
+// ─────────────────────────────────────────────────────
+// RENDER
+// ─────────────────────────────────────────────────────
+function renderTables() {
+  const el = document.getElementById('tables');
+  el.innerHTML = STATE.tables.map(t => {
+    const statusClass = `status-${t.status}`;
+    const players = t.players.length
+      ? t.players.map(p => `<span class="player-badge ${p.skill}">${p.name}</span>`).join(' vs ')
+      : '<em style="color:var(--muted)">empty</em>';
+    const vibeTag = t.vibe ? `vibe: ${t.vibe}` : 'no vibe set';
+    return `
+      <div class="table-card">
+        <div class="table-head">
+          <span class="table-name">${t.name}</span>
+          <span class="table-status ${statusClass}">${t.status}</span>
+        </div>
+        <div class="players">${players}</div>
+        <div class="vibe-tag">${vibeTag}</div>
+        <div class="table-actions">
+          ${t.status === 'open'
+            ? `<button class="btn" data-join="${t.id}">claim table</button>`
+            : `<button class="btn ghost" data-watch="${t.id}">i got next</button>`}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderSuggestion() {
+  const s = suggestMatch();
+  const card = document.getElementById('suggest-card');
+  if (!s) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  document.getElementById('sg-text').textContent = s.text;
+  document.getElementById('sg-why').textContent = s.why;
+  card._suggestion = s;
+}
+
+function enterActive() {
+  document.getElementById('vibe-step').classList.add('hidden');
+  document.getElementById('active-step').classList.remove('hidden');
+  document.getElementById('ctx-sub').textContent =
+    `vibe: ${STATE.me.vibe} · 3 tables · ${STATE.tables.reduce((n,t)=>n+t.players.length,0) + STATE.queue.length + 1} people`;
+  renderTables();
+  renderSuggestion();
+}
+
+// ─────────────────────────────────────────────────────
+// EVENTS
+// ─────────────────────────────────────────────────────
+document.querySelectorAll('.vibe').forEach(v => v.onclick = () => {
+  STATE.me.vibe = v.dataset.vibe;
+  log(`vibe set → <strong>${STATE.me.vibe}</strong>`);
+  enterActive();
+});
+
+document.getElementById('sg-accept').onclick = () => {
+  const s = document.getElementById('suggest-card')._suggestion;
+  log(`accepted: ${s.text}`);
+  if (s.opponent && s.tableId) {
+    const t = STATE.tables.find(x => x.id === s.tableId);
+    t.players = [{ name: 'you', skill: STATE.me.skill }, { name: s.opponent, skill: 'mid' }];
+    t.status = 'live'; t.vibe = STATE.me.vibe;
+    STATE.queue = STATE.queue.filter(q => q.name !== s.opponent);
+  }
+  renderTables(); renderSuggestion();
+};
+
+document.getElementById('sg-skip').onclick = () => {
+  log('skipped suggestion');
+  document.getElementById('suggest-card').classList.add('hidden');
+};
+
+document.getElementById('tables').addEventListener('click', (e) => {
+  const join = e.target.dataset.join;
+  const watch = e.target.dataset.watch;
+  if (join) {
+    const t = STATE.tables.find(x => x.id === +join);
+    t.players = [{ name: 'you', skill: STATE.me.skill }];
+    t.status = 'queued'; t.vibe = STATE.me.vibe;
+    log(`claimed ${t.name}`);
+    renderTables();
+  }
+  if (watch) {
+    log(`got next on table ${watch}`);
+  }
+});
+
+document.getElementById('add-guest').onclick = () => {
+  const name = prompt('guest name?');
+  if (name) {
+    STATE.queue.push({ name, skill: 'mid', vibe: 'open' });
+    log(`+ guest: ${name}`);
+    renderSuggestion();
+  }
+};
+
+document.getElementById('change-vibe').onclick = () => {
+  document.getElementById('active-step').classList.add('hidden');
+  document.getElementById('vibe-step').classList.remove('hidden');
+};
+
+document.getElementById('leave').onclick = () => {
+  log('left session');
+  location.href = 'index.html';
+};
+
+log('session prototype loaded — edit STATE object in source to test scenarios');
+</script>
+</body>
+</html>
