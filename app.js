@@ -2381,8 +2381,10 @@ function renderNotis() {
   const notisSub = document.getElementById('notis-sub');
   const pingList = document.getElementById('me-ping-list') || document.getElementById('ping-list');
   if (!pingList) return;
-  const u = pings.filter(p => p.unread).length;
-  const rr = pings.filter(p => !p.unread).length;
+  // Hide system "connect email" pings from the list — surfaced via the envelope icon instead
+  const visible = pings.filter(p => p.verb !== 'system');
+  const u = visible.filter(p => p.unread).length;
+  const rr = visible.filter(p => !p.unread).length;
   if (notisSub) notisSub.textContent = u + ' new \u00b7 ' + rr + ' seen';
 
   // Update bell badge in the new pings header
@@ -2393,10 +2395,10 @@ function renderNotis() {
   }
   // Toggle clear-all visibility
   const clearBtn = document.getElementById('clear-pings');
-  if (clearBtn) clearBtn.style.display = pings.length ? 'inline-flex' : 'none';
+  if (clearBtn) clearBtn.style.display = visible.length ? 'inline-flex' : 'none';
 
   // T7: welcome card when no pings yet
-  if (pings.length === 0) {
+  if (visible.length === 0) {
     pingList.innerHTML =
       '<div class="notis-welcome">' +
       '<div class="nw-icon"><svg width="36" height="36" viewBox="0 0 40 40" filter="url(#wobble)"><ellipse cx="22" cy="18" rx="14" ry="14" fill="none" stroke="#141210" stroke-width="2.4"/><rect x="6" y="26" width="14" height="6" rx="2" fill="none" stroke="#141210" stroke-width="2.4" transform="rotate(-22 13 29)"/><circle cx="32" cy="10" r="2.4" fill="none" stroke="#141210" stroke-width="1.8"/></svg></div>' +
@@ -2411,7 +2413,7 @@ function renderNotis() {
     return;
   }
 
-  pingList.innerHTML = pings.map(p => {
+  pingList.innerHTML = visible.map(p => {
     const from = p.from || {};
     const isSystem = p.verb === 'system';
     const avText = isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase();
@@ -2521,6 +2523,59 @@ function renderNotis() {
       else toast('match tracking not enabled');
     })
   );
+
+  // Swipe-left to delete a single ping
+  pingList.querySelectorAll('.ping-card').forEach(card => wireSwipeDelete(card));
+}
+
+function wireSwipeDelete(card) {
+  let startX = 0, startY = 0, dx = 0, dy = 0, dragging = false, locked = false;
+  const THRESH = 80; // px past which we delete
+  const onStart = (e) => {
+    const t = e.touches ? e.touches[0] : e;
+    startX = t.clientX; startY = t.clientY; dx = 0; dy = 0;
+    dragging = true; locked = false;
+    card.style.transition = 'none';
+  };
+  const onMove = (e) => {
+    if (!dragging) return;
+    const t = e.touches ? e.touches[0] : e;
+    dx = t.clientX - startX; dy = t.clientY - startY;
+    if (!locked) {
+      if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8) { dragging = false; return; }
+      if (Math.abs(dx) > 8) locked = true;
+    }
+    if (locked) {
+      if (e.cancelable) e.preventDefault();
+      const x = Math.min(0, dx); // only swipe-left
+      card.style.transform = 'translateX(' + x + 'px)';
+      card.style.opacity = String(Math.max(0.3, 1 + x / 240));
+    }
+  };
+  const onEnd = async () => {
+    if (!dragging) return;
+    dragging = false;
+    card.style.transition = 'transform .18s ease, opacity .18s ease';
+    if (locked && dx < -THRESH) {
+      card.style.transform = 'translateX(-120%)';
+      card.style.opacity = '0';
+      const pingId = card.dataset.id;
+      setTimeout(async () => {
+        try { await sb.from('pings').delete().eq('id', pingId); } catch {}
+        const idx = pings.findIndex(p => p.id === pingId);
+        if (idx >= 0) pings.splice(idx, 1);
+        renderNotis();
+        updateNotisBadge();
+      }, 160);
+    } else {
+      card.style.transform = '';
+      card.style.opacity = '';
+    }
+  };
+  card.addEventListener('touchstart', onStart, { passive: true });
+  card.addEventListener('touchmove', onMove, { passive: false });
+  card.addEventListener('touchend', onEnd);
+  card.addEventListener('touchcancel', onEnd);
 }
 
 /* ── ME — T1: truly minimal ── */

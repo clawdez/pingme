@@ -2354,7 +2354,8 @@ button { font: inherit; color: inherit; }
 .me-stat[role=button]:active { transform: translateY(1px); }
 
 /* ---- pings list inside profile ---- */
-.me-pings { text-align: left; padding: 14px 24px calc(48px + env(safe-area-inset-bottom, 0px)); border-top: 2px solid var(--ink); }
+.me-pings { text-align: left; padding: 14px 24px calc(120px + env(safe-area-inset-bottom, 0px)); border-top: 2px solid var(--ink); }
+.ping-card { touch-action: pan-y; will-change: transform, opacity; }
 .me-pings-head {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
 }
