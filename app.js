@@ -946,26 +946,12 @@ async function loadOrCreateProfile(user) {
   if (existing) {
     profile = await restoreTimers(existing);
     homeState = profile.status || 'off';
-    // Nudge anonymous users to link email (once) — skip anyone already verified
-    // or with a cached linked email (returning user on a fresh install).
-    const alreadyLinked = !!existing.email_verified
-      || !!localStorage.getItem('pm_linked_email')
-      || !!user.email;
-    if (alreadyLinked) {
-      // Clean up any stale "connect email" system pings if they verified elsewhere
-      sb.from('pings').delete()
-        .eq('to_id', user.id).eq('verb', 'system')
-        .then(() => updateNotisBadge(), () => {});
-      localStorage.setItem('pm_link_nudge', '1');
-    } else if (!localStorage.getItem('pm_link_nudge')) {
-      localStorage.setItem('pm_link_nudge', '1');
-      sb.from('pings').insert({
-        from_id: user.id, to_id: user.id,
-        verb: 'system',
-        msg: 'your account will disappear if you log out or switch devices. connect your email now to save it.',
-        unread: true
-      }).then(() => updateNotisBadge());
-    }
+    // Email-link nudge is surfaced via the email icon + dot on the profile,
+    // not via the notifications list. Clean up any pre-existing system pings.
+    sb.from('pings').delete()
+      .eq('to_id', user.id).eq('verb', 'system')
+      .then(() => updateNotisBadge(), () => {});
+    localStorage.setItem('pm_link_nudge', '1');
     if (FEATURES.accessCodes && !existing.invited_via) {
       const params = new URLSearchParams(location.search);
       if (params.get('code') || params.get('ref') || localStorage.getItem('pm_invited_via')) {

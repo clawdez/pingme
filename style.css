@@ -2126,8 +2126,9 @@ button { font: inherit; color: inherit; }
   background: var(--cream) !important;
   border: none; border-radius: 0; box-shadow: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
   animation: mePageIn .28s cubic-bezier(.3,.9,.4,1);
-  padding: 0 0 48px !important;
+  padding: 0 0 calc(96px + env(safe-area-inset-bottom, 0px)) !important;
 }
 @keyframes mePageIn { from { transform: translateX(14px); opacity: .4; } to { transform: none; opacity: 1; } }
 .me-back {
@@ -2353,7 +2354,7 @@ button { font: inherit; color: inherit; }
 .me-stat[role=button]:active { transform: translateY(1px); }
 
 /* ---- pings list inside profile ---- */
-.me-pings { text-align: left; padding: 14px 24px 32px; border-top: 2px solid var(--ink); }
+.me-pings { text-align: left; padding: 14px 24px calc(48px + env(safe-area-inset-bottom, 0px)); border-top: 2px solid var(--ink); }
 .me-pings-head {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
 }
