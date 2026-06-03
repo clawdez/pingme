@@ -2122,11 +2122,12 @@ button { font: inherit; color: inherit; }
   position: absolute; inset: 0;
   margin: 0 !important;
   width: 100%; max-width: none; height: 100%;
+  max-height: none !important;
   background: var(--cream) !important;
   border: none; border-radius: 0; box-shadow: none;
   overflow-y: auto;
   animation: mePageIn .28s cubic-bezier(.3,.9,.4,1);
-  padding: 0 !important;
+  padding: 0 0 48px !important;
 }
 @keyframes mePageIn { from { transform: translateX(14px); opacity: .4; } to { transform: none; opacity: 1; } }
 .me-back {
