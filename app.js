@@ -1987,7 +1987,7 @@ function renderRoster() {
     const refs = r.referral_count || 0;
     return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
-      '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<div class="rbub-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
       (isMe ? '<span class="rbub-you">you</span>' : '') +
       (refs > 0 ? '<span class="rbub-refs">' + refs + '</span>' : '') +
       '</div>' +
@@ -2109,7 +2109,7 @@ function renderLeaderboardList() {
     else { count = r.referral_count || 0; label = 'invited'; }
     return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
       '<span class="lb-medal">' + medal + '</span>' +
-      '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<div class="lb-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
       '<span class="lb-name">' + esc(r.name) + (isMe ? ' <span class="lb-you">(you)</span>' : '') + '</span>' +
       '<span class="lb-count">' + count + ' ' + label + '</span>' +
       '</div>';
@@ -2276,7 +2276,7 @@ function openRaiderSheet(r) {
   let html =
     // Top row: avatar + name + status
     '<div class="rs-top">' +
-    '<div class="rs-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+    '<div class="rs-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
     '<div class="rs-info">' +
     '<div class="rs-name">' + esc(r.name) + (isMe ? ' <span class="rs-you">you</span>' : '') + '</div>' +
     '<div class="rs-status ' + statusClass + '"><span class="rs-dot"></span>' + statusText + '</div>' +
@@ -2346,15 +2346,29 @@ function openRaiderSheet(r) {
       if (now - lastPingTime < PING_COOLDOWN) { toast('slow down \u2014 wait a sec'); return; }
       lastPingTime = now;
       const btn = document.getElementById('rs-ping-btn');
+      const prevHtml = btn.innerHTML; // our own static markup \u2014 safe to restore
+      btn.disabled = true;
+      btn.textContent = 'sending\u2026';
+      const pingMsg = profile.name + ' pinged you!';
+      let error = null;
+      try {
+        ({ error } = await sb.from('pings').insert({
+          from_id: profile.id, to_id: r.id,
+          verb: 'wants to play',
+          msg: pingMsg,
+          unread: true
+        }) || {});
+      } catch (e) { error = e; }
+      if (error) {
+        lastPingTime = 0; // a failed send shouldn't burn the cooldown
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+        toast('ping failed \u2014 try again');
+        return;
+      }
+      btn.disabled = false;
       btn.textContent = 'sent!';
       btn.classList.add('rs-ping-sent');
-      const pingMsg = profile.name + ' pinged you!';
-      await sb.from('pings').insert({
-        from_id: profile.id, to_id: r.id,
-        verb: 'wants to play',
-        msg: pingMsg,
-        unread: true
-      });
       // Push notification handled server-side via DB webhook on ping insert
       setTimeout(() => {
         document.getElementById('sheet-raider').classList.remove('open');
@@ -2470,7 +2484,7 @@ function renderNotis() {
     const from = p.from || {};
     const isSystem = p.verb === 'system';
     const avText = esc(isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase());
-    const color = isSystem ? '#2563eb' : (from.color || '#E8502A');
+    const color = isSystem ? '#2563eb' : safeColor(from.color);
     const who = isSystem ? 'pingme' : (from.name || 'someone');
     const ago = timeAgo(p.created_at);
     const acted = p.action_taken;
@@ -2527,7 +2541,16 @@ function renderNotis() {
       const pingId = btn.dataset.ping;
       const action = btn.dataset.action;
       if (!action) return;
-      await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
+      btn.disabled = true;
+      let error = null;
+      try {
+        ({ error } = await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId) || {});
+      } catch (e) { error = e; }
+      if (error) {
+        btn.disabled = false;
+        toast('could not save — try again');
+        return;
+      }
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
       // "accepted" invite → switch to that venue + go down
@@ -3548,6 +3571,10 @@ function timeAgo(ts) {
 }
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// profiles.color is client-writable — never trust it inside a style attribute.
+function safeColor(c) {
+  return /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? c : '#E8502A';
 }
 function hash(s) {
   let h = 0;
