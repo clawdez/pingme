@@ -1877,7 +1877,7 @@ function renderLiveZone() {
     timer.innerHTML =
       '<div class="ct-pill">' +
       '<span class="ct-dot"></span>' +
-      'live &middot; ' + mins + 'm &middot; @ ' + getVenueName() +
+      'live &middot; ' + mins + 'm &middot; @ ' + esc(getVenueName()) +
       '</div>';
   } else {
     timer.innerHTML = '';
@@ -1971,13 +1971,13 @@ function renderRoster() {
 
   function renderBubble(r) {
     const isMe = profile && r.id === profile.id;
-    const ini = r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
+    const ini = esc(r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase()));
     let sub = '';
     if (r.status === 'playing') {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-      sub = (r.venue ? r.venue + ' · ' : '') + m + 'm';
+      sub = (r.venue ? esc(r.venue) + ' · ' : '') + m + 'm';
     } else if (r.status === 'down') {
-      sub = (r.venue ? r.venue + ' · ' : '') + timeLeft(r) + ' left';
+      sub = (r.venue ? esc(r.venue) + ' · ' : '') + timeLeft(r) + ' left';
     } else {
       sub = '';
     }
@@ -2040,28 +2040,30 @@ function renderRoster() {
 let lbActiveTab = 'players';
 
 function renderLeaderboard() {
-  const section = document.getElementById('section-leaderboard');
   const list = document.getElementById('lb-list');
-  if (!section || !list) return;
+  if (!list) return;
 
-  // Hide the elo tab when match tracking isn't enabled on this build
-  if (!FEATURES.matchTracking) {
-    section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
-    if (lbActiveTab === 'elo') lbActiveTab = 'players';
-  }
+  if (!FEATURES.matchTracking && lbActiveTab === 'elo') lbActiveTab = 'players';
 
-  // Wire tabs
-  const tabs = section.querySelectorAll('.lb-tab');
-  tabs.forEach(tab => {
-    if (!tab._wired) {
-      tab._wired = true;
-      tab.addEventListener('click', () => {
-        lbActiveTab = tab.dataset.tab;
-        tabs.forEach(t => t.classList.toggle('lb-tab-active', t.dataset.tab === lbActiveTab));
-        renderLeaderboardList();
-      });
+  // Tab strip is optional — the rankings sheet has no #section-leaderboard,
+  // it just renders whatever lbActiveTab says into #lb-list.
+  const section = document.getElementById('section-leaderboard');
+  if (section) {
+    if (!FEATURES.matchTracking) {
+      section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
     }
-  });
+    const tabs = section.querySelectorAll('.lb-tab');
+    tabs.forEach(tab => {
+      if (!tab._wired) {
+        tab._wired = true;
+        tab.addEventListener('click', () => {
+          lbActiveTab = tab.dataset.tab;
+          tabs.forEach(t => t.classList.toggle('lb-tab-active', t.dataset.tab === lbActiveTab));
+          renderLeaderboardList();
+        });
+      }
+    });
+  }
 
   renderLeaderboardList();
 }
@@ -2098,7 +2100,7 @@ function renderLeaderboardList() {
   const medalSvg = (fill) => '<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="14" r="7" fill="' + fill + '" stroke="#141210" stroke-width="2"/><path d="M9 2h6l-1 7h-4L9 2z" fill="' + fill + '" stroke="#141210" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg>';
   const medals = [medalSvg('#E8B84A'), medalSvg('#C0C0C0'), medalSvg('#CD7F32')];
   list.innerHTML = leaders.map((r, i) => {
-    const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
+    const ini = esc(r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
     const isMe = profile && r.id === profile.id;
     const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
     let count, label;
@@ -2150,6 +2152,57 @@ function renderMyInviteCodes() {
 }
 window.renderMyInviteCodes = renderMyInviteCodes;
 
+// Descending elo ladder; everyone starts at 1200 ('rally regular').
+const ELO_TIERS = [
+  { min: 1450, name: 'table legend' },
+  { min: 1300, name: 'spin doctor' },
+  { min: 1150, name: 'rally regular' },
+  { min: 1000, name: 'paddle prospect' },
+  { min: -Infinity, name: 'garage tier' },
+];
+
+function renderEloSheet() {
+  const big = document.getElementById('elo-big');
+  if (!big) return;
+  const me = profile ? (allRaiders().find(r => r.id === profile.id) || profile) : null;
+  const elo = me && me.elo != null ? me.elo : 1200;
+  const wins = (me && me.wins) || 0;
+  const losses = (me && me.losses) || 0;
+  const played = wins + losses;
+
+  big.textContent = String(elo);
+
+  const idx = ELO_TIERS.findIndex(t => elo >= t.min);
+  const tier = ELO_TIERS[idx];
+  const nextTier = idx > 0 ? ELO_TIERS[idx - 1] : null;
+  const tierEl = document.getElementById('elo-tier');
+  if (tierEl) tierEl.textContent = played === 0 ? 'unranked — log a match to place' : tier.name;
+
+  const nextEl = document.getElementById('elo-next');
+  const barWrap = document.getElementById('elo-bar-wrap');
+  if (nextEl && barWrap) {
+    if (played > 0 && nextTier) {
+      const floor = isFinite(tier.min) ? tier.min : nextTier.min - 150;
+      const pct = Math.max(0, Math.min(100, Math.round(((elo - floor) / (nextTier.min - floor)) * 100)));
+      nextEl.textContent = (nextTier.min - elo) + ' to ' + nextTier.name;
+      nextEl.style.display = '';
+      barWrap.querySelector('span').style.width = pct + '%';
+      barWrap.style.display = '';
+    } else {
+      nextEl.style.display = 'none';
+      barWrap.style.display = 'none';
+    }
+  }
+
+  const hist = document.getElementById('elo-hist');
+  if (hist) {
+    hist.innerHTML = played === 0
+      ? '<div class="lb-empty">no matches yet — elo moves when you log games</div>'
+      : '<div class="elo-hist-row">record: <b>' + wins + 'W &ndash; ' + losses + 'L</b> &middot; ' +
+        Math.round((wins / played) * 100) + '% wins</div>';
+  }
+}
+
 function getOrCreateOffExpand() {
   let el = document.getElementById('off-expand-link');
   if (!el) {
@@ -2197,7 +2250,7 @@ function openRaiderSheet(r) {
       }
     });
   }
-  const ini = r.ini || r.name.slice(0, 2).toUpperCase();
+  const ini = esc(r.ini || r.name.slice(0, 2).toUpperCase());
   const isMe = profile && r.id === profile.id;
   const canAct = profile && !isMe;
 
@@ -2207,7 +2260,7 @@ function openRaiderSheet(r) {
     const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
     statusText = 'playing';
     statusClass = 'rs-playing';
-    contextLine = 'at ' + (r.venue || getVenueName()) + ' \u00b7 ' + m + ' min in';
+    contextLine = 'at ' + esc(r.venue || getVenueName()) + ' \u00b7 ' + m + ' min in';
   } else if (r.status === 'down') {
     statusText = 'down to play';
     statusClass = 'rs-down';
@@ -2283,7 +2336,7 @@ function openRaiderSheet(r) {
           star.setAttribute('stroke', '#141210');
         }
         favIcon.setAttribute('aria-pressed', added ? 'true' : 'false');
-        toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
+        toast(added ? r.name + ' favorited' : r.name + ' unfavorited');
       };
     }
 
@@ -2416,7 +2469,7 @@ function renderNotis() {
   pingList.innerHTML = visible.map(p => {
     const from = p.from || {};
     const isSystem = p.verb === 'system';
-    const avText = isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase();
+    const avText = esc(isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase());
     const color = isSystem ? '#2563eb' : (from.color || '#E8502A');
     const who = isSystem ? 'pingme' : (from.name || 'someone');
     const ago = timeAgo(p.created_at);
@@ -2609,7 +2662,7 @@ function renderMe() {
   let statusHtml = "you're off right now";
   if (me.status === 'playing') {
     const m = me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    statusHtml = 'playing at ' + (me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
+    statusHtml = 'playing at ' + esc(me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
   } else if (me.status === 'down') {
     const dur = me.duration === 30 ? '30 min' : me.duration === 60 ? '1 hour' : '2 hours';
     statusHtml = 'down for ' + dur + ' &middot; ' + timeLeft(me) + ' remaining';

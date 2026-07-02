@@ -2457,6 +2457,17 @@ button { font: inherit; color: inherit; }
 .eh-d { font-family: 'Permanent Marker'; font-size: 15px; }
 .eh-d.up { color: #3a8c4a; } .eh-d.dn { color: var(--flame); }
 .eh-t { font-family: 'Caveat', cursive; font-weight: 700; font-size: 13px; color: var(--muted); }
+.elo-hist-row { font-family: 'Space Grotesk'; font-weight: 600; font-size: 14px; padding: 8px 10px; border: 2px solid var(--ink); border-radius: 10px; background: var(--cream); box-shadow: 2px 2px 0 var(--ink); }
+
+/* ---- invite codes in rankings sheet ---- */
+.my-codes-label { font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted); margin: 16px 0 6px; text-align: left; }
+.my-codes { display: flex; flex-direction: column; gap: 6px; }
+.my-code-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 2px solid var(--ink); border-radius: 10px; background: var(--cream); box-shadow: 2px 2px 0 var(--ink); }
+.my-code-row.my-code-used { opacity: 0.5; box-shadow: none; }
+.my-code-val { flex: 1; font-family: 'Space Grotesk'; font-weight: 700; font-size: 15px; letter-spacing: 1px; text-align: left; }
+.my-code-state { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); }
+.my-code-copy { font-family: 'Permanent Marker'; font-size: 13px; padding: 5px 12px; border: 2px solid var(--ink); border-radius: 999px; background: var(--cobalt); color: var(--cream); cursor: pointer; box-shadow: 2px 2px 0 var(--ink); }
+.my-code-copy:active { transform: translate(1px,1px); box-shadow: 0 0 0 var(--ink); }
 #sheet-rank, #sheet-elo { z-index: 320; }
 
 /* settings panel in profile page (the legacy #me-wrap mounted inside .me-card) */
