@@ -1877,7 +1877,7 @@ function renderLiveZone() {
     timer.innerHTML =
       '<div class="ct-pill">' +
       '<span class="ct-dot"></span>' +
-      'live &middot; ' + mins + 'm &middot; @ ' + getVenueName() +
+      'live &middot; ' + mins + 'm &middot; @ ' + esc(getVenueName()) +
       '</div>';
   } else {
     timer.innerHTML = '';
@@ -1971,13 +1971,13 @@ function renderRoster() {
 
   function renderBubble(r) {
     const isMe = profile && r.id === profile.id;
-    const ini = r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
+    const ini = esc(r.ini || (r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase()));
     let sub = '';
     if (r.status === 'playing') {
       const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
-      sub = (r.venue ? r.venue + ' · ' : '') + m + 'm';
+      sub = (r.venue ? esc(r.venue) + ' · ' : '') + m + 'm';
     } else if (r.status === 'down') {
-      sub = (r.venue ? r.venue + ' · ' : '') + timeLeft(r) + ' left';
+      sub = (r.venue ? esc(r.venue) + ' · ' : '') + timeLeft(r) + ' left';
     } else {
       sub = '';
     }
@@ -1987,7 +1987,7 @@ function renderRoster() {
     const refs = r.referral_count || 0;
     return '<button class="rbub ' + stClass + '" data-id="' + r.id + '">' +
       '<div class="rbub-av-wrap">' +
-      '<div class="rbub-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<div class="rbub-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
       (isMe ? '<span class="rbub-you">you</span>' : '') +
       (refs > 0 ? '<span class="rbub-refs">' + refs + '</span>' : '') +
       '</div>' +
@@ -2040,28 +2040,30 @@ function renderRoster() {
 let lbActiveTab = 'players';
 
 function renderLeaderboard() {
-  const section = document.getElementById('section-leaderboard');
   const list = document.getElementById('lb-list');
-  if (!section || !list) return;
+  if (!list) return;
 
-  // Hide the elo tab when match tracking isn't enabled on this build
-  if (!FEATURES.matchTracking) {
-    section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
-    if (lbActiveTab === 'elo') lbActiveTab = 'players';
-  }
+  if (!FEATURES.matchTracking && lbActiveTab === 'elo') lbActiveTab = 'players';
 
-  // Wire tabs
-  const tabs = section.querySelectorAll('.lb-tab');
-  tabs.forEach(tab => {
-    if (!tab._wired) {
-      tab._wired = true;
-      tab.addEventListener('click', () => {
-        lbActiveTab = tab.dataset.tab;
-        tabs.forEach(t => t.classList.toggle('lb-tab-active', t.dataset.tab === lbActiveTab));
-        renderLeaderboardList();
-      });
+  // Tab strip is optional — the rankings sheet has no #section-leaderboard,
+  // it just renders whatever lbActiveTab says into #lb-list.
+  const section = document.getElementById('section-leaderboard');
+  if (section) {
+    if (!FEATURES.matchTracking) {
+      section.querySelectorAll('.lb-tab[data-tab="elo"]').forEach(t => t.style.display = 'none');
     }
-  });
+    const tabs = section.querySelectorAll('.lb-tab');
+    tabs.forEach(tab => {
+      if (!tab._wired) {
+        tab._wired = true;
+        tab.addEventListener('click', () => {
+          lbActiveTab = tab.dataset.tab;
+          tabs.forEach(t => t.classList.toggle('lb-tab-active', t.dataset.tab === lbActiveTab));
+          renderLeaderboardList();
+        });
+      }
+    });
+  }
 
   renderLeaderboardList();
 }
@@ -2098,7 +2100,7 @@ function renderLeaderboardList() {
   const medalSvg = (fill) => '<svg width="20" height="20" viewBox="0 0 24 24"><circle cx="12" cy="14" r="7" fill="' + fill + '" stroke="#141210" stroke-width="2"/><path d="M9 2h6l-1 7h-4L9 2z" fill="' + fill + '" stroke="#141210" stroke-width="1.5"/><circle cx="12" cy="14" r="3" fill="#F4EDDC" stroke="#141210" stroke-width="1.2"/></svg>';
   const medals = [medalSvg('#E8B84A'), medalSvg('#C0C0C0'), medalSvg('#CD7F32')];
   list.innerHTML = leaders.map((r, i) => {
-    const ini = r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase();
+    const ini = esc(r.name.slice(0, 1).toUpperCase() + r.name.slice(1, 2).toUpperCase());
     const isMe = profile && r.id === profile.id;
     const medal = i < 3 ? medals[i] : '<span class="lb-rank">' + (i + 1) + '</span>';
     let count, label;
@@ -2107,7 +2109,7 @@ function renderLeaderboardList() {
     else { count = r.referral_count || 0; label = 'invited'; }
     return '<div class="lb-row' + (isMe ? ' lb-me' : '') + '">' +
       '<span class="lb-medal">' + medal + '</span>' +
-      '<div class="lb-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+      '<div class="lb-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
       '<span class="lb-name">' + esc(r.name) + (isMe ? ' <span class="lb-you">(you)</span>' : '') + '</span>' +
       '<span class="lb-count">' + count + ' ' + label + '</span>' +
       '</div>';
@@ -2149,6 +2151,57 @@ function renderMyInviteCodes() {
   });
 }
 window.renderMyInviteCodes = renderMyInviteCodes;
+
+// Descending elo ladder; everyone starts at 1200 ('rally regular').
+const ELO_TIERS = [
+  { min: 1450, name: 'table legend' },
+  { min: 1300, name: 'spin doctor' },
+  { min: 1150, name: 'rally regular' },
+  { min: 1000, name: 'paddle prospect' },
+  { min: -Infinity, name: 'garage tier' },
+];
+
+function renderEloSheet() {
+  const big = document.getElementById('elo-big');
+  if (!big) return;
+  const me = profile ? (allRaiders().find(r => r.id === profile.id) || profile) : null;
+  const elo = me && me.elo != null ? me.elo : 1200;
+  const wins = (me && me.wins) || 0;
+  const losses = (me && me.losses) || 0;
+  const played = wins + losses;
+
+  big.textContent = String(elo);
+
+  const idx = ELO_TIERS.findIndex(t => elo >= t.min);
+  const tier = ELO_TIERS[idx];
+  const nextTier = idx > 0 ? ELO_TIERS[idx - 1] : null;
+  const tierEl = document.getElementById('elo-tier');
+  if (tierEl) tierEl.textContent = played === 0 ? 'unranked — log a match to place' : tier.name;
+
+  const nextEl = document.getElementById('elo-next');
+  const barWrap = document.getElementById('elo-bar-wrap');
+  if (nextEl && barWrap) {
+    if (played > 0 && nextTier) {
+      const floor = isFinite(tier.min) ? tier.min : nextTier.min - 150;
+      const pct = Math.max(0, Math.min(100, Math.round(((elo - floor) / (nextTier.min - floor)) * 100)));
+      nextEl.textContent = (nextTier.min - elo) + ' to ' + nextTier.name;
+      nextEl.style.display = '';
+      barWrap.querySelector('span').style.width = pct + '%';
+      barWrap.style.display = '';
+    } else {
+      nextEl.style.display = 'none';
+      barWrap.style.display = 'none';
+    }
+  }
+
+  const hist = document.getElementById('elo-hist');
+  if (hist) {
+    hist.innerHTML = played === 0
+      ? '<div class="lb-empty">no matches yet — elo moves when you log games</div>'
+      : '<div class="elo-hist-row">record: <b>' + wins + 'W &ndash; ' + losses + 'L</b> &middot; ' +
+        Math.round((wins / played) * 100) + '% wins</div>';
+  }
+}
 
 function getOrCreateOffExpand() {
   let el = document.getElementById('off-expand-link');
@@ -2197,7 +2250,7 @@ function openRaiderSheet(r) {
       }
     });
   }
-  const ini = r.ini || r.name.slice(0, 2).toUpperCase();
+  const ini = esc(r.ini || r.name.slice(0, 2).toUpperCase());
   const isMe = profile && r.id === profile.id;
   const canAct = profile && !isMe;
 
@@ -2207,7 +2260,7 @@ function openRaiderSheet(r) {
     const m = r.started_at ? Math.floor((Date.now() - new Date(r.started_at).getTime()) / 60000) : 0;
     statusText = 'playing';
     statusClass = 'rs-playing';
-    contextLine = 'at ' + (r.venue || getVenueName()) + ' \u00b7 ' + m + ' min in';
+    contextLine = 'at ' + esc(r.venue || getVenueName()) + ' \u00b7 ' + m + ' min in';
   } else if (r.status === 'down') {
     statusText = 'down to play';
     statusClass = 'rs-down';
@@ -2223,7 +2276,7 @@ function openRaiderSheet(r) {
   let html =
     // Top row: avatar + name + status
     '<div class="rs-top">' +
-    '<div class="rs-av" style="background:' + (r.color || '#E8502A') + '">' + ini + '</div>' +
+    '<div class="rs-av" style="background:' + safeColor(r.color) + '">' + ini + '</div>' +
     '<div class="rs-info">' +
     '<div class="rs-name">' + esc(r.name) + (isMe ? ' <span class="rs-you">you</span>' : '') + '</div>' +
     '<div class="rs-status ' + statusClass + '"><span class="rs-dot"></span>' + statusText + '</div>' +
@@ -2283,7 +2336,7 @@ function openRaiderSheet(r) {
           star.setAttribute('stroke', '#141210');
         }
         favIcon.setAttribute('aria-pressed', added ? 'true' : 'false');
-        toast(added ? esc(r.name) + ' favorited' : esc(r.name) + ' unfavorited');
+        toast(added ? r.name + ' favorited' : r.name + ' unfavorited');
       };
     }
 
@@ -2293,15 +2346,29 @@ function openRaiderSheet(r) {
       if (now - lastPingTime < PING_COOLDOWN) { toast('slow down \u2014 wait a sec'); return; }
       lastPingTime = now;
       const btn = document.getElementById('rs-ping-btn');
+      const prevHtml = btn.innerHTML; // our own static markup \u2014 safe to restore
+      btn.disabled = true;
+      btn.textContent = 'sending\u2026';
+      const pingMsg = profile.name + ' pinged you!';
+      let error = null;
+      try {
+        ({ error } = await sb.from('pings').insert({
+          from_id: profile.id, to_id: r.id,
+          verb: 'wants to play',
+          msg: pingMsg,
+          unread: true
+        }) || {});
+      } catch (e) { error = e; }
+      if (error) {
+        lastPingTime = 0; // a failed send shouldn't burn the cooldown
+        btn.disabled = false;
+        btn.innerHTML = prevHtml;
+        toast('ping failed \u2014 try again');
+        return;
+      }
+      btn.disabled = false;
       btn.textContent = 'sent!';
       btn.classList.add('rs-ping-sent');
-      const pingMsg = profile.name + ' pinged you!';
-      await sb.from('pings').insert({
-        from_id: profile.id, to_id: r.id,
-        verb: 'wants to play',
-        msg: pingMsg,
-        unread: true
-      });
       // Push notification handled server-side via DB webhook on ping insert
       setTimeout(() => {
         document.getElementById('sheet-raider').classList.remove('open');
@@ -2416,8 +2483,8 @@ function renderNotis() {
   pingList.innerHTML = visible.map(p => {
     const from = p.from || {};
     const isSystem = p.verb === 'system';
-    const avText = isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase();
-    const color = isSystem ? '#2563eb' : (from.color || '#E8502A');
+    const avText = esc(isSystem ? 'pm' : (from.name || '??').slice(0, 2).toUpperCase());
+    const color = isSystem ? '#2563eb' : safeColor(from.color);
     const who = isSystem ? 'pingme' : (from.name || 'someone');
     const ago = timeAgo(p.created_at);
     const acted = p.action_taken;
@@ -2474,7 +2541,16 @@ function renderNotis() {
       const pingId = btn.dataset.ping;
       const action = btn.dataset.action;
       if (!action) return;
-      await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId);
+      btn.disabled = true;
+      let error = null;
+      try {
+        ({ error } = await sb.from('pings').update({ unread: false, action_taken: action }).eq('id', pingId) || {});
+      } catch (e) { error = e; }
+      if (error) {
+        btn.disabled = false;
+        toast('could not save — try again');
+        return;
+      }
       const p = pings.find(x => x.id === pingId);
       if (p) { p.unread = false; p.action_taken = action; }
       // "accepted" invite → switch to that venue + go down
@@ -2609,7 +2685,7 @@ function renderMe() {
   let statusHtml = "you're off right now";
   if (me.status === 'playing') {
     const m = me.started_at ? Math.floor((Date.now() - new Date(me.started_at).getTime()) / 60000) : 0;
-    statusHtml = 'playing at ' + (me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
+    statusHtml = 'playing at ' + esc(me.venue || getVenueName()) + ' &middot; ' + m + ' min in';
   } else if (me.status === 'down') {
     const dur = me.duration === 30 ? '30 min' : me.duration === 60 ? '1 hour' : '2 hours';
     statusHtml = 'down for ' + dur + ' &middot; ' + timeLeft(me) + ' remaining';
@@ -3495,6 +3571,10 @@ function timeAgo(ts) {
 }
 function esc(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// profiles.color is client-writable — never trust it inside a style attribute.
+function safeColor(c) {
+  return /^#[0-9a-fA-F]{3,8}$/.test(String(c || '')) ? c : '#E8502A';
 }
 function hash(s) {
   let h = 0;

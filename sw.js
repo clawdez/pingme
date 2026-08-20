@@ -1,4 +1,4 @@
-const CACHE = 'pingme-v34';
+const CACHE = 'pingme-v36';
 const ASSETS = ['/', '/index.html', '/style.css', '/app.js', '/icons.js', '/manifest.json'];
 
 self.addEventListener('install', e => {
@@ -14,6 +14,8 @@ self.addEventListener('activate', e => {
 });
 
 self.addEventListener('fetch', e => {
+  // Cache.put rejects for anything but GET — let non-GETs hit the network untouched
+  if (e.request.method !== 'GET') return;
   // Skip external requests
   if (e.request.url.includes('supabase.co') || e.request.url.includes('googleapis.com') || e.request.url.includes('gstatic.com') || e.request.url.includes('unpkg.com') || e.request.url.includes('jsdelivr.net')) {
     return;
@@ -21,8 +23,10 @@ self.addEventListener('fetch', e => {
   // Network-first: always try fresh, fall back to cache
   e.respondWith(
     fetch(e.request).then(res => {
-      const clone = res.clone();
-      caches.open(CACHE).then(c => c.put(e.request, clone));
+      if (res && res.ok) {
+        const clone = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, clone));
+      }
       return res;
     }).catch(() => caches.match(e.request).then(r => r || caches.match('/index.html')))
   );

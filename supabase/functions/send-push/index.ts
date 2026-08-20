@@ -25,6 +25,17 @@ serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  // BLOCKER-E3 fix: hard-require Authorization before touching any body fields.
+  // The existing identity check below is conditional on the header being present;
+  // without this gate an unauthenticated caller reaches webpush.sendNotification
+  // with fully attacker-controlled to_id/from_id/msg (phishing channel).
+  const authHeader = req.headers.get('Authorization') || req.headers.get('authorization')
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: 'unauthorized' }), {
+      status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+  }
+
   try {
     const VAPID_PUBLIC = Deno.env.get('VAPID_PUBLIC_KEY')!
     const VAPID_PRIVATE = Deno.env.get('VAPID_PRIVATE_KEY')!
@@ -46,7 +57,7 @@ serve(async (req: Request) => {
     const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
     // Verify the caller is the sender (prevent arbitrary push abuse)
-    const authHeader = req.headers.get('Authorization')
+    // authHeader is already validated non-null above the try block.
     if (authHeader) {
       const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
       // Only verify if not a service-role call
