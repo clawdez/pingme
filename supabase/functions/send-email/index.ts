@@ -29,9 +29,28 @@ serve(async (req: Request) => {
   const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   try {
-    const { action, email, code, user_id } = await req.json()
+    const { action, email, code } = await req.json()
 
     if (action === 'send') {
+      // BLOCKER-E2 fix: derive user_id from the caller's JWT, never from the body.
+      const authHeader = req.headers.get('Authorization') || req.headers.get('authorization')
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
+      const userSb = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: authHeader } }
+      })
+      const { data: { user }, error: authErr } = await userSb.auth.getUser()
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      const user_id = user.id
+
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
       // Rate limit: max 3 OTP sends per user per hour
@@ -97,6 +116,25 @@ serve(async (req: Request) => {
     }
 
     if (action === 'verify') {
+      // BLOCKER-E2 fix: derive user_id from the caller's JWT, never from the body.
+      const authHeader = req.headers.get('Authorization') || req.headers.get('authorization')
+      if (!authHeader) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
+      const userSb = createClient(SUPABASE_URL, ANON_KEY, {
+        global: { headers: { Authorization: authHeader } }
+      })
+      const { data: { user }, error: authErr } = await userSb.auth.getUser()
+      if (authErr || !user) {
+        return new Response(JSON.stringify({ error: 'unauthorized' }), {
+          status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+      const user_id = user.id
+
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
       // Check attempt count before verifying
