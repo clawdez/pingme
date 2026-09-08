@@ -18,6 +18,23 @@ function getCorsHeaders(req: Request) {
   }
 }
 
+// Email-required signup: accept only a plausible address, normalised for lookup.
+function normaliseEmail(raw: unknown): string {
+  if (typeof raw !== 'string') return ''
+  const e = raw.trim().toLowerCase()
+  if (e.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)) return ''
+  return e
+}
+
+function otpEmailHtml(otp: string, intro: string) {
+  return `<div style="font-family:sans-serif;max-width:400px;margin:0 auto;padding:24px;text-align:center">
+            <h2 style="font-size:22px;margin:0 0 8px">pingme</h2>
+            <p style="color:#666;font-size:15px;margin:0 0 20px">${intro}</p>
+            <div style="font-size:32px;font-weight:700;letter-spacing:6px;background:#f5f0e8;border-radius:12px;padding:16px;margin:0 0 20px">${otp}</div>
+            <p style="color:#999;font-size:13px">this code expires in 10 minutes.<br>if you didn't request this, just ignore it.</p>
+          </div>`
+}
+
 serve(async (req: Request) => {
   const corsHeaders = getCorsHeaders(req)
   if (req.method === 'OPTIONS') {
@@ -350,6 +367,138 @@ serve(async (req: Request) => {
       return new Response(JSON.stringify({ verified: true, token_hash: tokenHash }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       })
+    }
+
+    // ── SIGNUP FLOW (email-required) ──
+    // signup-send creates the auth user *unconfirmed* first, so the OTP row can
+    // stay keyed by user_id (no email_otps schema change). signup-verify confirms
+    // the email and mints a magiclink token_hash the client exchanges for a
+    // session; the name step then creates the profile against that user.
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    })
+    const findUserByEmail = async (e: string) => {
+      const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/users?page=1&per_page=1&filter=${encodeURIComponent(e)}`, {
+        headers: { 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`, 'apikey': SUPABASE_SERVICE_KEY }
+      })
+      const data = await res.json()
+      return data.users?.find((u: any) => u.email === e) || null
+    }
+
+    if (action === 'signup-send') {
+      const normEmail = normaliseEmail(email)
+      if (!normEmail) return json({ error: 'enter a valid email' }, 400)
+
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+      let user = await findUserByEmail(normEmail)
+      if (user && user.email_confirmed_at) {
+        return json({ ok: false, code: 'already_registered', error: 'that email is already registered — sign in instead' })
+      }
+      if (!user) {
+        const { data: created, error: createErr } = await sb.auth.admin.createUser({ email: normEmail, email_confirm: false })
+        if (createErr || !created?.user) {
+          console.error('createUser error:', createErr)
+          return json({ error: 'could not start signup — try again' }, 500)
+        }
+        user = created.user
+      }
+
+      // Rate limit: 1 code per minute per (pending) user
+      const { data: existingOtp } = await sb.from('email_otps')
+        .select('created_at')
+        .eq('user_id', user.id)
+        .single()
+      if (existingOtp && (Date.now() - new Date(existingOtp.created_at).getTime()) < 60000) {
+        return json({ error: 'wait a minute before requesting another code' }, 429)
+      }
+
+      const otp = String(Math.floor(100000 + Math.random() * 900000))
+      const { error: upsertErr } = await sb.from('email_otps').upsert({
+        user_id: user.id,
+        email: normEmail,
+        code: otp,
+        attempts: 0,
+        expires_at: new Date(Date.now() + 10 * 60000).toISOString(),
+        created_at: new Date().toISOString()
+      }, { onConflict: 'user_id' })
+      if (upsertErr) {
+        console.error('Upsert error:', upsertErr)
+        return json({ error: 'failed to store code' }, 500)
+      }
+
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'pingme <play@usepingme.com>',
+          to: normEmail,
+          subject: 'your pingme code',
+          html: otpEmailHtml(otp, "here's your code to create your account")
+        })
+      })
+      if (!res.ok) {
+        console.error('Resend error:', await res.text())
+        return json({ error: 'email failed' }, 500)
+      }
+      return json({ sent: true })
+    }
+
+    if (action === 'signup-verify') {
+      const normEmail = normaliseEmail(email)
+      const codeStr = typeof code === 'string' ? code.trim() : ''
+      if (!normEmail || !/^\d{6}$/.test(codeStr)) return json({ ok: false, error: 'invalid or expired code' })
+
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+      const user = await findUserByEmail(normEmail)
+      // Unknown email, or an account that is already registered (must sign in):
+      // same generic answer either way.
+      if (!user || user.email_confirmed_at) return json({ ok: false, error: 'invalid or expired code' })
+
+      const { data: otpRow } = await sb.from('email_otps')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('email', normEmail)
+        .gt('expires_at', new Date().toISOString())
+        .single()
+      if (!otpRow) return json({ ok: false, error: 'invalid or expired code' })
+
+      if (otpRow.attempts >= 5) {
+        await sb.from('email_otps').delete().eq('user_id', user.id)
+        return json({ ok: false, error: 'too many attempts — request a new code' })
+      }
+      // Progressive delay: 0s, 2s, 4s, 8s, 16s per attempt
+      if (otpRow.attempts > 0) {
+        const delaySec = Math.pow(2, otpRow.attempts)
+        const lastAttemptAge = Date.now() - new Date(otpRow.created_at).getTime()
+        if (lastAttemptAge < delaySec * 1000) {
+          return json({ ok: false, error: 'too fast — wait ' + delaySec + 's before trying again' }, 429)
+        }
+      }
+      await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', user.id)
+      if (otpRow.code !== codeStr) {
+        return json({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' })
+      }
+
+      // Code matches: confirm the email on the auth user, then mint a session token.
+      const { error: confirmErr } = await sb.auth.admin.updateUserById(user.id, { email_confirm: true })
+      if (confirmErr) {
+        console.error('confirm error:', confirmErr)
+        return json({ ok: false, error: 'failed to verify email — try again' })
+      }
+      const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email: normEmail })
+      const tokenHash = linkData?.properties?.hashed_token
+      if (linkErr || !tokenHash) {
+        console.error('generateLink error:', linkErr)
+        return json({ ok: false, error: 'failed to generate session' })
+      }
+
+      await sb.from('email_otps').delete().eq('user_id', user.id)
+      // No profile exists yet for a brand-new signup (no-op here); the
+      // profiles_email_verified_from_auth trigger flags it when the name step
+      // inserts the row. Kept for accounts that verify with a profile present.
+      await sb.from('profiles').update({ email_verified: true }).eq('id', user.id)
+
+      return json({ verified: true, token_hash: tokenHash })
     }
 
     return new Response(JSON.stringify({ error: 'unknown action' }), {

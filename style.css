@@ -2614,3 +2614,10 @@ button { font: inherit; color: inherit; }
 }
 .school-scope:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
 .school-scope.active { background: var(--ink); color: var(--cream); }
+
+/* ── email-required signup: inline errors + "create an account" nudge ── */
+.setup-inline-err { font-family: 'Caveat', cursive; font-size: 15px; color: var(--flame); text-align: center; margin: -6px 0 10px; }
+.setup-inline-err:empty { display: none; }
+.setup-nudge { font-family: 'Caveat', cursive; font-size: 15px; text-align: center; margin: 4px 0 8px; opacity: .9; }
+.setup-nudge[hidden] { display: none; }
+.setup-nudge-go { background: none; border: none; padding: 0; font: inherit; color: inherit; text-decoration: underline; text-decoration-style: dashed; cursor: pointer; }

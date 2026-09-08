@@ -5,6 +5,7 @@ const FEATURES = Object.assign({
   matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
   accessCodes:   true,            // invite-only access codes
   leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
+  anonSignup: false,              // emergency fallback: anonymous "i'm in" (no email). Off — signup requires a verified email
 }, (typeof window !== 'undefined' && window.PINGME_FEATURES) || {});
 
 const POLL_INTERVAL_MS = 60000; // #7: 60s fallback (was 10s) — realtime is primary
@@ -1013,9 +1014,36 @@ async function signInSendCode(email) {
       body: JSON.stringify({ action: 'signin-send', email })
     });
     const result = await r.json();
-    if (result.error) { toast(result.error); return false; }
-    return true;
-  } catch (e) { toast('sign in failed: ' + e.message); return false; }
+    if (result.error) { toast(result.error); return { ok: false, error: result.error }; }
+    return { ok: true };
+  } catch (e) { toast('sign in failed: ' + e.message); return { ok: false, error: e.message }; }
+}
+
+// Email-required signup: same shape as the server-side check in send-email.
+function isValidEmail(email) {
+  return typeof email === 'string' && email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email);
+}
+
+async function signupSendCode(email) {
+  try {
+    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+      body: JSON.stringify({ action: 'signup-send', email })
+    });
+    const result = await r.json();
+    if (result.error) return { ok: false, error: result.error, code: result.code };
+    return { ok: true };
+  } catch (e) { return { ok: false, error: 'could not send the code — check your connection and try again' }; }
+}
+
+// The send-email `send`/`verify` actions (link an email to the signed-in
+// account) resolve the user from the bearer JWT, so it has to be the user's
+// session token — the anon key gets a 401.
+async function userAuthHeaders() {
+  const { data: { session } } = await sb.auth.getSession();
+  const token = session && session.access_token ? session.access_token : SUPABASE_ANON;
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
 }
 
 async function loadOrCreateProfile(user) {
@@ -3750,7 +3778,7 @@ function showLinkEmail() {
     try {
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+        headers: await userAuthHeaders(),
         body: JSON.stringify({ action: 'send', email, user_id: profile.id })
       });
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
@@ -3779,7 +3807,7 @@ function showLinkEmail() {
         setTimeout(() => ctrl.abort(), 15000);
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+          headers: await userAuthHeaders(),
           body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
           signal: ctrl.signal
         });
@@ -3885,7 +3913,8 @@ function showSetup() {
 
   document.getElementById('s1-in').addEventListener('click', () => {
     if (!sb) { toast('not connected'); return; }
-    showSetupScreen2(null, null, '');
+    if (FEATURES.anonSignup) { showSetupScreen2(null, null, ''); return; }
+    showSetupSignupEmail('');
   });
   document.getElementById('s1-signin').addEventListener('click', () => {
     if (!sb) { toast('not connected'); return; }
@@ -3895,33 +3924,49 @@ function showSetup() {
 window.showSetup = showSetup;
 
 // Screen 1b — Email sign-in via custom OTP
-function showSetupEmail() {
+function showSetupEmail(prefillEmail) {
+  const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
     '<h2 class="setup-h2">enter your email</h2>' +
-    '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
+    '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" value="' + esc(pre) + '" autofocus/>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
+    '<div class="setup-nudge" id="s-email-nudge" hidden>no account with that email yet? ' +
+      '<button class="setup-nudge-go" id="s-email-nudge-go">create an account &rarr;</button></div>' +
     '<button class="setup-skip" id="s-email-back">go back</button>' +
     '<button class="setup-skip" id="s-email-new">new here? create an account</button>' +
     '</div>' +
     '</div>';
 
   const inp = document.getElementById('setup-email');
+  const nudge = document.getElementById('s-email-nudge');
+  const toSignup = () => {
+    if (FEATURES.anonSignup) { showSetupScreen2(null, null, ''); return; }
+    showSetupSignupEmail(inp.value.trim().toLowerCase());
+  };
   setTimeout(() => inp.focus(), 80);
   document.getElementById('s-email-back').addEventListener('click', showSetup);
-  document.getElementById('s-email-new').addEventListener('click', () => showSetupScreen2(null, null, ''));
+  document.getElementById('s-email-new').addEventListener('click', toSignup);
+  document.getElementById('s-email-nudge-go').addEventListener('click', toSignup);
 
   document.getElementById('s-email-go').addEventListener('click', async () => {
-    const email = inp.value.trim();
+    const email = inp.value.trim().toLowerCase();
     if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
     const btn = document.getElementById('s-email-go');
     btn.textContent = 'sending...'; btn.disabled = true;
 
-    const ok = await signInSendCode(email);
-    if (!ok) { btn.textContent = 'send me a code'; btn.disabled = false; return; }
+    const res = await signInSendCode(email);
+    if (!res.ok) {
+      btn.textContent = 'send me a code'; btn.disabled = false;
+      // The server answers "if that email exists…" for unknown accounts (no
+      // enumeration), so point new people at signup unless they're rate-limited.
+      if (!/wait/i.test(res.error || '')) nudge.hidden = false;
+      return;
+    }
+    nudge.hidden = true;
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
@@ -3990,6 +4035,129 @@ function showSetupEmail() {
   });
 }
 
+// Screen 1c — Email-required signup: email → code → session → name step.
+// A new account is always a real, email-confirmed auth user, so it can sign
+// back in from any device (the old anonymous signup lived only in this
+// browser's localStorage).
+function showSetupSignupEmail(prefillEmail) {
+  const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
+  const root = document.getElementById('setup-root');
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-page-signup">' +
+    '<button class="setup-back" id="s-signup-back">&larr;</button>' +
+    '<h2 class="setup-h2">what\'s your email?</h2>' +
+    '<input class="setup-name-input" id="setup-signup-email" type="email" placeholder="your email" autocomplete="email" value="' + esc(pre) + '" autofocus/>' +
+    '<div class="setup-inline-err" id="s-signup-err"></div>' +
+    '<button class="setup-primary" id="s-signup-go">send me a code</button>' +
+    '<div class="setup-disclaimer">we\'ll email you a 6-digit code — no password. it\'s how you get back in on any device.</div>' +
+    '<button class="setup-skip" id="s-signup-signin">already have an account? sign in</button>' +
+    '</div>' +
+    '</div>';
+
+  const inp = document.getElementById('setup-signup-email');
+  const err = document.getElementById('s-signup-err');
+  const btn = document.getElementById('s-signup-go');
+  setTimeout(() => inp.focus(), 80);
+  const toSignin = () => showSetupEmail(inp.value.trim().toLowerCase());
+  document.getElementById('s-signup-back').addEventListener('click', showSetup);
+  document.getElementById('s-signup-signin').addEventListener('click', toSignin);
+
+  const showErr = (msg, offerSignin) => {
+    err.textContent = msg || '';
+    if (offerSignin) {
+      const b = document.createElement('button');
+      b.className = 'setup-nudge-go'; b.id = 's-signup-signin-now'; b.textContent = 'sign in \u2192';
+      b.addEventListener('click', toSignin);
+      err.appendChild(document.createTextNode(' '));
+      err.appendChild(b);
+    }
+  };
+
+  btn.addEventListener('click', async () => {
+    if (btn.disabled) return;
+    const email = inp.value.trim().toLowerCase();
+    if (!isValidEmail(email)) { showErr('enter a valid email'); return; }
+    showErr('');
+    btn.textContent = 'sending...'; btn.disabled = true;
+    const res = await signupSendCode(email);
+    if (!res.ok) {
+      btn.textContent = 'send me a code'; btn.disabled = false;
+      showErr(res.error, res.code === 'already_registered');
+      return;
+    }
+    showSetupSignupOtp(email);
+  });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
+}
+
+function showSetupSignupOtp(email) {
+  const root = document.getElementById('setup-root');
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-page-signup-otp">' +
+    '<div class="setup-check-icon">&#9993;</div>' +
+    '<button class="setup-back" id="s-otp-back">&larr;</button>' +
+    '<h2 class="setup-h2">check your inbox</h2>' +
+    '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
+    '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+    '<div class="setup-inline-err" id="s-otp-err"></div>' +
+    '<button class="setup-primary" id="s-otp-go">verify</button>' +
+    '<button class="setup-skip" id="s-otp-resend">didn\'t get it? send a new code</button>' +
+    '<button class="setup-skip" id="s-otp-retry">use a different email</button>' +
+    '</div>' +
+    '</div>';
+
+  const otpInp = document.getElementById('setup-otp');
+  const err = document.getElementById('s-otp-err');
+  const verifyBtn = document.getElementById('s-otp-go');
+  setTimeout(() => otpInp.focus(), 80);
+  const reset = (msg) => { err.textContent = msg || ''; verifyBtn.textContent = 'verify'; verifyBtn.disabled = false; };
+
+  verifyBtn.addEventListener('click', async () => {
+    if (verifyBtn.disabled) return;
+    const code = otpInp.value.trim();
+    if (!/^\d{6}$/.test(code)) { err.textContent = 'enter the 6-digit code'; return; }
+    err.textContent = '';
+    verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+    try {
+      const ctrl = new AbortController();
+      setTimeout(() => ctrl.abort(), 15000);
+      const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
+        body: JSON.stringify({ action: 'signup-verify', email, code }),
+        signal: ctrl.signal
+      });
+      const result = await r.json();
+      if (result.error || !result.token_hash) { reset(result.error || 'failed — try again'); return; }
+      // Exchange the server-minted token for a session; onAuthStateChange
+      // (SIGNED_IN, no profile yet) continues at the name step.
+      const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+      if (error) { reset('couldn\'t sign you in — try again or request a new code'); return; }
+      localStorage.setItem('pm_linked_email', email);
+    } catch (e) {
+      reset(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
+    }
+  });
+  // Auto-submit when 6 digits entered
+  otpInp.addEventListener('input', () => {
+    if (otpInp.value.trim().length === 6) verifyBtn.click();
+  });
+
+  document.getElementById('s-otp-resend').addEventListener('click', async () => {
+    const b = document.getElementById('s-otp-resend');
+    if (b.disabled) return;
+    b.disabled = true;
+    const res = await signupSendCode(email);
+    b.disabled = false;
+    err.textContent = res.ok ? '' : res.error;
+    if (res.ok) toast('new code sent to ' + email);
+  });
+  document.getElementById('s-otp-retry').addEventListener('click', () => showSetupSignupEmail(email));
+  document.getElementById('s-otp-back').addEventListener('click', () => showSetupSignupEmail(email));
+}
+
 // Screen 2 — Name (called after magic link auth or as fallback)
 async function showSetupScreen2(user, existingProfile, prefill) {
   const root = document.getElementById('setup-root');
@@ -4047,7 +4215,13 @@ async function showSetupScreen2(user, existingProfile, prefill) {
         }
       }
     } else {
-      // Anon path — sign in first then create profile
+      if (!FEATURES.anonSignup) {
+        // Email-required signup: no auth user yet → collect + verify an email first.
+        btn.textContent = 'continue'; btn.disabled = false;
+        showSetupSignupEmail('');
+        return;
+      }
+      // Anon path (emergency fallback behind FEATURES.anonSignup) — sign in first then create profile
       const { data: { user: anonUser }, error: authErr } = await sb.auth.signInAnonymously();
       if (authErr || !anonUser) {
         toast('trying email sign-in instead');

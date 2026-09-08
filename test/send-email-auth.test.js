@@ -104,3 +104,32 @@ test('signin-verify: no Authorization header → still succeeds', async () => {
   assert.equal(res.status, 200,
     'signin-verify must not require Authorization — it is called pre-login');
 });
+
+// ── Real-source guards for the signup actions (email-required signup) ─────────
+// Behavioural coverage of the actual function lives in test/send-email-signup.test.js
+// (Deno harness). These pin the shape of the source so a refactor can't quietly
+// reintroduce a body-supplied user_id or skip the confirmation step.
+const fs = require('node:fs');
+const path = require('node:path');
+const SRC = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'send-email', 'index.ts'), 'utf8');
+
+test('send-email source: the request body never supplies a user_id', () => {
+  assert.match(SRC, /const \{ action, email, code \} = await req\.json\(\)/);
+  assert.doesNotMatch(SRC, /body\.user_id|bodyUserId|req\.user_id/);
+});
+
+test('send-email source: signup-send creates the auth user unconfirmed and refuses verified emails', () => {
+  assert.match(SRC, /action === 'signup-send'/);
+  assert.match(SRC, /admin\.createUser\(\{[^}]*email_confirm: false/);
+  assert.match(SRC, /email_confirmed_at/);
+  assert.match(SRC, /already_registered/);
+});
+
+test('send-email source: signup-verify confirms the email, then mints a magiclink token_hash', () => {
+  const i = SRC.indexOf("action === 'signup-verify'");
+  assert.ok(i > 0, 'signup-verify branch');
+  const seg = SRC.slice(i);
+  assert.match(seg, /updateUserById\([^)]*email_confirm: true/);
+  assert.match(seg, /generateLink\(\{[\s\S]*?type: 'magiclink'/);
+  assert.match(seg, /token_hash/);
+});
