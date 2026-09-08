@@ -10,7 +10,7 @@ security definer
 as $$
 declare
   service_key text;
-  project_url text := 'https://jjgamvhvdqqjcizvpowk.supabase.co';
+  project_url text := 'https://yuqahobbcwibekzvitec.supabase.co';
 begin
   -- Skip self-pings and system pings
   if NEW.to_id is null or NEW.to_id = NEW.from_id or NEW.verb = 'system' then

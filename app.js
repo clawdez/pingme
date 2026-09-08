@@ -9,8 +9,8 @@ const FEATURES = Object.assign({
 
 const POLL_INTERVAL_MS = 60000; // #7: 60s fallback (was 10s) — realtime is primary
 
-const SUPABASE_URL = 'https://jjgamvhvdqqjcizvpowk.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpqZ2Ftdmh2ZHFxamNpenZwb3drIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQyMjU2NDEsImV4cCI6MjA4OTgwMTY0MX0.GF-j2amwiz4qVz2TojP1vRmfHbNXRKj4cu7VAqfeodM';
+const SUPABASE_URL = 'https://yuqahobbcwibekzvitec.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inl1cWFob2JiY3dpYmVrenZpdGVjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg5MDUwNjMsImV4cCI6MjEwNDQ4MTA2M30.kbzhz7spTD9XEk6_QIwih32qbfP4kgU-5SEiuH3rEHs';
 
 let sb = null;
 try {
