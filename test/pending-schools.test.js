@@ -78,23 +78,22 @@ test('loadSchools requests pending and keeps approved rows in the picker, own pe
 
 /* ── chooser UI ── */
 
-test('"other school…" reveal ends with a "type it" row that expands into an input', async (t) => {
+test('schools list is always visible with primary first, "other school" type-your-own row at the bottom', async (t) => {
   const { win } = await loadSettled(t);
   seedMe(win, `window.__next = 0;`);
   win.eval(`showSetupSchool(() => { window.__next++; })`);
   const page = win.document.getElementById('s-school-page');
+  const opts = page.querySelector('.school-opts');
+  assert.ok(opts, 'school opts container');
+  const slugs = [...opts.querySelectorAll('.school-opt[data-slug]')].map(b => b.dataset.slug);
+  assert.deepEqual(slugs, ['ttu', 'baylor'], 'primary first, then other approved schools inline (pending never offered)');
   const list = page.querySelector('#s-school-list');
-  assert.ok(list, 'school list');
-  assert.equal(list.style.display, 'none', 'hidden until "other school…"');
-  page.querySelector('#s-school-other').click();
-  assert.notEqual(list.style.display, 'none');
-  const opts = [...list.querySelectorAll('.school-opt[data-slug]')].map(b => b.dataset.slug);
-  assert.deepEqual(opts, ['baylor'], 'seeded non-primary schools listed, pending ones never offered');
-  const row = list.lastElementChild;
-  assert.ok(row && row.classList.contains('school-suggest-row'), 'type-your-own row is the last thing in the list');
+  assert.ok(list, 'school-list container (holds the type-your-own row at the bottom)');
+  const row = list.querySelector('.school-suggest-row');
+  assert.ok(row, 'type-your-own row lives at the bottom');
   const typeBtn = row.querySelector('#s-school-type');
-  assert.ok(typeBtn && typeBtn.classList.contains('school-type-your-own'));
-  assert.match(typeBtn.textContent, /type it/i);
+  assert.ok(typeBtn && typeBtn.classList.contains('school-other'), '"other school" button');
+  assert.match(typeBtn.textContent, /other school/i);
   const wrap = row.querySelector('#s-school-input-wrap');
   assert.equal(wrap.style.display, 'none', 'input hidden until tapped');
   typeBtn.click();
@@ -111,7 +110,6 @@ test('client-side length validation shows an inline error and never calls the rp
   seedMe(win);
   win.eval(`showSetupSchool(() => {})`);
   const page = win.document.getElementById('s-school-page');
-  page.querySelector('#s-school-other').click();
   page.querySelector('#s-school-type').click();
   const input = page.querySelector('#s-school-input');
   const err = page.querySelector('.school-suggest-error');
@@ -133,7 +131,6 @@ test('onboarding: submitting a school calls suggest_school, groups me under it (
   win.__rpcResults.suggest_school = { data: 'rice-university', error: null };
   win.eval(`showSetupSchool(() => { window.__next++; })`);
   const page = win.document.getElementById('s-school-page');
-  page.querySelector('#s-school-other').click();
   page.querySelector('#s-school-type').click();
   page.querySelector('#s-school-input').value = '  Rice University ';
   const submit = page.querySelector('#s-school-submit');
@@ -161,7 +158,6 @@ test('change-school sheet: Enter submits, sheet closes and roster reloads on suc
   win.eval(`openSchoolSheet()`);
   const sheet = win.document.getElementById('sheet-school');
   assert.ok(sheet.classList.contains('open'));
-  sheet.querySelector('#s-school-other').click();
   sheet.querySelector('#s-school-type').click();
   const input = sheet.querySelector('#s-school-input');
   input.value = 'Rice University';
@@ -179,7 +175,6 @@ test('server error is shown inline (not thrown), the sheet stays open and submit
   win.__rpcResults.suggest_school = { data: null, error: { message: 'rate limit exceeded — try again tomorrow' } };
   win.eval(`openSchoolSheet()`);
   const sheet = win.document.getElementById('sheet-school');
-  sheet.querySelector('#s-school-other').click();
   sheet.querySelector('#s-school-type').click();
   sheet.querySelector('#s-school-input').value = 'Rice University';
   const submit = sheet.querySelector('#s-school-submit');
@@ -205,7 +200,6 @@ test('inline error text is escaped', async (t) => {
   win.__rpcResults.suggest_school = { data: null, error: { message: '<img src=x onerror="window.__pwned=1">' } };
   win.eval(`openSchoolSheet()`);
   const sheet = win.document.getElementById('sheet-school');
-  sheet.querySelector('#s-school-other').click();
   sheet.querySelector('#s-school-type').click();
   sheet.querySelector('#s-school-input').value = 'Rice University';
   sheet.querySelector('#s-school-submit').click();

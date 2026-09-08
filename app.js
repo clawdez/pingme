@@ -3020,13 +3020,13 @@ function renderSchoolChooser(box, opts) {
   box.innerHTML =
     '<div class="school-opts">' +
       schoolOpt(primary, true) +
-      '<button class="school-opt school-other" id="s-school-other" type="button">other school…</button>' +
+      (others.length
+        ? others.map(s => schoolOpt(s, false)).join('')
+        : '<div class="fr-empty">more schools coming soon</div>') +
     '</div>' +
-    '<div class="school-list" id="s-school-list" style="display:none">' +
-      (others.length ? others.map(s => schoolOpt(s, false)).join('')
-        : '<div class="fr-empty">more schools coming soon — or type yours below</div>') +
+    '<div class="school-list" id="s-school-list">' +
       '<div class="school-suggest-row">' +
-        '<button class="school-opt school-type-your-own" id="s-school-type" type="button">don\u2019t see your school? type it \u2192</button>' +
+        '<button class="school-opt school-other" id="s-school-type" type="button">other school \u2192 type yours</button>' +
         '<div id="s-school-input-wrap" style="display:none">' +
           '<input class="av-input" id="s-school-input" type="text" maxlength="80" placeholder="e.g. Rice University" autocomplete="off"/>' +
           '<div class="school-suggest-error" id="s-school-error"></div>' +
@@ -3036,10 +3036,6 @@ function renderSchoolChooser(box, opts) {
       '</div>' +
     '</div>' +
     '<button class="setup-skip" id="s-school-skip" type="button">' + esc(opts.skipLabel || 'not at a school / skip') + '</button>';
-  box.querySelector('#s-school-other').addEventListener('click', () => {
-    const l = box.querySelector('#s-school-list');
-    l.style.display = l.style.display === 'none' ? '' : 'none';
-  });
   box.querySelectorAll('.school-opt[data-slug]').forEach(b =>
     b.addEventListener('click', () => opts.onPick && opts.onPick(b.dataset.slug, b))
   );

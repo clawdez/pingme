@@ -329,11 +329,9 @@ test('onboarding school step: TTU highlighted, pick sets school via rpc, skip co
   assert.ok(page, 'school step renders');
   const ttu = page.querySelector('.school-opt[data-slug="ttu"]');
   assert.ok(ttu && ttu.classList.contains('primary'), 'TTU is the highlighted default');
-  assert.ok(page.querySelector('#s-school-other'), '"other" opens a picker');
+  assert.ok(page.querySelector('#s-school-type'), '"other school" type-your-own button');
   assert.ok(page.querySelector('#s-school-skip'), '"none" skips');
-
-  page.querySelector('#s-school-other').click();
-  assert.ok(page.querySelector('.school-opt[data-slug="ut"]'), 'picker lists other schools');
+  assert.ok(page.querySelector('.school-opt[data-slug="ut"]'), 'other schools shown inline');
 
   ttu.click();
   await tick();
