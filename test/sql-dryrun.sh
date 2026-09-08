@@ -10,6 +10,7 @@ cd "$(dirname "$0")/.."
 IMG="${PINGME_PG_IMAGE:-public.ecr.aws/supabase/postgres:17.6.1.141}"
 NAME="pm-sql-dryrun-$$"
 MIG=supabase/migrations/20260907_friends_and_schools.sql
+SEED=supabase/migrations/20260908_seed_texas_schools.sql
 
 docker run -d --rm --name "$NAME" -e POSTGRES_PASSWORD=postgres "$IMG" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
@@ -36,6 +37,13 @@ echo "== migration: first apply"
 psql_strict < "$MIG"
 echo "== migration: second apply (idempotency)"
 psql_strict < "$MIG"
+echo "== seed: first apply"
+psql_strict < "$SEED"
+echo "== seed: second apply (idempotency)"
+psql_strict < "$SEED"
+n=$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from schools")
+[ "$n" = "5" ] || { echo "SEED FAIL: expected 5 schools, got $n"; exit 1; }
+echo "== seed: 5 schools present"
 
 echo "== behavioural checks"
 psql_strict < test/friends-schools.dryrun.sql 2>&1 | { grep -E "NOTICE|ERROR|PASSED|FAIL" || true; }
