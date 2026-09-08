@@ -751,12 +751,14 @@ function bindAuthListener() {
         profile = await restoreTimers(existing);
         homeState = profile.status || 'off';
         document.getElementById('setup-root').innerHTML = '';
+        await loadFriends();
         await loadRoster();
         await loadPings();
         subscribePings();
         renderHome();
         registerPushSubscription();
         toast('welcome back, ' + profile.name);
+        setTimeout(maybeShowSchoolNudge, 1200);
       } else {
         // New user — continue onboarding at name screen
         const prefill = (
@@ -794,6 +796,7 @@ async function boot() {
   try {
     await withTimeout((async () => {
       await bootSession();
+      if (profile) await loadFriends();
       await loadRoster();
       await loadPings();
     })(), BOOT_TIMEOUT_MS);
@@ -816,9 +819,11 @@ async function boot() {
   setTab('home');
   hideSplash();
   if (!profile) setTimeout(showSetup, 300);
+  else setTimeout(maybeShowSchoolNudge, 1200);
 
   // #5: pull canonical venue list once we have a connection
   loadVenues();
+  loadSchools();
 
   // Everything below is one-time wiring; a retry after the offline screen
   // must not double up timers or the pull-to-refresh handle.
@@ -1103,11 +1108,11 @@ async function registerPushSubscription() {
 /* ── DATA ── */
 async function loadRoster() {
   let { data, error } = await sb.from('profiles')
-    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, last_lat, last_lng, notify_radius_km, home_city, updated_at, created_at')
+    .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, play_count, email_verified, elo, wins, losses, last_lat, last_lng, notify_radius_km, home_city, school, updated_at, created_at')
     .order('updated_at', { ascending: false })
     .limit(200);
   // Fallback if newer columns don't exist yet on this Supabase instance
-  if (error && error.message && /play_count|email_verified|elo|wins|losses|home_city/.test(error.message)) {
+  if (error && error.message && /play_count|email_verified|elo|wins|losses|home_city|school/.test(error.message)) {
     const fallback = await sb.from('profiles')
       .select('id, name, color, status, venue, duration, started_at, ambient, referred_by, referral_count, updated_at, created_at')
       .order('updated_at', { ascending: false })
@@ -1115,7 +1120,7 @@ async function loadRoster() {
     data = fallback.data;
     error = fallback.error;
   }
-  if (!error && data) roster = scopeRosterToCity(data);
+  if (!error && data) { rosterRaw = data; roster = scopeRoster(data); }
 }
 
 // Filter roster so a user only sees players in their own city. Self always
@@ -1179,7 +1184,11 @@ function subscribeRealtime() {
       lastRealtimeEvent = Date.now();
       // City-scoped: drop realtime updates from players outside our city so
       // Lubbock users don't get Austin notifications (and vice-versa).
-      const inScope = scopeRosterToCity([payload.new || payload.old]).length > 0;
+      const inScope = scopeRoster([payload.new || payload.old]).length > 0;
+      if (payload.new && payload.new.id) {
+        const raw = rosterRaw.find(r => r.id === payload.new.id);
+        if (raw) Object.assign(raw, payload.new); else rosterRaw.push(payload.new);
+      }
       if (payload.eventType === 'INSERT') {
         if (!inScope) return;
         const exists = roster.find(r => r.id === payload.new.id);
@@ -1201,6 +1210,7 @@ function subscribeRealtime() {
         }
       } else if (payload.eventType === 'DELETE') {
         roster = roster.filter(r => r.id !== payload.old.id);
+        rosterRaw = rosterRaw.filter(r => r.id !== payload.old.id);
       }
       if (document.querySelector('[data-screen="home"].active')) renderHome();
     })
@@ -1284,6 +1294,7 @@ function pushStatusChange(msg) {
   const others = roster.filter(r => {
     if (r.id === profile.id) return false;
     if (!r.name || r.name.trim() === '' || r.name === 'anon') return false;
+    if (isFriend(r.id)) return true; // friends are mutual — never radius-filtered
     if (!origin) return true; // unknown origin → don't filter
     const radius = (r.notify_radius_km == null) ? 80 : r.notify_radius_km;
     if (radius <= 0) return true; // 0 means global
@@ -1453,6 +1464,8 @@ function openSettingsOverlay() {
       ' notifications' +
     '</button>' +
     '<button class="me-dd-item" id="set-test-notif">test notification</button>' +
+    '<button class="me-dd-item" id="set-friends">friends</button>' +
+    '<button class="me-dd-item" id="set-school">school \u00b7 ' + esc(profile && profile.school ? schoolName(profile.school) : 'none') + '</button>' +
     '<button class="me-dd-item" id="set-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-delete">delete account</button>';
@@ -1514,6 +1527,14 @@ function openSettingsOverlay() {
     toast('check your notification');
   });
 
+  document.getElementById('set-friends').addEventListener('click', () => {
+    document.getElementById('sheet-settings').classList.remove('open');
+    openFriendsSheet('friends');
+  });
+  document.getElementById('set-school').addEventListener('click', () => {
+    document.getElementById('sheet-settings').classList.remove('open');
+    openSchoolSheet();
+  });
   document.getElementById('set-invite').addEventListener('click', () => {
     document.getElementById('sheet-settings')?.classList.remove('open');
     const url = getShareUrl();
@@ -1887,6 +1908,7 @@ async function setMyStatus(st) {
   Object.assign(profile, updates);
   const me = roster.find(r => r.id === profile.id);
   if (me) Object.assign(me, updates);
+  if (st === 'playing') maybeBroadcastPlaying();
   return true;
 }
 
@@ -2010,6 +2032,7 @@ function allRaiders() {
 
 /* ── ROSTER — T2, T3, T5 ── */
 function renderRoster() {
+  renderSchoolScope();
   const emptyEl = document.getElementById('empty-roster');
   const playingList = document.getElementById('list-playing');
   const downList = document.getElementById('list-down');
@@ -2515,6 +2538,548 @@ function openInviteToVenue(target) {
   };
 }
 
+/* ── FRIENDS ──
+   Persistent mutual friend graph (friendships table, list_friendships RPC).
+   The sheet has three tabs: friends (multi-select → group "ping to play"),
+   requests (accept / pass), add (search by name, scoped to my school). */
+let friends = [];            // [{ other_id, name, color, school, status, incoming, created_at }]
+let frTab = 'friends';
+let frSelected = new Set();  // other_ids picked for a group ping
+let frSearchAll = false;     // add tab: search across all schools
+let frResults = [];
+let frResultState = {};      // other_id → 'pending' | 'accepted' after tapping add
+const FRIEND_PING_DEFAULT = 'hey i want to play';
+const FRIEND_BROADCAST_WINDOW_MS = 60 * 60000; // mirrors broadcast_playing() server throttle
+
+function friendIds() {
+  const s = new Set();
+  friends.forEach(f => { if (f.status === 'accepted') s.add(f.other_id); });
+  return s;
+}
+function isFriend(id) { return friendIds().has(id); }
+
+async function loadFriends() {
+  if (!profile || !sb) { friends = []; return; }
+  try {
+    const { data, error } = await sb.rpc('list_friendships') || {};
+    if (error) { console.warn('list_friendships:', error.message); return; }
+    if (Array.isArray(data)) friends = data;
+  } catch (e) { console.warn('list_friendships throw:', e); }
+}
+
+function ensureFriendsSheet() {
+  let el = document.getElementById('sheet-friends');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'sheet-wrap';
+  el.id = 'sheet-friends';
+  el.innerHTML =
+    '<div class="sheet-scrim" data-dismiss></div>' +
+    '<div class="modal-center modal-tall">' +
+      '<button class="modal-close" data-dismiss>&times;</button>' +
+      '<h3>friends</h3>' +
+      '<div class="fr-tabs">' +
+        '<button class="fr-tab" id="fr-tab-friends" data-tab="friends" type="button">friends</button>' +
+        '<button class="fr-tab" id="fr-tab-requests" data-tab="requests" type="button">requests<span class="fr-tab-badge" id="fr-req-badge" style="display:none"></span></button>' +
+        '<button class="fr-tab" id="fr-tab-add" data-tab="add" type="button">add</button>' +
+      '</div>' +
+      '<div class="fr-pane" id="fr-pane-friends">' +
+        '<div class="ping-confirm-sub">tap friends, then ping them all at once</div>' +
+        '<div class="fr-list" id="fr-list"></div>' +
+        '<input class="av-input" id="fr-line" maxlength="120" placeholder="' + FRIEND_PING_DEFAULT + '"/>' +
+        '<button class="ping-confirm-btn" id="fr-ping" type="button">pick friends to ping</button>' +
+        '<button class="me-dd-item fr-bcast" id="fr-bcast" type="button">' +
+          '<span class="tog-switch"><span class="knob"></span></span> tell friends when i start playing' +
+        '</button>' +
+      '</div>' +
+      '<div class="fr-pane" id="fr-pane-requests"><div class="fr-list" id="fr-requests"></div></div>' +
+      '<div class="fr-pane" id="fr-pane-add">' +
+        '<input class="av-input" id="fr-search" placeholder="search by name" autocomplete="off"/>' +
+        '<button class="fr-scope" id="fr-scope" type="button"></button>' +
+        '<div class="fr-list" id="fr-results"></div>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-dismiss]').forEach(d =>
+    d.addEventListener('click', () => el.classList.remove('open'))
+  );
+  el.querySelectorAll('.fr-tab').forEach(b =>
+    b.addEventListener('click', () => { frTab = b.dataset.tab; renderFriendsSheet(); })
+  );
+  el.querySelector('#fr-ping').addEventListener('click', sendFriendPing);
+  el.querySelector('#fr-bcast').addEventListener('click', () => {
+    const on = localStorage.getItem('pm_bcast_friends') === '1';
+    localStorage.setItem('pm_bcast_friends', on ? '' : '1');
+    renderFriendsSheet();
+    toast(on ? 'friends won\'t be told when you play' : 'friends get a ping when you start playing');
+  });
+  let searchTimer = null;
+  el.querySelector('#fr-search').addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(runFriendSearch, 250);
+  });
+  el.querySelector('#fr-scope').addEventListener('click', () => {
+    frSearchAll = !frSearchAll;
+    renderFriendsSheet();
+    runFriendSearch();
+  });
+  // friends tab: avatar → profile, row → toggle selection
+  el.querySelector('#fr-list').addEventListener('click', e => {
+    const row = e.target.closest('.fr-row');
+    if (!row) return;
+    const id = row.dataset.id;
+    if (e.target.closest('.fr-av')) {
+      const f = friends.find(x => x.other_id === id);
+      el.classList.remove('open');
+      openRaiderSheet(roster.find(r => r.id === id) ||
+        { id, name: (f && f.name) || '?', color: f && f.color, status: 'off' });
+      return;
+    }
+    if (frSelected.has(id)) frSelected.delete(id); else frSelected.add(id);
+    renderFriendsSheet();
+  });
+  el.querySelector('#fr-requests').addEventListener('click', e => {
+    const btn = e.target.closest('.fr-accept, .fr-decline');
+    if (!btn) return;
+    respondFriendRequest(btn.dataset.id, btn.classList.contains('fr-accept'), btn);
+  });
+  el.querySelector('#fr-results').addEventListener('click', e => {
+    const btn = e.target.closest('.fr-add');
+    if (btn) sendFriendRequest(btn.dataset.id, btn);
+  });
+  return el;
+}
+
+function frRow(f, o) {
+  o = o || {};
+  const id = f.other_id || f.id;
+  const ini = esc((f.name || '??').slice(0, 2).toUpperCase());
+  const school = f.school ? '<span class="fr-school">' + esc(schoolName(f.school)) + '</span>' : '';
+  return '<div class="fr-row lb-row' + (o.selected ? ' fr-selected' : '') + '" data-id="' + esc(id) + '">' +
+    (o.check ? '<span class="fr-check">' + (o.selected ? '&#10003;' : '') + '</span>' : '') +
+    '<button class="lb-av fr-av" type="button" style="background:' + safeColor(f.color) + '" title="view profile">' + ini + '</button>' +
+    '<span class="lb-name fr-name">' + esc(f.name || '?') + school + '</span>' +
+    (o.meta ? '<span class="fr-meta">' + esc(o.meta) + '</span>' : '') +
+    (o.actions || '') +
+    '</div>';
+}
+
+function renderFriendsSheet() {
+  const el = document.getElementById('sheet-friends');
+  if (!el) return;
+  el.querySelectorAll('.fr-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === frTab));
+  el.querySelectorAll('.fr-pane').forEach(p => { p.style.display = p.id === 'fr-pane-' + frTab ? '' : 'none'; });
+
+  const accepted = friends.filter(f => f.status === 'accepted');
+  const incoming = friends.filter(f => f.status === 'pending' && f.incoming);
+  const outgoing = friends.filter(f => f.status === 'pending' && !f.incoming);
+
+  const badge = el.querySelector('#fr-req-badge');
+  badge.textContent = incoming.length;
+  badge.style.display = incoming.length ? '' : 'none';
+
+  // drop selections that are no longer friends
+  [...frSelected].forEach(id => { if (!accepted.some(f => f.other_id === id)) frSelected.delete(id); });
+
+  el.querySelector('#fr-list').innerHTML = accepted.length
+    ? accepted.map(f => frRow(f, { check: true, selected: frSelected.has(f.other_id) })).join('')
+    : '<div class="fr-empty">no friends yet — find people in the add tab</div>';
+  const n = frSelected.size;
+  const pingBtn = el.querySelector('#fr-ping');
+  if (!pingBtn.classList.contains('rs-ping-sent')) {
+    pingBtn.textContent = n ? 'ping ' + n + ' friend' + (n === 1 ? '' : 's') : 'pick friends to ping';
+  }
+  pingBtn.classList.toggle('fr-ping-idle', !n);
+  el.querySelector('#fr-bcast .tog-switch').classList.toggle('on', localStorage.getItem('pm_bcast_friends') === '1');
+
+  const reqHtml =
+    incoming.map(f => frRow(f, { actions:
+      '<span class="ping-actions fr-req-actions">' +
+      '<button class="pa-btn primary fr-accept" type="button" data-id="' + esc(f.other_id) + '">accept</button>' +
+      '<button class="pa-btn fr-decline" type="button" data-id="' + esc(f.other_id) + '">pass</button>' +
+      '</span>' })).join('') +
+    outgoing.map(f => frRow(f, { meta: 'sent' })).join('');
+  el.querySelector('#fr-requests').innerHTML = reqHtml || '<div class="fr-empty">no requests right now</div>';
+
+  const scope = el.querySelector('#fr-scope');
+  if (profile && profile.school) {
+    scope.style.display = '';
+    scope.textContent = frSearchAll
+      ? 'searching all schools · tap for ' + schoolName(profile.school)
+      : 'searching ' + schoolName(profile.school) + ' · tap for all schools';
+  } else {
+    scope.style.display = 'none';
+  }
+  renderFriendResults();
+}
+
+function renderFriendResults() {
+  const box = document.getElementById('fr-results');
+  if (!box) return;
+  const q = (document.getElementById('fr-search') || {}).value || '';
+  if (!q.trim()) { box.innerHTML = ''; return; }
+  box.innerHTML = frResults.length
+    ? frResults.map(r => {
+        const f = friends.find(x => x.other_id === r.id);
+        const st = frResultState[r.id] || (f && f.status) || null;
+        let action;
+        if (st === 'accepted') action = '<span class="fr-meta">friends</span>';
+        else if (st === 'pending' || st === 'blocked') action = '<span class="fr-meta">sent</span>';
+        else action = '<button class="pa-btn primary fr-add" type="button" data-id="' + esc(r.id) + '">add</button>';
+        return frRow({ other_id: r.id, name: r.name, color: r.color, school: r.school }, { actions: action });
+      }).join('')
+    : '<div class="fr-empty">no one found</div>';
+}
+
+async function openFriendsSheet(tab) {
+  if (!profile) { toast('sign in first'); return; }
+  const el = ensureFriendsSheet();
+  frTab = tab || 'friends';
+  el.querySelector('#fr-ping').classList.remove('rs-ping-sent');
+  renderFriendsSheet();
+  el.classList.add('open');
+  await loadFriends();
+  renderFriendsSheet();
+}
+
+async function runFriendSearch() {
+  const el = document.getElementById('sheet-friends');
+  if (!el || !profile) return;
+  const q = el.querySelector('#fr-search').value.trim();
+  if (!q) { frResults = []; renderFriendResults(); return; }
+  const p_school = (!frSearchAll && profile.school) ? profile.school : null;
+  let data = null, error = null;
+  try { ({ data, error } = await sb.rpc('search_players', { p_q: q, p_school, p_limit: 20 }) || {}); }
+  catch (e) { error = e; }
+  if (error) { toast('search failed — try again'); return; }
+  frResults = (Array.isArray(data) ? data : []).filter(r => r.id !== profile.id);
+  renderFriendResults();
+}
+
+async function sendFriendRequest(id, btn) {
+  if (!profile || !id) return;
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  let data = null, error = null;
+  try { ({ data, error } = await sb.rpc('send_friend_request', { p_target: id }) || {}); }
+  catch (e) { error = e; }
+  if (error) {
+    if (btn) { btn.disabled = false; btn.textContent = 'add'; }
+    toast('request failed — ' + (error.message || 'try again'));
+    return;
+  }
+  frResultState[id] = data === 'accepted' ? 'accepted' : 'pending';
+  toast(data === 'accepted' ? 'you\'re friends now!' : 'friend request sent');
+  renderFriendResults();
+  await loadFriends();
+  renderFriendsSheet();
+}
+
+async function respondFriendRequest(id, accept, btn) {
+  if (!profile || !id) return;
+  if (btn) btn.disabled = true;
+  let error = null;
+  try { ({ error } = await sb.rpc('respond_friend_request', { p_from: id, p_accept: !!accept }) || {}); }
+  catch (e) { error = e; }
+  if (error) {
+    if (btn) btn.disabled = false;
+    toast('failed — ' + (error.message || 'try again'));
+    return;
+  }
+  const f = friends.find(x => x.other_id === id);
+  toast(accept ? ('you and ' + ((f && f.name) || 'them') + ' are friends now') : 'request passed');
+  await loadFriends();
+  renderFriendsSheet();
+  if (accept) { roster = scopeRoster(rosterRaw.length ? rosterRaw : roster); renderHome(); }
+}
+
+// Group ping: one RPC → one batch insert on the server (friends only).
+async function sendFriendPing() {
+  if (!profile) { toast('sign in first'); return; }
+  const el = document.getElementById('sheet-friends');
+  if (!el) return;
+  const btn = el.querySelector('#fr-ping');
+  const ids = [...frSelected];
+  if (!ids.length) { toast('pick a friend first'); return; }
+  const now = Date.now();
+  if (now - lastPingTime < PING_COOLDOWN) { toast('slow down — wait a sec'); return; }
+  lastPingTime = now;
+  const line = (el.querySelector('#fr-line').value || '').trim().slice(0, 120) || FRIEND_PING_DEFAULT;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'sending…';
+  let data = null, error = null;
+  try { ({ data, error } = await sb.rpc('ping_friends', { p_to: ids, p_msg: line }) || {}); }
+  catch (e) { error = e; }
+  btn.disabled = false;
+  if (error) {
+    lastPingTime = 0; // a failed send shouldn't burn the cooldown
+    btn.textContent = prev;
+    toast('ping failed — ' + (error.message || 'try again'));
+    return;
+  }
+  const sent = typeof data === 'number' ? data : ids.length;
+  btn.textContent = 'sent to ' + sent + '!';
+  btn.classList.add('rs-ping-sent');
+  frSelected.clear();
+  setTimeout(() => {
+    btn.classList.remove('rs-ping-sent');
+    renderFriendsSheet();
+  }, 1500);
+}
+
+// "I'm playing" fan-out to every accepted friend. Opt-in toggle in the friends
+// sheet; throttled client-side (and again server-side) to once per hour.
+async function maybeBroadcastPlaying() {
+  if (!profile || !sb) return;
+  if (localStorage.getItem('pm_bcast_friends') !== '1') return;
+  const last = parseInt(localStorage.getItem('pm_bcast_last') || '0', 10) || 0;
+  if (Date.now() - last < FRIEND_BROADCAST_WINDOW_MS) return;
+  localStorage.setItem('pm_bcast_last', String(Date.now()));
+  try {
+    const { data, error } = await sb.rpc('broadcast_playing') || {};
+    if (error) {
+      console.warn('broadcast_playing:', error.message);
+      localStorage.setItem('pm_bcast_last', String(last)); // let the next attempt retry
+      return;
+    }
+    if (typeof data === 'number' && data > 0) {
+      toast('told ' + data + ' friend' + (data === 1 ? '' : 's') + ' you\'re playing');
+    }
+  } catch (e) { console.warn('broadcast_playing throw:', e); }
+}
+
+/* ── SCHOOLS (cohort scoping above city) ──
+   profiles.school groups the roster by campus. Rows are reference data in the
+   schools table; SCHOOLS_BUILTIN keeps onboarding usable if that read fails. */
+const SCHOOLS_BUILTIN = [
+  { slug: 'ttu', display_name: 'Texas Tech University', color: '#CC0000', default_city: 'lubbock' }
+];
+let SCHOOLS = [];
+let rosterRaw = [];
+let browseAllSchools = localStorage.getItem('pm_browse_all') === '1';
+
+function schoolList() { return SCHOOLS.length ? SCHOOLS : SCHOOLS_BUILTIN; }
+function schoolName(slug) {
+  const s = schoolList().find(x => x.slug === slug);
+  return s ? s.display_name : (slug || '');
+}
+
+async function loadSchools() {
+  if (!sb) return;
+  try {
+    const { data, error } = await sb.from('schools')
+      .select('slug, display_name, color, default_city')
+      .order('display_name');
+    if (!error && Array.isArray(data) && data.length) SCHOOLS = data;
+  } catch (e) { console.warn('schools load failed:', e); }
+}
+
+// ?school=ttu on a landing/share link. Stashed in localStorage so it survives
+// the email sign-in round trip and lands as the onboarding default.
+function getSchoolParam() {
+  let s = null;
+  try { s = new URLSearchParams(location.search).get('school'); } catch {}
+  s = (s || '').trim().toLowerCase();
+  if (s) {
+    try { localStorage.setItem('pm_school_hint', s); } catch {}
+    return s;
+  }
+  try { return localStorage.getItem('pm_school_hint') || null; } catch { return null; }
+}
+function clearSchoolParam() {
+  try { localStorage.removeItem('pm_school_hint'); } catch {}
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.has('school')) {
+      u.searchParams.delete('school');
+      history.replaceState(null, '', u.pathname + (u.search || ''));
+    }
+  } catch {}
+}
+
+// Roster scope: school first, city as fallback for school-less rows. Self and
+// accepted friends always pass (the friend graph ignores school). The
+// "browse other schools" toggle shows everyone.
+function scopeRoster(rows) {
+  if (browseAllSchools) return rows;
+  const mySchool = (profile && profile.school || '').toLowerCase();
+  if (!mySchool) return scopeRosterToCity(rows);
+  const fids = friendIds();
+  return rows.filter(r => {
+    if (profile && r.id === profile.id) return true;
+    if (fids.has(r.id)) return true;
+    const s = (r.school || '').toLowerCase();
+    if (s) return s === mySchool;
+    return scopeRosterToCity([r]).length > 0;
+  });
+}
+
+function renderSchoolScope() {
+  const btn = document.getElementById('school-scope');
+  if (!btn) return;
+  if (!profile || !profile.school) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  btn.textContent = browseAllSchools ? 'all schools' : schoolName(profile.school);
+  btn.classList.toggle('active', !browseAllSchools);
+  btn.title = browseAllSchools ? 'tap to see only ' + schoolName(profile.school) : 'tap to browse other schools';
+}
+function toggleSchoolScope() {
+  if (!profile || !profile.school) return;
+  browseAllSchools = !browseAllSchools;
+  localStorage.setItem('pm_browse_all', browseAllSchools ? '1' : '');
+  roster = scopeRoster(rosterRaw.length ? rosterRaw : roster);
+  renderSchoolScope();
+  renderHome();
+  toast(browseAllSchools ? 'browsing all schools' : 'back to ' + schoolName(profile.school));
+}
+(function () {
+  const btn = document.getElementById('school-scope');
+  if (btn) btn.addEventListener('click', toggleSchoolScope);
+})();
+
+// Persist the caller's school (null clears). Server backfills home_city from
+// the school's default city when the user has none; mirror that locally.
+async function applySchool(slug) {
+  if (!profile) return false;
+  let error = null;
+  try { ({ error } = await sb.rpc('set_school', { p_slug: slug }) || {}); }
+  catch (e) { error = e; }
+  if (error) { toast('couldn\'t save school — ' + (error.message || 'try again')); return false; }
+  profile.school = slug || null;
+  if (slug && !profile.home_city) {
+    const s = schoolList().find(x => x.slug === slug);
+    if (s && s.default_city) profile.home_city = s.default_city;
+  }
+  const me = roster.find(r => r.id === profile.id);
+  if (me) me.school = profile.school;
+  localStorage.setItem('pm_school_prompted', '1');
+  clearSchoolParam();
+  return true;
+}
+
+function schoolOpt(s, primary) {
+  return '<button class="school-opt' + (primary ? ' primary' : '') + '" type="button" data-slug="' + esc(s.slug) +
+    '" style="--school:' + safeColor(s.color) + '"><span class="school-dot"></span>' + esc(s.display_name) + '</button>';
+}
+
+// Shared chooser: highlighted default (TTU / the ?school hint / current
+// school), "other school…" reveals the full list, skip = no school.
+function renderSchoolChooser(box, opts) {
+  opts = opts || {};
+  const list = schoolList();
+  const primary = list.find(s => s.slug === (opts.highlight || 'ttu')) || list[0];
+  const others = list.filter(s => s.slug !== primary.slug);
+  box.innerHTML =
+    '<div class="school-opts">' +
+      schoolOpt(primary, true) +
+      '<button class="school-opt school-other" id="s-school-other" type="button">other school…</button>' +
+    '</div>' +
+    '<div class="school-list" id="s-school-list" style="display:none">' +
+      (others.length ? others.map(s => schoolOpt(s, false)).join('')
+        : '<div class="fr-empty">more schools coming soon — skip for now</div>') +
+    '</div>' +
+    '<button class="setup-skip" id="s-school-skip" type="button">' + esc(opts.skipLabel || 'not at a school / skip') + '</button>';
+  box.querySelector('#s-school-other').addEventListener('click', () => {
+    const l = box.querySelector('#s-school-list');
+    l.style.display = l.style.display === 'none' ? '' : 'none';
+  });
+  box.querySelectorAll('.school-opt[data-slug]').forEach(b =>
+    b.addEventListener('click', () => opts.onPick && opts.onPick(b.dataset.slug, b))
+  );
+  box.querySelector('#s-school-skip').addEventListener('click', () => opts.onSkip && opts.onSkip());
+}
+
+// Onboarding step (after the name screen): "which school are you at?"
+function showSetupSchool(next) {
+  const root = document.getElementById('setup-root');
+  const hint = getSchoolParam();
+  root.innerHTML =
+    '<div class="setup-fs">' +
+    '<div class="setup-page s-slide-in" id="s-school-page">' +
+    '<h2 class="setup-h2">which school are you at?</h2>' +
+    '<div class="setup-sub">your table shows people from your campus first</div>' +
+    '<div id="s-school-chooser"></div>' +
+    '</div>' +
+    '</div>';
+  const done = () => { try { if (typeof next === 'function') next(); } catch (e) { console.error(e); } };
+  renderSchoolChooser(document.getElementById('s-school-chooser'), {
+    highlight: hint || 'ttu',
+    onPick: async (slug, btn) => {
+      btn.disabled = true;
+      const ok = await applySchool(slug);
+      btn.disabled = false;
+      if (ok) { toast('joined ' + schoolName(slug)); done(); }
+    },
+    onSkip: () => { localStorage.setItem('pm_school_prompted', '1'); clearSchoolParam(); done(); }
+  });
+}
+
+// Signup: a valid ?school= hint auto-selects the school and skips the ask.
+async function setupSchoolStep(next) {
+  const hint = getSchoolParam();
+  if (hint && schoolList().some(s => s.slug === hint) && await applySchool(hint)) {
+    toast('joined ' + schoolName(hint));
+    next();
+    return;
+  }
+  showSetupSchool(next);
+}
+
+// Existing users who predate school modes: ask once, non-blocking.
+function maybeShowSchoolNudge() {
+  if (!profile || profile.school) return;
+  if (localStorage.getItem('pm_school_prompted') === '1') return;
+  openSchoolSheet();
+}
+
+function openSchoolSheet() {
+  if (!profile) { toast('sign in first'); return; }
+  let el = document.getElementById('sheet-school');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'sheet-wrap';
+    el.id = 'sheet-school';
+    el.innerHTML =
+      '<div class="sheet-scrim" data-dismiss></div>' +
+      '<div class="modal-center">' +
+        '<button class="modal-close" data-dismiss>&times;</button>' +
+        '<h3 id="school-sheet-title">which school are you at?</h3>' +
+        '<div class="ping-confirm-sub">your table shows people from your campus first</div>' +
+        '<div id="school-sheet-chooser"></div>' +
+      '</div>';
+    document.body.appendChild(el);
+    el.querySelectorAll('[data-dismiss]').forEach(d =>
+      d.addEventListener('click', () => {
+        el.classList.remove('open');
+        localStorage.setItem('pm_school_prompted', '1');
+      })
+    );
+  }
+  const hasSchool = !!profile.school;
+  el.querySelector('#school-sheet-title').textContent = hasSchool ? 'change school' : 'which school are you at?';
+  renderSchoolChooser(el.querySelector('#school-sheet-chooser'), {
+    highlight: profile.school || getSchoolParam() || 'ttu',
+    skipLabel: hasSchool ? 'leave school' : 'not at a school',
+    onPick: async (slug, btn) => {
+      btn.disabled = true;
+      const ok = await applySchool(slug);
+      btn.disabled = false;
+      if (!ok) return;
+      el.classList.remove('open');
+      toast('joined ' + schoolName(slug));
+      await loadRoster();
+      renderHome();
+    },
+    onSkip: async () => {
+      localStorage.setItem('pm_school_prompted', '1');
+      if (hasSchool && await applySchool(null)) { await loadRoster(); }
+      el.classList.remove('open');
+      renderHome();
+    }
+  });
+  el.classList.add('open');
+}
+
 /* ── NOTIS — T7 welcome card ── */
 function renderNotis() {
   const notisSub = document.getElementById('notis-sub');
@@ -2815,6 +3380,8 @@ function renderMe() {
       ' notifications' +
     '</button>' +
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
+    '<button class="me-dd-item" id="sr-friends">friends</button>' +
+    '<button class="me-dd-item" id="sr-school">school \u00b7 ' + esc(profile.school ? schoolName(profile.school) : 'none') + '</button>' +
     '<button class="me-dd-item" id="sr-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
@@ -2989,6 +3556,15 @@ function renderMe() {
   const linkedEmailEl = document.getElementById('me-linked-email');
   if (linkAcctBanner) linkAcctBanner.style.display = 'none';
   if (linkedEmailEl) linkedEmailEl.style.display = 'none';
+
+  document.getElementById('sr-friends').addEventListener('click', () => {
+    document.getElementById('me-settings-dd')?.classList.remove('open');
+    openFriendsSheet('friends');
+  });
+  document.getElementById('sr-school').addEventListener('click', () => {
+    document.getElementById('me-settings-dd')?.classList.remove('open');
+    openSchoolSheet();
+  });
 
   // Invite a friend → copy the user's invite link/code to clipboard, no share sheet.
   document.getElementById('sr-invite').addEventListener('click', () => {
@@ -3427,7 +4003,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     if (!roster.find(r => r.id === newProfile.id)) roster.push(newProfile);
     await loadRoster();
     subscribePings();
-    showSetupScreen3();
+    setupSchoolStep(showSetupScreen3);
   });
 }
 

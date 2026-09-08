@@ -2515,3 +2515,82 @@ button { font: inherit; color: inherit; }
   font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted); margin-bottom: 12px;
 }
 .boot-offline .setup-primary { width: auto; min-width: 200px; }
+
+/* ── Friends sheet ── */
+.fr-tabs { display: flex; gap: 6px; margin: -6px 0 12px; }
+.fr-tab {
+  flex: 1; padding: 7px 4px;
+  border: 2px solid var(--ink); border-radius: 12px;
+  background: var(--cream); color: var(--ink);
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 13px;
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  transition: transform .08s;
+}
+.fr-tab:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.fr-tab.active { background: var(--ink); color: var(--cream); }
+.fr-tab-badge {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--flame); color: var(--cream);
+  font-size: 11px; line-height: 18px; text-align: center;
+}
+.fr-pane .ping-confirm-sub { margin-bottom: 10px; }
+.fr-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; max-height: 38vh; overflow-y: auto; }
+.fr-row { cursor: pointer; user-select: none; }
+.fr-row.fr-selected { background: rgba(37,68,214,.10); border-color: var(--cobalt); }
+.fr-check {
+  width: 22px; height: 22px; flex: 0 0 auto;
+  border: 2px solid var(--ink); border-radius: 7px;
+  display: grid; place-items: center;
+  font-size: 13px; font-weight: 700; color: var(--cream); background: var(--cream);
+}
+.fr-selected .fr-check { background: var(--cobalt); border-color: var(--cobalt); }
+.fr-av { cursor: pointer; padding: 0; }
+.fr-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fr-school { font-family: 'Caveat', cursive; font-weight: 700; font-size: 12px; color: var(--muted); }
+.fr-meta { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); margin-left: auto; }
+.fr-req-actions { margin-left: auto; display: flex; gap: 6px; }
+.fr-empty { font-family: 'Caveat', cursive; font-weight: 700; font-size: 16px; color: var(--muted); text-align: center; padding: 10px 0; }
+#fr-line { margin-bottom: 10px; }
+#fr-ping.fr-ping-idle { opacity: .55; }
+.fr-bcast { width: 100%; margin-top: 12px; padding: 10px 4px 0; border-bottom: none; border-top: 1.5px solid rgba(20,18,16,.08); }
+.fr-scope {
+  background: none; border: none; cursor: pointer;
+  font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--cobalt);
+  text-decoration: underline; text-decoration-style: dashed; text-underline-offset: 3px;
+  margin: 6px 0 10px; padding: 0 2px;
+}
+
+/* ── School chooser (onboarding step + change-school sheet) ── */
+.setup-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted); margin: -8px 0 18px; text-align: center; }
+.school-opts, .school-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.school-opt {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 14px;
+  border: 2.5px solid var(--ink); border-radius: 16px;
+  background: var(--cream); color: var(--ink);
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 15px;
+  text-align: left; cursor: pointer;
+  box-shadow: 3px 3px 0 var(--ink);
+  transition: transform .08s;
+}
+.school-opt:active { transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
+.school-opt.primary { background: var(--mustard); }
+.school-opt.school-other { background: var(--cream); font-weight: 600; color: var(--muted); }
+.school-opt:disabled { opacity: .6; pointer-events: none; }
+.school-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--school, var(--flame)); border: 2px solid var(--ink); flex: 0 0 auto; }
+.school-list .school-opt { box-shadow: 2px 2px 0 var(--ink); padding: 10px 12px; font-size: 14px; }
+#s-school-skip { display: block; margin: 4px auto 0; }
+
+/* ── Roster school scope pill ── */
+.school-scope-row { display: flex; justify-content: flex-end; margin: -4px 2px 8px; }
+.school-scope {
+  border: 2px solid var(--ink); border-radius: 999px;
+  padding: 3px 10px;
+  background: var(--cream); color: var(--ink);
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 11px;
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+  transition: transform .08s;
+}
+.school-scope:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.school-scope.active { background: var(--ink); color: var(--cream); }
