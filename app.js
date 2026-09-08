@@ -1465,7 +1465,7 @@ function openSettingsOverlay() {
     '</button>' +
     '<button class="me-dd-item" id="set-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="set-friends">friends</button>' +
-    '<button class="me-dd-item" id="set-school">school \u00b7 ' + esc(profile && profile.school ? schoolName(profile.school) : 'none') + '</button>' +
+    '<button class="me-dd-item" id="set-school">school \u00b7 ' + schoolLabel(profile && profile.school) + '</button>' +
     '<button class="me-dd-item" id="set-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-delete">delete account</button>';
@@ -2858,17 +2858,31 @@ let SCHOOLS = [];
 let rosterRaw = [];
 let browseAllSchools = localStorage.getItem('pm_browse_all') === '1';
 
-function schoolList() { return SCHOOLS.length ? SCHOOLS : SCHOOLS_BUILTIN; }
+// Picker: approved schools only. The user's own pending school (typed in via
+// "don't see your school?") still resolves by name so labels never show a slug.
+function schoolList() {
+  const approved = SCHOOLS.filter(s => !s.pending);
+  return approved.length ? approved : SCHOOLS_BUILTIN;
+}
 function schoolName(slug) {
-  const s = schoolList().find(x => x.slug === slug);
+  const s = (SCHOOLS.length ? SCHOOLS : SCHOOLS_BUILTIN).find(x => x.slug === slug);
   return s ? s.display_name : (slug || '');
+}
+function schoolPending(slug) {
+  const s = SCHOOLS.find(x => x.slug === slug);
+  return !!(s && s.pending);
+}
+// Settings-menu label (HTML): name + dim "pending" badge while awaiting approval.
+function schoolLabel(slug) {
+  if (!slug) return 'none';
+  return esc(schoolName(slug)) + (schoolPending(slug) ? ' <span class="school-pending-badge">pending</span>' : '');
 }
 
 async function loadSchools() {
   if (!sb) return;
   try {
     const { data, error } = await sb.from('schools')
-      .select('slug, display_name, color, default_city')
+      .select('slug, display_name, color, default_city, pending')
       .order('display_name');
     if (!error && Array.isArray(data) && data.length) SCHOOLS = data;
   } catch (e) { console.warn('schools load failed:', e); }
@@ -2962,8 +2976,42 @@ function schoolOpt(s, primary) {
     '" style="--school:' + safeColor(s.color) + '"><span class="school-dot"></span>' + esc(s.display_name) + '</button>';
 }
 
+// "don't see your school? type it": suggest_school creates a pending schools
+// row (or joins the existing slug) and assigns the caller server-side, so
+// people typing the same school are grouped before Ez approves it. Errors
+// stay inline next to the input; nothing throws.
+async function submitSchoolSuggestion(name, box, opts) {
+  opts = opts || {};
+  const err = box.querySelector('#s-school-error');
+  const btn = box.querySelector('#s-school-submit');
+  const showErr = m => { if (err) err.textContent = m || ''; };
+  showErr('');
+  if (!name || name.length < 2) { showErr('at least 2 characters'); return false; }
+  if (name.length > 80) { showErr('80 characters max'); return false; }
+  if (!profile) { showErr('sign in first'); return false; }
+  if (btn) btn.disabled = true;
+  let data = null, error = null;
+  try { ({ data, error } = await sb.rpc('suggest_school', { p_name: name }) || {}); }
+  catch (e) { error = e; }
+  if (btn) btn.disabled = false;
+  if (error || !data) { showErr((error && error.message) || 'couldn\'t submit — try again'); return false; }
+  const slug = String(data);
+  if (!SCHOOLS.some(s => s.slug === slug)) {
+    SCHOOLS.push({ slug, display_name: name, color: '#E8502A', default_city: null, pending: true });
+  }
+  profile.school = slug;
+  const me = roster.find(r => r.id === profile.id);
+  if (me) me.school = slug;
+  localStorage.setItem('pm_school_prompted', '1');
+  clearSchoolParam();
+  toast('submitted — you\u2019re grouped under ' + schoolName(slug) + ' (pending review)');
+  if (opts.onSuggested) { try { await opts.onSuggested(slug); } catch (e) { console.error(e); } }
+  return true;
+}
+
 // Shared chooser: highlighted default (TTU / the ?school hint / current
-// school), "other school…" reveals the full list, skip = no school.
+// school), "other school…" reveals the full list (ending with "type it"),
+// skip = no school.
 function renderSchoolChooser(box, opts) {
   opts = opts || {};
   const list = schoolList();
@@ -2976,7 +3024,16 @@ function renderSchoolChooser(box, opts) {
     '</div>' +
     '<div class="school-list" id="s-school-list" style="display:none">' +
       (others.length ? others.map(s => schoolOpt(s, false)).join('')
-        : '<div class="fr-empty">more schools coming soon — skip for now</div>') +
+        : '<div class="fr-empty">more schools coming soon — or type yours below</div>') +
+      '<div class="school-suggest-row">' +
+        '<button class="school-opt school-type-your-own" id="s-school-type" type="button">don\u2019t see your school? type it \u2192</button>' +
+        '<div id="s-school-input-wrap" style="display:none">' +
+          '<input class="av-input" id="s-school-input" type="text" maxlength="80" placeholder="e.g. Rice University" autocomplete="off"/>' +
+          '<div class="school-suggest-error" id="s-school-error"></div>' +
+          '<button class="school-opt primary" id="s-school-submit" type="button">submit</button>' +
+          '<div class="school-suggest-hint">shown to others once approved — you\u2019ll be grouped under this school right away</div>' +
+        '</div>' +
+      '</div>' +
     '</div>' +
     '<button class="setup-skip" id="s-school-skip" type="button">' + esc(opts.skipLabel || 'not at a school / skip') + '</button>';
   box.querySelector('#s-school-other').addEventListener('click', () => {
@@ -2986,6 +3043,17 @@ function renderSchoolChooser(box, opts) {
   box.querySelectorAll('.school-opt[data-slug]').forEach(b =>
     b.addEventListener('click', () => opts.onPick && opts.onPick(b.dataset.slug, b))
   );
+  const typeBtn = box.querySelector('#s-school-type');
+  const wrap = box.querySelector('#s-school-input-wrap');
+  const input = box.querySelector('#s-school-input');
+  typeBtn.addEventListener('click', () => {
+    typeBtn.style.display = 'none';
+    wrap.style.display = '';
+    try { input.focus(); } catch {}
+  });
+  const submit = () => submitSchoolSuggestion(input.value.trim(), box, opts);
+  box.querySelector('#s-school-submit').addEventListener('click', submit);
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
   box.querySelector('#s-school-skip').addEventListener('click', () => opts.onSkip && opts.onSkip());
 }
 
@@ -3010,6 +3078,7 @@ function showSetupSchool(next) {
       btn.disabled = false;
       if (ok) { toast('joined ' + schoolName(slug)); done(); }
     },
+    onSuggested: () => done(),
     onSkip: () => { localStorage.setItem('pm_school_prompted', '1'); clearSchoolParam(); done(); }
   });
 }
@@ -3067,6 +3136,11 @@ function openSchoolSheet() {
       if (!ok) return;
       el.classList.remove('open');
       toast('joined ' + schoolName(slug));
+      await loadRoster();
+      renderHome();
+    },
+    onSuggested: async () => {
+      el.classList.remove('open');
       await loadRoster();
       renderHome();
     },
@@ -3381,7 +3455,7 @@ function renderMe() {
     '</button>' +
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-friends">friends</button>' +
-    '<button class="me-dd-item" id="sr-school">school \u00b7 ' + esc(profile.school ? schoolName(profile.school) : 'none') + '</button>' +
+    '<button class="me-dd-item" id="sr-school">school \u00b7 ' + schoolLabel(profile.school) + '</button>' +
     '<button class="me-dd-item" id="sr-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +

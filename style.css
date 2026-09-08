@@ -2582,6 +2582,26 @@ button { font: inherit; color: inherit; }
 .school-list .school-opt { box-shadow: 2px 2px 0 var(--ink); padding: 10px 12px; font-size: 14px; }
 #s-school-skip { display: block; margin: 4px auto 0; }
 
+/* "don't see your school? type it" — bottom of the other-schools list */
+.school-suggest-row { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
+.school-list .school-type-your-own {
+  justify-content: center;
+  background: none; border: none; box-shadow: none; padding: 6px 2px;
+  font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted);
+  text-decoration: underline; text-decoration-style: dashed; text-underline-offset: 3px;
+}
+.school-list .school-type-your-own:active { transform: none; box-shadow: none; }
+#s-school-input-wrap { display: flex; flex-direction: column; gap: 8px; }
+#s-school-input { width: 100%; box-sizing: border-box; }
+.school-suggest-hint { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); text-align: center; }
+.school-suggest-error { font-family: 'Caveat', cursive; font-size: 14px; color: var(--flame); text-align: center; }
+.school-suggest-error:empty { display: none; }
+.school-pending-badge {
+  display: inline-block; margin-left: 6px; padding: 0 6px;
+  border: 1.5px solid var(--muted); border-radius: 999px;
+  font-size: 10px; font-weight: 700; color: var(--muted); vertical-align: middle;
+}
+
 /* ── Roster school scope pill ── */
 .school-scope-row { display: flex; justify-content: flex-end; margin: -4px 2px 8px; }
 .school-scope {

@@ -11,6 +11,7 @@ IMG="${PINGME_PG_IMAGE:-public.ecr.aws/supabase/postgres:17.6.1.141}"
 NAME="pm-sql-dryrun-$$"
 MIG=supabase/migrations/20260907_friends_and_schools.sql
 SEED=supabase/migrations/20260908_seed_texas_schools.sql
+PEND=supabase/migrations/20260909_pending_schools.sql
 
 docker run -d --rm --name "$NAME" -e POSTGRES_PASSWORD=postgres "$IMG" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
@@ -47,4 +48,13 @@ echo "== seed: 5 schools present"
 
 echo "== behavioural checks"
 psql_strict < test/friends-schools.dryrun.sql 2>&1 | { grep -E "NOTICE|ERROR|PASSED|FAIL" || true; }
+
+echo "== pending-schools migration: first apply"
+psql_strict < "$PEND"
+echo "== pending-schools migration: second apply (idempotency)"
+psql_strict < "$PEND"
+n=$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from schools where not pending")
+[ "$n" = "5" ] || { echo "PENDING FAIL: expected 5 approved schools after migration, got $n"; exit 1; }
+echo "== pending-schools behavioural checks"
+psql_strict < test/pending-schools.dryrun.sql 2>&1 | { grep -E "NOTICE|ERROR|PASSED|FAIL" || true; }
 echo "SQL DRY-RUN OK"
