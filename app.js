@@ -657,20 +657,50 @@ function hideSplash() {
 /* ── BOOT ── */
 window.addEventListener('load', boot);
 
-async function boot() {
-  // Request persistent storage to prevent iOS from wiping data after 7 days
-  if (navigator.storage && navigator.storage.persist) {
-    navigator.storage.persist().catch(() => {});
-  }
+// Boot never waits on Supabase forever. If the auth + first-data chain hasn't
+// settled in BOOT_TIMEOUT_MS (backend 522, captive wifi, etc.) the user lands
+// on an "offline, tap to retry" screen instead of an infinite splash spinner.
+const BOOT_TIMEOUT_MS = (typeof window !== 'undefined' && window.PINGME_BOOT_TIMEOUT_MS) || 6000;
+let authListenerBound = false;
+let bootOnceDone = false;
 
-  if (!sb) {
-    setTab('home');
-    renderHome();
-    setTimeout(showSetup, 300);
-    hideSplash();
-    return;
-  }
+function withTimeout(promise, ms) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Object.assign(new Error('boot timed out'), { code: 'BOOT_TIMEOUT' })), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
+function showBootOffline() {
+  hideSplash();
+  let el = document.getElementById('boot-offline');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'boot-offline';
+    el.className = 'boot-offline';
+    el.innerHTML =
+      '<div class="boot-offline-mark">ping<span>me!</span></div>' +
+      '<div class="boot-offline-title">looks like you\'re offline</div>' +
+      '<div class="boot-offline-sub">can\'t reach pingme right now</div>' +
+      '<button class="setup-primary" id="boot-retry">tap to retry</button>';
+    document.body.appendChild(el);
+    el.querySelector('#boot-retry').addEventListener('click', () => {
+      const btn = el.querySelector('#boot-retry');
+      btn.disabled = true; btn.textContent = 'connecting…';
+      boot();
+    });
+  }
+  const btn = el.querySelector('#boot-retry');
+  btn.disabled = false; btn.textContent = 'tap to retry';
+}
+function hideBootOffline() {
+  const el = document.getElementById('boot-offline');
+  if (el) el.remove();
+}
+
+// Session restore + profile load. Errors here are non-fatal (signed-out boot).
+async function bootSession() {
   try {
     // getSession() returns cached session without validating — if access token is expired,
     // we need to refresh it so the user doesn't get silently logged out
@@ -704,7 +734,11 @@ async function boot() {
       toast('session expired — sign in again');
     }
   } catch (e) { console.error('Auth check failed:', e); toast('connecting...'); }
+}
 
+function bindAuthListener() {
+  if (authListenerBound) return;
+  authListenerBound = true;
   let profileLoaded = !!profile; // skip if boot already loaded profile
   sb.auth.onAuthStateChange(async (event, session) => {
     if (event === 'SIGNED_IN' && session) {
@@ -741,14 +775,55 @@ async function boot() {
       renderHome();
     }
   });
+}
 
-  await loadRoster();
-  await loadPings();
+async function boot() {
+  // Request persistent storage to prevent iOS from wiping data after 7 days
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
+
+  if (!sb) {
+    setTab('home');
+    renderHome();
+    setTimeout(showSetup, 300);
+    hideSplash();
+    return;
+  }
+
+  try {
+    await withTimeout((async () => {
+      await bootSession();
+      await loadRoster();
+      await loadPings();
+    })(), BOOT_TIMEOUT_MS);
+  } catch (e) {
+    if (e && e.code === 'BOOT_TIMEOUT') {
+      console.warn('boot: supabase unreachable after ' + BOOT_TIMEOUT_MS + 'ms, showing offline screen');
+      showBootOffline();
+      return;
+    }
+    // Non-timeout failure (network error etc.): fall through to a signed-out
+    // boot rather than leaving the splash up forever.
+    console.warn('boot: data load failed:', e);
+    toast('connecting...');
+  }
+  hideBootOffline();
+
+  bindAuthListener();
   subscribeRealtime();
 
   setTab('home');
   hideSplash();
   if (!profile) setTimeout(showSetup, 300);
+
+  // #5: pull canonical venue list once we have a connection
+  loadVenues();
+
+  // Everything below is one-time wiring; a retry after the offline screen
+  // must not double up timers or the pull-to-refresh handle.
+  if (bootOnceDone) return;
+  bootOnceDone = true;
 
   setInterval(async () => {
     await expireStale();
@@ -758,9 +833,6 @@ async function boot() {
     if (profile) await loadPings();
     if (document.querySelector('[data-screen="home"].active')) renderHome();
   }, POLL_INTERVAL_MS);
-
-  // #5: pull canonical venue list once we have a connection
-  loadVenues();
 
   // Pull-to-refresh
   initPullToRefresh();
