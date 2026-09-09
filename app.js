@@ -759,7 +759,8 @@ function bindAuthListener() {
         renderHome();
         registerPushSubscription();
         toast('welcome back, ' + profile.name);
-        setTimeout(maybeShowSchoolNudge, 1200);
+        loadScenes();
+        setTimeout(maybeShowSceneNudge, 1200);
       } else {
         // New user — continue onboarding at name screen
         const prefill = (
@@ -820,11 +821,11 @@ async function boot() {
   setTab('home');
   hideSplash();
   if (!profile) setTimeout(showSetup, 300);
-  else setTimeout(maybeShowSchoolNudge, 1200);
+  else setTimeout(maybeShowSceneNudge, 1200);
 
   // #5: pull canonical venue list once we have a connection
   loadVenues();
-  loadSchools();
+  loadScenes().then(handleSceneRoute).catch(() => {});
 
   // Everything below is one-time wiring; a retry after the offline screen
   // must not double up timers or the pull-to-refresh handle.
@@ -1493,7 +1494,7 @@ function openSettingsOverlay() {
     '</button>' +
     '<button class="me-dd-item" id="set-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="set-friends">friends</button>' +
-    '<button class="me-dd-item" id="set-school">school \u00b7 ' + schoolLabel(profile && profile.school) + '</button>' +
+    '<button class="me-dd-item" id="set-scenes">scenes \u00b7 ' + sceneLabel() + '</button>' +
     '<button class="me-dd-item" id="set-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="set-delete">delete account</button>';
@@ -1559,9 +1560,9 @@ function openSettingsOverlay() {
     document.getElementById('sheet-settings').classList.remove('open');
     openFriendsSheet('friends');
   });
-  document.getElementById('set-school').addEventListener('click', () => {
+  document.getElementById('set-scenes').addEventListener('click', () => {
     document.getElementById('sheet-settings').classList.remove('open');
-    openSchoolSheet();
+    openSceneSheet();
   });
   document.getElementById('set-invite').addEventListener('click', () => {
     document.getElementById('sheet-settings')?.classList.remove('open');
@@ -1782,13 +1783,7 @@ async function handleConfirmPing(e) {
     return;
   }
   renderHome();
-  if (targetState === 'down') {
-    const pinged = await pingEveryone();
-    toast(pinged ? 'pinged the squad' : 'you\'re down to play');
-  } else if (targetState === 'playing') {
-    pushStatusChange(profile.name + ' is playing at ' + getVenueName());
-    toast('you\'re playing at ' + getVenueName());
-  }
+  await fireStatusPings(targetState);
   confirmPingFiring = false;
 }
 document.getElementById('confirm-ping').addEventListener('click', handleConfirmPing);
@@ -1876,9 +1871,11 @@ async function setHomeState(st) {
   app.dataset.homeState = st;
   if (st === 'down') {
     renderVenuePicker();
+    renderScenePicker();
     document.getElementById('sheet-ping-confirm').classList.add('open');
   } else if (st === 'playing') {
     renderVenuePicker();
+    renderScenePicker();
     document.getElementById('sheet-ping-confirm').classList.add('open');
   } else {
     await setMyStatus(st);
@@ -2060,7 +2057,7 @@ function allRaiders() {
 
 /* ── ROSTER — T2, T3, T5 ── */
 function renderRoster() {
-  renderSchoolScope();
+  renderSceneScope();
   const emptyEl = document.getElementById('empty-roster');
   const playingList = document.getElementById('list-playing');
   const downList = document.getElementById('list-down');
@@ -2569,11 +2566,11 @@ function openInviteToVenue(target) {
 /* ── FRIENDS ──
    Persistent mutual friend graph (friendships table, list_friendships RPC).
    The sheet has three tabs: friends (multi-select → group "ping to play"),
-   requests (accept / pass), add (search by name, scoped to my school). */
-let friends = [];            // [{ other_id, name, color, school, status, incoming, created_at }]
+   requests (accept / pass), add (search by name, scoped to my scene). */
+let friends = [];            // [{ other_id, name, color, school (scene slug mirror), status, incoming, created_at }]
 let frTab = 'friends';
 let frSelected = new Set();  // other_ids picked for a group ping
-let frSearchAll = false;     // add tab: search across all schools
+let frSearchAll = false;     // add tab: search across all scenes
 let frResults = [];
 let frResultState = {};      // other_id → 'pending' | 'accepted' after tapping add
 const FRIEND_PING_DEFAULT = 'hey i want to play';
@@ -2682,11 +2679,11 @@ function frRow(f, o) {
   o = o || {};
   const id = f.other_id || f.id;
   const ini = esc((f.name || '??').slice(0, 2).toUpperCase());
-  const school = f.school ? '<span class="fr-school">' + esc(schoolName(f.school)) + '</span>' : '';
+  const scene = f.school ? '<span class="fr-scene">' + esc(sceneName(f.school)) + '</span>' : '';
   return '<div class="fr-row lb-row' + (o.selected ? ' fr-selected' : '') + '" data-id="' + esc(id) + '">' +
     (o.check ? '<span class="fr-check">' + (o.selected ? '&#10003;' : '') + '</span>' : '') +
     '<button class="lb-av fr-av" type="button" style="background:' + safeColor(f.color) + '" title="view profile">' + ini + '</button>' +
-    '<span class="lb-name fr-name">' + esc(f.name || '?') + school + '</span>' +
+    '<span class="lb-name fr-name">' + esc(f.name || '?') + scene + '</span>' +
     (o.meta ? '<span class="fr-meta">' + esc(o.meta) + '</span>' : '') +
     (o.actions || '') +
     '</div>';
@@ -2733,8 +2730,8 @@ function renderFriendsSheet() {
   if (profile && profile.school) {
     scope.style.display = '';
     scope.textContent = frSearchAll
-      ? 'searching all schools · tap for ' + schoolName(profile.school)
-      : 'searching ' + schoolName(profile.school) + ' · tap for all schools';
+      ? 'searching all scenes · tap for ' + sceneName(profile.school)
+      : 'searching ' + sceneName(profile.school) + ' · tap for all scenes';
   } else {
     scope.style.display = 'none';
   }
@@ -2876,306 +2873,563 @@ async function maybeBroadcastPlaying() {
   } catch (e) { console.warn('broadcast_playing throw:', e); }
 }
 
-/* ── SCHOOLS (cohort scoping above city) ──
-   profiles.school groups the roster by campus. Rows are reference data in the
-   schools table; SCHOOLS_BUILTIN keeps onboarding usable if that read fails. */
-const SCHOOLS_BUILTIN = [
-  { slug: 'ttu', display_name: 'Texas Tech University', color: '#CC0000', default_city: 'lubbock' }
+/* ── SCENES (place-anchored notification groups) ──
+   A scene is a place people play at ("Zilker Park Pickleball", "TTU Rec
+   Center"). Users join any number of scenes; pinging from a scene notifies its
+   members. Rows come from list_scenes (visibility + my membership flags baked
+   in); SCENES_BUILTIN keeps onboarding usable if that read fails.
+   profiles.school is the DB's mirror of my most recently joined scene — a
+   one-release alias column, read here only as a fallback before scenes load. */
+const SCENES_BUILTIN = [
+  { id: null, slug: 'ttu', display_name: 'Texas Tech University', activity: null, city: 'lubbock', color: '#CC0000', pending: false, member_count: 0, joined: false, notifications_enabled: true, pings_24h: 0, near_rank: null }
 ];
-let SCHOOLS = [];
+let SCENES = [];
+let sceneMemberIds = new Set();   // user ids across the scenes I'm in (scene_members under RLS)
 let rosterRaw = [];
-let browseAllSchools = localStorage.getItem('pm_browse_all') === '1';
+let browseAllScenes = localStorage.getItem('pm_browse_all') === '1';
+let selectedScene = null;         // slug picked in the ping confirm modal (null = everyone / legacy open ping)
 
-// Picker: approved schools only. The user's own pending school (typed in via
-// "don't see your school?") still resolves by name so labels never show a slug.
-function schoolList() {
-  const approved = SCHOOLS.filter(s => !s.pending);
-  return approved.length ? approved : SCHOOLS_BUILTIN;
+function sceneRows() { return SCENES.length ? SCENES : SCENES_BUILTIN; }
+function sortScenes(list) {
+  return list.slice().sort((a, b) =>
+    ((a.near_rank == null ? 9 : a.near_rank) - (b.near_rank == null ? 9 : b.near_rank)) ||
+    ((b.member_count || 0) - (a.member_count || 0)) ||
+    String(a.display_name || '').localeCompare(String(b.display_name || '')));
 }
-function schoolName(slug) {
-  const s = (SCHOOLS.length ? SCHOOLS : SCHOOLS_BUILTIN).find(x => x.slug === slug);
-  return s ? s.display_name : (slug || '');
+// Picker: approved scenes only, nearest first (when a zip is known), then biggest.
+function sceneList() {
+  const approved = sceneRows().filter(s => !s.pending);
+  return sortScenes(approved.length ? approved : SCENES_BUILTIN);
 }
-function schoolPending(slug) {
-  const s = SCHOOLS.find(x => x.slug === slug);
-  return !!(s && s.pending);
+function sceneBySlug(slug) { return sceneRows().find(x => x.slug === slug) || null; }
+function sceneName(slug) { const s = sceneBySlug(slug); return s ? s.display_name : (slug || ''); }
+function sceneNameById(id) { const s = id ? SCENES.find(x => x.id === id) : null; return s ? s.display_name : ''; }
+function scenePending(slug) { const s = SCENES.find(x => x.slug === slug); return !!(s && s.pending); }
+function sceneStamp(s) { return Date.parse(s.last_ping_at || s.joined_at || 0) || 0; }
+// Scenes I'm in, most recent activity first.
+function myScenes() { return SCENES.filter(s => s.joined).sort((a, b) => sceneStamp(b) - sceneStamp(a)); }
+// Slugs I belong to. Before list_scenes resolves, the profiles.school mirror
+// stands in so the roster is scoped from the first render.
+function mySceneSlugs() {
+  const joined = myScenes().map(s => s.slug);
+  if (joined.length) return joined;
+  return (profile && profile.school) ? [profile.school] : [];
 }
-// Settings-menu label (HTML): name + dim "pending" badge while awaiting approval.
-function schoolLabel(slug) {
-  if (!slug) return 'none';
-  return esc(schoolName(slug)) + (schoolPending(slug) ? ' <span class="school-pending-badge">pending</span>' : '');
+// Settings-menu label (HTML): name + dim "pending" badge, or a count.
+function sceneLabel() {
+  const mine = mySceneSlugs();
+  if (!mine.length) return 'none — find your scene';
+  if (mine.length > 1) return mine.length + ' scenes';
+  return esc(sceneName(mine[0])) + (scenePending(mine[0]) ? ' <span class="scene-pending-badge">pending</span>' : '');
 }
+function sceneZip() { try { return localStorage.getItem('pm_zip') || null; } catch { return null; } }
 
-async function loadSchools() {
+async function loadScenes(zip) {
   if (!sb) return;
+  const p_zip = zip || sceneZip();
   try {
-    const { data, error } = await sb.from('schools')
-      .select('slug, display_name, color, default_city, pending')
-      .order('display_name');
-    if (!error && Array.isArray(data) && data.length) SCHOOLS = data;
-  } catch (e) { console.warn('schools load failed:', e); }
+    const { data, error } = await sb.rpc('list_scenes', { p_zip }) || {};
+    if (!error && Array.isArray(data) && data.length) SCENES = data;
+  } catch (e) { console.warn('scenes load failed:', e); }
+  if (profile) {
+    try {
+      const { data, error } = await sb.from('scene_members').select('user_id') || {};
+      if (!error && Array.isArray(data)) sceneMemberIds = new Set(data.map(r => r.user_id));
+    } catch (e) { console.warn('scene members load failed:', e); }
+  }
+  if (rosterRaw.length) { roster = scopeRoster(rosterRaw); renderHome(); }
 }
 
-// ?school=ttu on a landing/share link. Stashed in localStorage so it survives
-// the email sign-in round trip and lands as the onboarding default.
-function getSchoolParam() {
+// ?scene=zilker-park-pickleball on a landing/share link (legacy ?school= links
+// still land). Stashed in localStorage so it survives the email sign-in round
+// trip and lands as the onboarding default.
+function getSceneParam() {
   let s = null;
-  try { s = new URLSearchParams(location.search).get('school'); } catch {}
+  try { const q = new URLSearchParams(location.search); s = q.get('scene') || q.get('school'); } catch {}
   s = (s || '').trim().toLowerCase();
   if (s) {
-    try { localStorage.setItem('pm_school_hint', s); } catch {}
+    try { localStorage.setItem('pm_scene_hint', s); } catch {}
     return s;
   }
-  try { return localStorage.getItem('pm_school_hint') || null; } catch { return null; }
+  try { return localStorage.getItem('pm_scene_hint') || null; } catch { return null; }
 }
-function clearSchoolParam() {
-  try { localStorage.removeItem('pm_school_hint'); } catch {}
+function clearSceneParam() {
+  try { localStorage.removeItem('pm_scene_hint'); } catch {}
   try {
     const u = new URL(location.href);
-    if (u.searchParams.has('school')) {
+    if (u.searchParams.has('scene') || u.searchParams.has('school')) {
+      u.searchParams.delete('scene');
       u.searchParams.delete('school');
       history.replaceState(null, '', u.pathname + (u.search || ''));
     }
   } catch {}
 }
 
-// Roster scope: school first, city as fallback for school-less rows. Self and
-// accepted friends always pass (the friend graph ignores school). The
-// "browse other schools" toggle shows everyone.
+// Roster scope: members of my scenes (by membership id, or by their mirrored
+// slug), city as fallback for scene-less rows. Self and accepted friends
+// always pass (the friend graph ignores scenes). The "everyone" toggle shows all.
 function scopeRoster(rows) {
-  if (browseAllSchools) return rows;
-  const mySchool = (profile && profile.school || '').toLowerCase();
-  if (!mySchool) return scopeRosterToCity(rows);
+  if (browseAllScenes) return rows;
+  const mine = new Set(mySceneSlugs().map(s => String(s).toLowerCase()));
+  if (!mine.size) return scopeRosterToCity(rows);
   const fids = friendIds();
   return rows.filter(r => {
     if (profile && r.id === profile.id) return true;
     if (fids.has(r.id)) return true;
+    if (sceneMemberIds.has(r.id)) return true;
     const s = (r.school || '').toLowerCase();
-    if (s) return s === mySchool;
+    if (s) return mine.has(s);
     return scopeRosterToCity([r]).length > 0;
   });
 }
 
-function renderSchoolScope() {
-  const btn = document.getElementById('school-scope');
-  if (!btn) return;
-  if (!profile || !profile.school) { btn.style.display = 'none'; return; }
-  btn.style.display = '';
-  btn.textContent = browseAllSchools ? 'all schools' : schoolName(profile.school);
-  btn.classList.toggle('active', !browseAllSchools);
-  btn.title = browseAllSchools ? 'tap to see only ' + schoolName(profile.school) : 'tap to browse other schools';
+function sceneScopeName() {
+  const mine = mySceneSlugs();
+  return mine.length === 1 ? sceneName(mine[0]) : 'my scenes';
 }
-function toggleSchoolScope() {
-  if (!profile || !profile.school) return;
-  browseAllSchools = !browseAllSchools;
-  localStorage.setItem('pm_browse_all', browseAllSchools ? '1' : '');
+function renderSceneScope() {
+  const btn = document.getElementById('scene-scope');
+  if (!btn) return;
+  if (!profile || !mySceneSlugs().length) { btn.style.display = 'none'; return; }
+  btn.style.display = '';
+  btn.textContent = browseAllScenes ? 'everyone' : sceneScopeName();
+  btn.classList.toggle('active', !browseAllScenes);
+  btn.title = browseAllScenes ? 'tap to see only ' + sceneScopeName() : 'tap to see everyone';
+}
+function toggleSceneScope() {
+  if (!profile || !mySceneSlugs().length) return;
+  browseAllScenes = !browseAllScenes;
+  localStorage.setItem('pm_browse_all', browseAllScenes ? '1' : '');
   roster = scopeRoster(rosterRaw.length ? rosterRaw : roster);
-  renderSchoolScope();
+  renderSceneScope();
   renderHome();
-  toast(browseAllSchools ? 'browsing all schools' : 'back to ' + schoolName(profile.school));
+  toast(browseAllScenes ? 'showing everyone' : 'back to ' + sceneScopeName());
 }
 (function () {
-  const btn = document.getElementById('school-scope');
-  if (btn) btn.addEventListener('click', toggleSchoolScope);
+  const btn = document.getElementById('scene-scope');
+  if (btn) btn.addEventListener('click', toggleSceneScope);
 })();
 
-// Persist the caller's school (null clears). Server backfills home_city from
-// the school's default city when the user has none; mirror that locally.
-async function applySchool(slug) {
+// Membership changed on the server → mirror it locally, including the
+// profiles.school mirror the way _pm_sync_primary_scene does (latest join wins).
+function markSceneJoined(slug, joined) {
+  const s = SCENES.find(x => x.slug === slug);
+  if (s) {
+    if (joined && !s.joined) s.member_count = (s.member_count || 0) + 1;
+    if (!joined && s.joined) s.member_count = Math.max(0, (s.member_count || 0) - 1);
+    s.joined = joined;
+    s.joined_at = joined ? new Date().toISOString() : null;
+    if (!joined) s.notifications_enabled = true;
+  }
+  if (!profile) return;
+  let mirror = null;
+  if (joined) mirror = slug;
+  else {
+    const byJoin = SCENES.filter(x => x.joined).sort((a, b) => (Date.parse(b.joined_at || 0) || 0) - (Date.parse(a.joined_at || 0) || 0));
+    mirror = byJoin.length ? byJoin[0].slug : null;
+  }
+  profile.school = mirror;
+  const me = roster.find(r => r.id === profile.id);
+  if (me) me.school = mirror;
+  if (joined) sceneMemberIds.add(profile.id);
+  localStorage.setItem('pm_scene_prompted', '1');
+}
+
+async function joinScene(slug) {
+  if (!profile) { toast('sign in first'); return false; }
+  let error = null;
+  try { ({ error } = await sb.rpc('join_scene', { p_slug: slug }) || {}); }
+  catch (e) { error = e; }
+  if (error) { toast('couldn’t join — ' + (error.message || 'try again')); return false; }
+  markSceneJoined(slug, true);
+  clearSceneParam();
+  return true;
+}
+async function leaveScene(slug) {
   if (!profile) return false;
   let error = null;
-  try { ({ error } = await sb.rpc('set_school', { p_slug: slug }) || {}); }
+  try { ({ error } = await sb.rpc('leave_scene', { p_slug: slug }) || {}); }
   catch (e) { error = e; }
-  if (error) { toast('couldn\'t save school — ' + (error.message || 'try again')); return false; }
-  profile.school = slug || null;
-  if (slug && !profile.home_city) {
-    const s = schoolList().find(x => x.slug === slug);
-    if (s && s.default_city) profile.home_city = s.default_city;
+  if (error) { toast('couldn’t leave — ' + (error.message || 'try again')); return false; }
+  markSceneJoined(slug, false);
+  return true;
+}
+async function setSceneMute(slug, enabled) {
+  const s = SCENES.find(x => x.slug === slug);
+  const prev = s ? s.notifications_enabled : true;
+  if (s) s.notifications_enabled = enabled;
+  let error = null;
+  try { ({ error } = await sb.rpc('set_scene_notifications', { p_slug: slug, p_enabled: enabled }) || {}); }
+  catch (e) { error = e; }
+  if (error) {
+    if (s) s.notifications_enabled = prev;
+    toast('couldn’t update — ' + (error.message || 'try again'));
+    return false;
   }
-  const me = roster.find(r => r.id === profile.id);
-  if (me) me.school = profile.school;
-  localStorage.setItem('pm_school_prompted', '1');
-  clearSchoolParam();
   return true;
 }
 
-function schoolOpt(s, primary) {
-  return '<button class="school-opt' + (primary ? ' primary' : '') + '" type="button" data-slug="' + esc(s.slug) +
-    '" style="--school:' + safeColor(s.color) + '"><span class="school-dot"></span>' + esc(s.display_name) + '</button>';
+function matchesScene(s, q) {
+  return [s.display_name, s.slug, s.city, s.activity, s.place_hint].some(v => v && String(v).toLowerCase().includes(q));
+}
+function sceneMeta(s, extra) {
+  return [s.activity, s.city, (s.near_rank != null && s.near_rank <= 1) ? 'near you' : null].concat(extra || []).filter(Boolean).join(' · ');
+}
+function sceneOptHtml(s, primary) {
+  const meta = sceneMeta(s);
+  return '<button class="scene-opt' + (primary ? ' primary' : '') + '" type="button" data-slug="' + esc(s.slug) +
+    '" style="--scene:' + safeColor(s.color) + '"><span class="scene-dot"></span>' +
+    '<span class="scene-opt-text"><span class="scene-opt-name">' + esc(s.display_name) + '</span>' +
+    (meta ? '<span class="scene-meta">' + esc(meta) + '</span>' : '') + '</span>' +
+    '<span class="scene-count" title="members">' + (s.member_count || 0) + '</span></button>';
 }
 
-// "don't see your school? type it": suggest_school creates a pending schools
-// row (or joins the existing slug) and assigns the caller server-side, so
-// people typing the same school are grouped before Ez approves it. Errors
-// stay inline next to the input; nothing throws.
-async function submitSchoolSuggestion(name, box, opts) {
+// "don't see it? + create a scene": create_scene creates a pending row (or
+// joins the existing slug) and joins the caller server-side, so people
+// creating the same place are grouped before it goes live at 3 members.
+// Errors stay inline next to the form; nothing throws.
+function sceneCreateHtml() {
+  return '<div class="scene-create-row">' +
+    '<button class="scene-opt scene-other" id="s-scene-create" type="button">don’t see it? + create a scene</button>' +
+    '<div id="s-scene-create-wrap" hidden>' +
+      '<input class="av-input" id="s-scene-name" type="text" maxlength="80" placeholder="scene name — e.g. Zilker Park Pickleball" autocomplete="off"/>' +
+      '<input class="av-input" id="s-scene-activity" type="text" maxlength="32" placeholder="activity (optional) — pickleball, basketball, ping-pong" autocomplete="off" list="scene-activities"/>' +
+      '<datalist id="scene-activities"><option value="pickleball"></option><option value="basketball"></option><option value="ping-pong"></option><option value="tennis"></option><option value="general"></option></datalist>' +
+      '<input class="av-input" id="s-scene-place" type="text" maxlength="120" placeholder="where (optional) — Zilker Park, Austin TX" autocomplete="off"/>' +
+      '<input class="av-input" id="s-scene-zip" type="text" inputmode="numeric" maxlength="5" placeholder="zip (optional)" autocomplete="postal-code"/>' +
+      '<div class="scene-create-error" id="s-scene-error"></div>' +
+      '<button class="scene-opt primary" id="s-scene-submit" type="button">create scene</button>' +
+      '<div class="scene-create-hint">you’re in right away — it shows to everyone once 3 people join</div>' +
+    '</div>' +
+  '</div>';
+}
+function wireSceneCreate(box, opts) {
+  const btn = box.querySelector('#s-scene-create');
+  const wrap = box.querySelector('#s-scene-create-wrap');
+  if (!btn || !wrap) return;
+  btn.addEventListener('click', () => {
+    btn.style.display = 'none';
+    wrap.hidden = false;
+    try { box.querySelector('#s-scene-name').focus(); } catch {}
+  });
+  const submit = () => submitSceneCreate(box, opts);
+  box.querySelector('#s-scene-submit').addEventListener('click', submit);
+  wrap.querySelectorAll('input').forEach(i =>
+    i.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } })
+  );
+}
+async function submitSceneCreate(box, opts) {
   opts = opts || {};
-  const err = box.querySelector('#s-school-error');
-  const btn = box.querySelector('#s-school-submit');
+  const err = box.querySelector('#s-scene-error');
+  const btn = box.querySelector('#s-scene-submit');
+  const val = id => { const el = box.querySelector(id); return el ? el.value.trim().replace(/\s+/g, ' ') : ''; };
   const showErr = m => { if (err) err.textContent = m || ''; };
   showErr('');
+  const name = val('#s-scene-name');
+  const activity = val('#s-scene-activity').toLowerCase() || null;
+  const place = val('#s-scene-place') || null;
+  const zip = val('#s-scene-zip') || null;
   if (!name || name.length < 2) { showErr('at least 2 characters'); return false; }
   if (name.length > 80) { showErr('80 characters max'); return false; }
+  if (zip && !/^\d{5}$/.test(zip)) { showErr('zip should be 5 digits'); return false; }
   if (!profile) { showErr('sign in first'); return false; }
   if (btn) btn.disabled = true;
   let data = null, error = null;
-  try { ({ data, error } = await sb.rpc('suggest_school', { p_name: name }) || {}); }
+  try { ({ data, error } = await sb.rpc('create_scene', { p_name: name, p_activity: activity, p_place_hint: place, p_zip: zip }) || {}); }
   catch (e) { error = e; }
   if (btn) btn.disabled = false;
-  if (error || !data) { showErr((error && error.message) || 'couldn\'t submit — try again'); return false; }
+  if (error || !data) { showErr((error && error.message) || 'couldn’t create — try again'); return false; }
   const slug = String(data);
-  if (!SCHOOLS.some(s => s.slug === slug)) {
-    SCHOOLS.push({ slug, display_name: name, color: '#E8502A', default_city: null, pending: true });
+  if (!SCENES.some(s => s.slug === slug)) {
+    SCENES.push({ id: null, slug, display_name: name, activity, place_hint: place, zip, city: null, region: null, color: '#E8502A',
+      pending: true, member_count: 0, joined: false, notifications_enabled: true, joined_at: null, pings_24h: 0, last_ping_at: null, near_rank: null });
   }
-  profile.school = slug;
-  const me = roster.find(r => r.id === profile.id);
-  if (me) me.school = slug;
-  localStorage.setItem('pm_school_prompted', '1');
-  clearSchoolParam();
-  toast('submitted — you\u2019re grouped under ' + schoolName(slug) + ' (pending review)');
-  if (opts.onSuggested) { try { await opts.onSuggested(slug); } catch (e) { console.error(e); } }
+  markSceneJoined(slug, true);
+  if (zip) { try { localStorage.setItem('pm_zip', zip); } catch {} }
+  clearSceneParam();
+  toast(scenePending(slug)
+    ? 'you’re in ' + sceneName(slug) + ' — goes live at 3 members (pending)'
+    : 'joined ' + sceneName(slug));
+  if (opts.onCreated) { try { await opts.onCreated(slug); } catch (e) { console.error(e); } }
   return true;
 }
 
-// Shared chooser: highlighted default (TTU / the ?school hint / current
-// school), "other school…" reveals the full list (ending with "type it"),
-// skip = no school.
-function renderSchoolChooser(box, opts) {
+// Onboarding chooser: search (name / city) or zip, popular-near-you list with
+// member counts, "+ create a scene", skip.
+let sceneSearchTimer = null;
+function renderSceneChooser(box, opts) {
   opts = opts || {};
-  const list = schoolList();
-  const primary = list.find(s => s.slug === (opts.highlight || 'ttu')) || list[0];
-  const others = list.filter(s => s.slug !== primary.slug);
+  const hint = opts.highlight || null;
   box.innerHTML =
-    '<div class="school-opts">' +
-      schoolOpt(primary, true) +
-      (others.length
-        ? others.map(s => schoolOpt(s, false)).join('')
-        : '<div class="fr-empty">more schools coming soon</div>') +
-    '</div>' +
-    '<div class="school-list" id="s-school-list">' +
-      '<div class="school-suggest-row">' +
-        '<button class="school-opt school-other" id="s-school-type" type="button">other school \u2192 type yours</button>' +
-        '<div id="s-school-input-wrap" style="display:none">' +
-          '<input class="av-input" id="s-school-input" type="text" maxlength="80" placeholder="e.g. Rice University" autocomplete="off"/>' +
-          '<div class="school-suggest-error" id="s-school-error"></div>' +
-          '<button class="school-opt primary" id="s-school-submit" type="button">submit</button>' +
-          '<div class="school-suggest-hint">shown to others once approved — you\u2019ll be grouped under this school right away</div>' +
-        '</div>' +
-      '</div>' +
-    '</div>' +
-    '<button class="setup-skip" id="s-school-skip" type="button">' + esc(opts.skipLabel || 'not at a school / skip') + '</button>';
-  box.querySelectorAll('.school-opt[data-slug]').forEach(b =>
-    b.addEventListener('click', () => opts.onPick && opts.onPick(b.dataset.slug, b))
-  );
-  const typeBtn = box.querySelector('#s-school-type');
-  const wrap = box.querySelector('#s-school-input-wrap');
-  const input = box.querySelector('#s-school-input');
-  typeBtn.addEventListener('click', () => {
-    typeBtn.style.display = 'none';
-    wrap.style.display = '';
-    try { input.focus(); } catch {}
+    '<input class="av-input scene-search" id="s-scene-search" type="text" placeholder="search a name, city or zip" autocomplete="off"/>' +
+    '<div class="scene-opts-label" id="s-scene-label"></div>' +
+    '<div class="scene-opts" id="s-scene-list"></div>' +
+    sceneCreateHtml() +
+    '<button class="setup-skip" id="s-scene-skip" type="button">' + esc(opts.skipLabel || 'skip for now') + '</button>';
+  const list = box.querySelector('#s-scene-list');
+  const label = box.querySelector('#s-scene-label');
+  const input = box.querySelector('#s-scene-search');
+  const draw = () => {
+    const q = input.value.trim().toLowerCase();
+    let rows = sceneList().filter(s => !s.joined);
+    if (q && !/^\d{5}$/.test(q)) rows = rows.filter(s => matchesScene(s, q));
+    if (hint) { const i = rows.findIndex(s => s.slug === hint); if (i > 0) rows.unshift(rows.splice(i, 1)[0]); }
+    label.textContent = rows.length ? (sceneZip() ? 'near you:' : 'popular:') : '';
+    list.innerHTML = rows.length
+      ? rows.map((s, i) => sceneOptHtml(s, i === 0 && (hint ? s.slug === hint : !q))).join('')
+      : '<div class="fr-empty scene-empty">nothing here yet — be the first: create it below</div>';
+    list.querySelectorAll('.scene-opt[data-slug]').forEach(b =>
+      b.addEventListener('click', () => opts.onPick && opts.onPick(b.dataset.slug, b))
+    );
+  };
+  draw();
+  input.addEventListener('input', () => {
+    const v = input.value.trim();
+    clearTimeout(sceneSearchTimer);
+    if (/^\d{5}$/.test(v)) {
+      sceneSearchTimer = setTimeout(async () => {
+        try { localStorage.setItem('pm_zip', v); } catch {}
+        await loadScenes(v);
+        draw();
+      }, 250);
+    } else {
+      draw();
+    }
   });
-  const submit = () => submitSchoolSuggestion(input.value.trim(), box, opts);
-  box.querySelector('#s-school-submit').addEventListener('click', submit);
-  input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); submit(); } });
-  box.querySelector('#s-school-skip').addEventListener('click', () => opts.onSkip && opts.onSkip());
+  wireSceneCreate(box, opts);
+  box.querySelector('#s-scene-skip').addEventListener('click', () => opts.onSkip && opts.onSkip());
 }
 
-// Onboarding step (after the name screen): "which school are you at?"
-function showSetupSchool(next) {
+// Onboarding step (after the name screen): "where do you play?"
+function showSetupScene(next) {
   const root = document.getElementById('setup-root');
-  const hint = getSchoolParam();
   root.innerHTML =
     '<div class="setup-fs">' +
-    '<div class="setup-page s-slide-in" id="s-school-page">' +
-    '<h2 class="setup-h2">which school are you at?</h2>' +
-    '<div class="setup-sub">your table shows people from your campus first</div>' +
-    '<div id="s-school-chooser"></div>' +
+    '<div class="setup-page s-slide-in" id="s-scene-page">' +
+    '<h2 class="setup-h2">where do you play?</h2>' +
+    '<div class="setup-sub">join a scene to get pinged when people play there</div>' +
+    '<div id="s-scene-chooser"></div>' +
     '</div>' +
     '</div>';
   const done = () => { try { if (typeof next === 'function') next(); } catch (e) { console.error(e); } };
-  renderSchoolChooser(document.getElementById('s-school-chooser'), {
-    highlight: hint || 'ttu',
+  renderSceneChooser(document.getElementById('s-scene-chooser'), {
+    highlight: getSceneParam(),
     onPick: async (slug, btn) => {
       btn.disabled = true;
-      const ok = await applySchool(slug);
+      const ok = await joinScene(slug);
       btn.disabled = false;
-      if (ok) { toast('joined ' + schoolName(slug)); done(); }
+      if (ok) { toast('joined ' + sceneName(slug)); done(); }
     },
-    onSuggested: () => done(),
-    onSkip: () => { localStorage.setItem('pm_school_prompted', '1'); clearSchoolParam(); done(); }
+    onCreated: () => done(),
+    onSkip: () => { localStorage.setItem('pm_scene_prompted', '1'); clearSceneParam(); done(); }
   });
 }
 
-// Signup: a valid ?school= hint auto-selects the school and skips the ask.
-async function setupSchoolStep(next) {
-  const hint = getSchoolParam();
-  if (hint && schoolList().some(s => s.slug === hint) && await applySchool(hint)) {
-    toast('joined ' + schoolName(hint));
+// Signup: a valid ?scene= hint auto-joins that scene and skips the ask.
+async function setupSceneStep(next) {
+  const hint = getSceneParam();
+  if (hint && sceneRows().some(s => s.slug === hint) && await joinScene(hint)) {
+    toast('joined ' + sceneName(hint));
     next();
     return;
   }
-  showSetupSchool(next);
+  showSetupScene(next);
 }
 
-// Existing users who predate school modes: ask once, non-blocking.
-function maybeShowSchoolNudge() {
-  if (!profile || profile.school) return;
-  if (localStorage.getItem('pm_school_prompted') === '1') return;
-  openSchoolSheet();
+// Existing users who are in no scene yet: ask once, non-blocking.
+function maybeShowSceneNudge() {
+  if (!profile || mySceneSlugs().length) return;
+  if (localStorage.getItem('pm_scene_prompted') === '1') return;
+  openSceneSheet();
 }
 
-function openSchoolSheet() {
-  if (!profile) { toast('sign in first'); return; }
-  let el = document.getElementById('sheet-school');
-  if (!el) {
-    el = document.createElement('div');
-    el.className = 'sheet-wrap';
-    el.id = 'sheet-school';
-    el.innerHTML =
-      '<div class="sheet-scrim" data-dismiss></div>' +
-      '<div class="modal-center">' +
-        '<button class="modal-close" data-dismiss>&times;</button>' +
-        '<h3 id="school-sheet-title">which school are you at?</h3>' +
-        '<div class="ping-confirm-sub">your table shows people from your campus first</div>' +
-        '<div id="school-sheet-chooser"></div>' +
-      '</div>';
-    document.body.appendChild(el);
-    el.querySelectorAll('[data-dismiss]').forEach(d =>
-      d.addEventListener('click', () => {
-        el.classList.remove('open');
-        localStorage.setItem('pm_school_prompted', '1');
-      })
-    );
-  }
-  const hasSchool = !!profile.school;
-  el.querySelector('#school-sheet-title').textContent = hasSchool ? 'change school' : 'which school are you at?';
-  renderSchoolChooser(el.querySelector('#school-sheet-chooser'), {
-    highlight: profile.school || getSchoolParam() || 'ttu',
-    skipLabel: hasSchool ? 'leave school' : 'not at a school',
-    onPick: async (slug, btn) => {
-      btn.disabled = true;
-      const ok = await applySchool(slug);
-      btn.disabled = false;
-      if (!ok) return;
+// /scenes "route": #scenes opens the browse sheet (the app has no router).
+function handleSceneRoute() {
+  let h = '';
+  try { h = location.hash; } catch {}
+  if (h === '#scenes' || h === '#/scenes') openSceneSheet();
+}
+
+/* ── browse sheet: your scenes · trending · near you ── */
+// mode: 'mine' (mute + leave) · 'join' · 'info' (joined, controls live under "your scenes")
+function sceneRowHtml(s, mode) {
+  const n = s.member_count || 0;
+  const meta = [n + ' member' + (n === 1 ? '' : 's')].concat(
+    sceneMeta(s, [s.pings_24h ? s.pings_24h + ' ping' + (s.pings_24h === 1 ? '' : 's') + ' today' : null]) || []).filter(Boolean).join(' · ');
+  const controls = mode === 'mine'
+    ? '<button class="tog-switch scene-mute' + (s.notifications_enabled !== false ? ' on' : '') + '" type="button" title="notifications from this scene"><span class="knob"></span></button>' +
+      '<button class="pa-btn scene-leave" type="button">leave</button>'
+    : mode === 'join'
+      ? '<button class="pa-btn primary scene-join" type="button">join</button>'
+      : '<span class="scene-joined-chip">joined ✓</span>';
+  return '<div class="scene-row" data-slug="' + esc(s.slug) + '" style="--scene:' + safeColor(s.color) + '">' +
+    '<span class="scene-dot"></span>' +
+    '<span class="scene-row-text"><span class="scene-row-name">' + esc(s.display_name) +
+      (s.pending ? ' <span class="scene-pending-badge">pending</span>' : '') + '</span>' +
+    '<span class="scene-meta">' + esc(meta) + '</span></span>' +
+    controls +
+    '</div>';
+}
+function renderSceneBrowse(el) {
+  const q = ((el.querySelector('#sc-search') || {}).value || '').trim().toLowerCase();
+  const filt = rows => (q && !/^\d{5}$/.test(q)) ? rows.filter(s => matchesScene(s, q)) : rows;
+  const mine = filt(myScenes());
+  const near = filt(sceneList().filter(s => !s.joined));
+  const trending = filt(sceneRows().filter(s => !s.pending && (s.pings_24h || 0) > 0))
+    .sort((a, b) => (b.pings_24h || 0) - (a.pings_24h || 0) || (b.member_count || 0) - (a.member_count || 0));
+  el.querySelector('#sc-mine').innerHTML = mine.length
+    ? mine.map(s => sceneRowHtml(s, 'mine')).join('')
+    : '<div class="fr-empty">none yet — join one below or create your own</div>';
+  const tr = el.querySelector('#sc-trending');
+  tr.innerHTML = trending.map(s => sceneRowHtml(s, s.joined ? 'info' : 'join')).join('');
+  tr.parentElement.style.display = trending.length ? '' : 'none';
+  el.querySelector('#sc-near-label').textContent = sceneZip() ? 'near you' : 'popular';
+  el.querySelector('#sc-near').innerHTML = near.length
+    ? near.map(s => sceneRowHtml(s, 'join')).join('')
+    : '<div class="fr-empty">nothing here yet — create it below</div>';
+}
+function ensureSceneSheet() {
+  let el = document.getElementById('sheet-scenes');
+  if (el) return el;
+  el = document.createElement('div');
+  el.className = 'sheet-wrap';
+  el.id = 'sheet-scenes';
+  el.innerHTML =
+    '<div class="sheet-scrim" data-dismiss></div>' +
+    '<div class="modal-center modal-tall">' +
+      '<button class="modal-close" data-dismiss>&times;</button>' +
+      '<h3>scenes</h3>' +
+      '<div class="ping-confirm-sub">join a scene, get pinged when people play there</div>' +
+      '<input class="av-input scene-search" id="sc-search" type="text" placeholder="search a name, city or zip" autocomplete="off"/>' +
+      '<div class="scene-section"><div class="scene-section-label">your scenes</div><div class="scene-list" id="sc-mine"></div></div>' +
+      '<div class="scene-section"><div class="scene-section-label">trending</div><div class="scene-list" id="sc-trending"></div></div>' +
+      '<div class="scene-section"><div class="scene-section-label" id="sc-near-label">near you</div><div class="scene-list" id="sc-near"></div></div>' +
+      '<div id="sc-create"></div>' +
+    '</div>';
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-dismiss]').forEach(d =>
+    d.addEventListener('click', () => {
       el.classList.remove('open');
-      toast('joined ' + schoolName(slug));
+      localStorage.setItem('pm_scene_prompted', '1');
+    })
+  );
+  el.querySelector('#sc-search').addEventListener('input', () => {
+    const v = el.querySelector('#sc-search').value.trim();
+    clearTimeout(sceneSearchTimer);
+    if (/^\d{5}$/.test(v)) {
+      sceneSearchTimer = setTimeout(async () => {
+        try { localStorage.setItem('pm_zip', v); } catch {}
+        await loadScenes(v);
+        renderSceneBrowse(el);
+      }, 250);
+    } else {
+      renderSceneBrowse(el);
+    }
+  });
+  const box = el.querySelector('#sc-create');
+  box.innerHTML = sceneCreateHtml();
+  wireSceneCreate(box, {
+    onCreated: async () => {
+      box.innerHTML = sceneCreateHtml();
+      wireSceneCreate(box, { onCreated: () => renderSceneBrowse(el) });
+      renderSceneBrowse(el);
       await loadRoster();
-      renderHome();
-    },
-    onSuggested: async () => {
-      el.classList.remove('open');
-      await loadRoster();
-      renderHome();
-    },
-    onSkip: async () => {
-      localStorage.setItem('pm_school_prompted', '1');
-      if (hasSchool && await applySchool(null)) { await loadRoster(); }
-      el.classList.remove('open');
       renderHome();
     }
   });
+  el.addEventListener('click', async e => {
+    const row = e.target.closest('.scene-row');
+    if (!row) return;
+    const slug = row.dataset.slug;
+    if (e.target.closest('.scene-mute')) {
+      const s = SCENES.find(x => x.slug === slug);
+      await setSceneMute(slug, !(s && s.notifications_enabled !== false));
+      renderSceneBrowse(el);
+    } else if (e.target.closest('.scene-leave')) {
+      const b = e.target.closest('.scene-leave'); b.disabled = true;
+      const ok = await leaveScene(slug);
+      renderSceneBrowse(el);
+      if (ok) { toast('left ' + sceneName(slug)); await loadRoster(); renderHome(); }
+    } else if (e.target.closest('.scene-join')) {
+      const b = e.target.closest('.scene-join'); b.disabled = true;
+      const ok = await joinScene(slug);
+      renderSceneBrowse(el);
+      if (ok) { toast('joined ' + sceneName(slug)); await loadRoster(); renderHome(); }
+    }
+  });
+  return el;
+}
+function openSceneSheet() {
+  if (!profile) { toast('sign in first'); return; }
+  const el = ensureSceneSheet();
+  renderSceneBrowse(el);
   el.classList.add('open');
+  if (sb) loadScenes().then(() => { if (el.classList.contains('open')) renderSceneBrowse(el); }).catch(() => {});
+}
+
+/* ── ping "at [scene]" ── */
+// Default = my most recently active joined scene; the last explicit choice
+// ('' = everyone) is remembered in pm_last_scene.
+function primaryScene() {
+  const mine = myScenes();
+  if (!mine.length) return null;
+  let last = null;
+  try { last = localStorage.getItem('pm_last_scene'); } catch {}
+  if (last && mine.some(s => s.slug === last)) return last;
+  return mine[0].slug;
+}
+function renderScenePicker() {
+  const el = document.getElementById('scene-picker');
+  if (!el) return;
+  const mine = myScenes();
+  if (!mine.length) { el.innerHTML = ''; el.style.display = 'none'; selectedScene = null; return; }
+  let stored = null;
+  try { stored = localStorage.getItem('pm_last_scene'); } catch {}
+  selectedScene = stored === '' ? null : primaryScene();
+  el.style.display = '';
+  el.innerHTML =
+    '<div class="scene-picker-label">ping who?</div>' +
+    '<div class="scene-chips">' +
+      mine.map(s => '<button class="scene-chip' + (selectedScene === s.slug ? ' active' : '') + '" type="button" data-slug="' + esc(s.slug) + '">' + esc(s.display_name) + '</button>').join('') +
+      '<button class="scene-chip' + (selectedScene === null ? ' active' : '') + '" type="button" data-slug="">everyone</button>' +
+    '</div>';
+  el.querySelectorAll('.scene-chip').forEach(b => b.addEventListener('click', () => {
+    selectedScene = b.dataset.slug || null;
+    try { localStorage.setItem('pm_last_scene', b.dataset.slug || ''); } catch {}
+    el.querySelectorAll('.scene-chip').forEach(c => c.classList.toggle('active', (c.dataset.slug || null) === selectedScene));
+  }));
+}
+
+// After the status is saved: tell people. With a scene selected the server
+// fans out to its members (ping_scene → one pings row each → push); with no
+// scene it's the legacy open ping / radius push.
+async function fireStatusPings(targetState) {
+  const slug = (selectedScene && myScenes().some(s => s.slug === selectedScene)) ? selectedScene : null;
+  if (slug) {
+    if (!isPushAllowedHere()) {
+      console.log('[pingme] scene ping suppressed (non-prod host):', location.hostname, slug);
+      toast('test mode — no pings sent');
+      return;
+    }
+    const verb = targetState === 'down' ? 'is down to play' : 'is playing';
+    const venue = getVenueName();
+    const msg = profile.name + ' ' + verb + ' at ' + sceneName(slug) + (venue ? ' (' + venue + ')' : '') + (targetState === 'down' ? ' — you in?' : '');
+    let data = null, error = null;
+    try { ({ data, error } = await sb.rpc('ping_scene', { p_slug: slug, p_msg: msg, p_verb: verb }) || {}); }
+    catch (e) { error = e; }
+    if (error) { toast('ping failed — ' + (error.message || 'try again')); return; }
+    const n = typeof data === 'number' ? data : 0;
+    if (n > 0) toast('pinged ' + n + ' at ' + sceneName(slug));
+    else toast(targetState === 'down' ? 'you’re down to play' : 'you’re playing at ' + (venue || sceneName(slug)));
+    return;
+  }
+  if (targetState === 'down') {
+    const pinged = await pingEveryone();
+    toast(pinged ? 'pinged the squad' : 'you’re down to play');
+  } else if (targetState === 'playing') {
+    pushStatusChange(profile.name + ' is playing at ' + getVenueName());
+    toast('you’re playing at ' + getVenueName());
+  }
 }
 
 /* ── NOTIS — T7 welcome card ── */
@@ -3254,6 +3508,7 @@ function renderNotis() {
       '<div class="pc-av" style="background:' + color + ';color:#F4EDDC">' + avText + '</div>' +
       '<div class="pc-body">' +
       '<div class="pc-who">' + esc(who) + (isSystem ? '' : ' <span class="pc-verb">' + esc(p.verb || '') + '</span>') + '</div>' +
+      (p.scene_id && sceneNameById(p.scene_id) ? '<div class="pc-scene">at ' + esc(sceneNameById(p.scene_id)) + '</div>' : '') +
       '<div class="pc-msg">' + esc(displayMsg) + '</div>' +
       '<div class="pc-time">' + ago + '</div>' +
       actions + '</div></div>';
@@ -3479,7 +3734,7 @@ function renderMe() {
     '</button>' +
     '<button class="me-dd-item" id="sr-test-notif">test notification</button>' +
     '<button class="me-dd-item" id="sr-friends">friends</button>' +
-    '<button class="me-dd-item" id="sr-school">school \u00b7 ' + schoolLabel(profile.school) + '</button>' +
+    '<button class="me-dd-item" id="sr-scenes">scenes \u00b7 ' + sceneLabel() + '</button>' +
     '<button class="me-dd-item" id="sr-invite">invite a friend</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-signout">sign out</button>' +
     '<button class="me-dd-item me-dd-danger" id="sr-delete-acct">delete account</button>' +
@@ -3659,9 +3914,9 @@ function renderMe() {
     document.getElementById('me-settings-dd')?.classList.remove('open');
     openFriendsSheet('friends');
   });
-  document.getElementById('sr-school').addEventListener('click', () => {
+  document.getElementById('sr-scenes').addEventListener('click', () => {
     document.getElementById('me-settings-dd')?.classList.remove('open');
-    openSchoolSheet();
+    openSceneSheet();
   });
 
   // Invite a friend → copy the user's invite link/code to clipboard, no share sheet.
@@ -4247,7 +4502,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
     if (!roster.find(r => r.id === newProfile.id)) roster.push(newProfile);
     await loadRoster();
     subscribePings();
-    setupSchoolStep(showSetupScreen3);
+    setupSceneStep(showSetupScreen3);
   });
 }
 

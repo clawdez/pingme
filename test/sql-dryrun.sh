@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Behavioural dry-run of the friends/schools, pending-schools and email-verified migrations against a throwaway
+# Behavioural dry-run of the friends/schools, pending-schools, email-verified and scenes migrations against a throwaway
 # Supabase Postgres container (never the live project).
 #   1. apply schema.sql (base tables) — errors tolerated for realtime/publication bits
 #   2. apply the migration twice (proves idempotency)
@@ -13,6 +13,7 @@ MIG=supabase/migrations/20260907_friends_and_schools.sql
 SEED=supabase/migrations/20260908_seed_texas_schools.sql
 PEND=supabase/migrations/20260909_pending_schools.sql
 EMV=supabase/migrations/20260910_profiles_email_verified_from_auth.sql
+SCN=supabase/migrations/20260911_scenes_from_schools.sql
 
 docker run -d --rm --name "$NAME" -e POSTGRES_PASSWORD=postgres "$IMG" >/dev/null
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
@@ -66,4 +67,14 @@ echo "== email-verified trigger scaffolding: auth.users.email_confirmed_at (GoTr
 docker exec "$NAME" psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -q -c "alter table auth.users add column if not exists email_confirmed_at timestamptz"
 echo "== email-verified trigger behavioural checks"
 psql_strict < test/email-verified-trigger.dryrun.sql 2>&1 | { grep -E "NOTICE|ERROR|PASSED|FAIL" || true; }
+echo "== scenes migration: first apply"
+psql_strict < "$SCN"
+echo "== scenes migration: second apply (idempotency)"
+psql_strict < "$SCN"
+a=$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from schools")
+b=$(docker exec "$NAME" psql -U postgres -Atc "select count(*) from scenes")
+[ "$b" -ge "$a" ] || { echo "SCENES FAIL: $a schools but only $b scenes"; exit 1; }
+echo "== scenes: $a schools → $b scenes"
+echo "== scenes behavioural checks"
+psql_strict < test/scenes.dryrun.sql 2>&1 | { grep -E "NOTICE|ERROR|PASSED|FAIL" || true; }
 echo "SQL DRY-RUN OK"

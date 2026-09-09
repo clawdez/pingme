@@ -48,6 +48,7 @@ function seedMe(win, extra = '') {
       { other_id: 'o1', name: 'sam',   color: '#000000', school: 'ttu', status: 'pending',  incoming: false }
     ];
     lastPingTime = 0;
+    SCENES = []; sceneMemberIds = new Set();
     ${extra}
   `);
 }
@@ -79,7 +80,7 @@ test('friends tab lists accepted friends only; requests tab lists incoming with 
   win.eval(`openFriendsSheet('friends');`);
   await tick();
   const rows = [...win.document.querySelectorAll('#fr-list .fr-row')];
-  assert.deepEqual(rows.map(r => r.dataset.id).sort(), ['f1', 'f2'], 'accepted friends across schools');
+  assert.deepEqual(rows.map(r => r.dataset.id).sort(), ['f1', 'f2'], 'accepted friends across scenes');
   assert.match(rows[0].textContent, /bob|jake/);
 
   win.document.getElementById('fr-tab-requests').click();
@@ -175,7 +176,7 @@ test('accept and decline call respond_friend_request and refresh the list', asyn
 
 /* ── add friend / search ── */
 
-test('add tab searches by name scoped to my school and sends a request', async (t) => {
+test('add tab searches by name scoped to my scene and sends a request', async (t) => {
   const { win } = await loadSettled(t);
   seedMe(win);
   win.__rpcResults.search_players = { data: [
@@ -192,7 +193,7 @@ test('add tab searches by name scoped to my school and sends a request', async (
   const s = rpcCalls(win, 'search_players');
   assert.equal(s.length, 1, 'debounced to one search');
   assert.equal(s[0].args.p_q, 'bo');
-  assert.equal(s[0].args.p_school, 'ttu', 'scoped to my school by default');
+  assert.equal(s[0].args.p_school, 'ttu', 'scoped to my scene by default (rpc param name is the DB alias)');
   const res = [...win.document.querySelectorAll('#fr-results .fr-row')];
   assert.deepEqual(res.map(r => r.dataset.id), ['p9']);
   assert.match(res[0].textContent, /bobby/);
@@ -204,7 +205,7 @@ test('add tab searches by name scoped to my school and sends a request', async (
   assert.match(win.document.querySelector('#fr-results .fr-row[data-id="p9"]').textContent, /sent|pending/i);
 });
 
-test('"all schools" toggle widens the search scope', async (t) => {
+test('"all scenes" toggle widens the search scope', async (t) => {
   const { win } = await loadSettled(t);
   seedMe(win);
   win.__rpcResults.search_players = { data: [], error: null };
@@ -269,7 +270,7 @@ test('going "playing" triggers the friend broadcast hook', async (t) => {
   assert.equal(win.__bcast, 1, 'only on playing');
 });
 
-/* ── school scoping ── */
+/* ── scene scoping ── */
 
 function scopeRows() {
   return `[
@@ -282,86 +283,90 @@ function scopeRows() {
   ]`;
 }
 
-test('roster prefers my school, falls back to city for school-less rows, always keeps friends', async (t) => {
+test('roster prefers my scene (mirror slug), falls back to city for scene-less rows, always keeps friends', async (t) => {
   const { win } = await loadSettled(t);
-  seedMe(win, `localStorage.removeItem('pm_browse_all'); browseAllSchools = false;`);
+  seedMe(win, `localStorage.removeItem('pm_browse_all'); browseAllScenes = false;`);
   const ids = win.eval(`scopeRoster(${scopeRows()}).map(r => r.id).sort()`);
   assert.deepEqual([...ids], ['a', 'b', 'f2', 'me']);
 });
 
-test('without a school the roster falls back to the existing city scope', async (t) => {
+test('without a scene the roster falls back to the existing city scope', async (t) => {
   const { win } = await loadSettled(t);
-  seedMe(win, `profile.school = null; friends = []; browseAllSchools = false;`);
+  seedMe(win, `profile.school = null; friends = []; browseAllScenes = false;`);
   const ids = win.eval(`scopeRoster(${scopeRows()}).map(r => r.id).sort()`);
   assert.deepEqual([...ids], ['b', 'me']);
 });
 
-test('"browse other schools" toggle shows everyone and persists', async (t) => {
+test('"everyone" toggle shows everyone and persists', async (t) => {
   const { win } = await loadSettled(t);
-  seedMe(win, `browseAllSchools = false; rosterRaw = ${scopeRows()}; roster = scopeRoster(rosterRaw); renderHome();`);
+  seedMe(win, `browseAllScenes = false; rosterRaw = ${scopeRows()}; roster = scopeRoster(rosterRaw); renderHome();`);
   await tick(60); // renderHome runs on the next animation frame
-  const btn = win.document.getElementById('school-scope');
-  assert.ok(btn, 'roster header needs a school scope toggle');
-  assert.match(btn.textContent, /texas tech|ttu/i, 'shows the current school');
+  const btn = win.document.getElementById('scene-scope');
+  assert.ok(btn, 'roster header needs a scene scope toggle');
+  assert.match(btn.textContent, /texas tech|ttu|my scenes/i, 'shows the current scene');
   btn.click();
   await tick();
   assert.equal(win.eval(`roster.length`), 6);
   assert.equal(win.eval(`localStorage.getItem('pm_browse_all')`), '1');
-  assert.match(btn.textContent, /all schools/i);
+  assert.match(btn.textContent, /everyone/i);
   btn.click();
   assert.equal(win.eval(`roster.length`), 4);
 });
 
-test('?school=ttu on the landing url is captured as the signup default', async (t) => {
+test('?scene=ttu on the landing url is captured as the signup default (legacy ?school= too)', async (t) => {
   const { win } = await loadSettled(t);
-  win.eval(`history.replaceState(null, '', '/?school=TTU&ref=x'); localStorage.removeItem('pm_school_hint');`);
-  assert.equal(win.eval(`getSchoolParam()`), 'ttu');
-  assert.equal(win.eval(`localStorage.getItem('pm_school_hint')`), 'ttu', 'hint survives the auth redirect');
+  win.eval(`history.replaceState(null, '', '/?scene=TTU&ref=x'); localStorage.removeItem('pm_scene_hint');`);
+  assert.equal(win.eval(`getSceneParam()`), 'ttu');
+  assert.equal(win.eval(`localStorage.getItem('pm_scene_hint')`), 'ttu', 'hint survives the auth redirect');
   win.eval(`history.replaceState(null, '', '/');`);
-  assert.equal(win.eval(`getSchoolParam()`), 'ttu', 'falls back to the stored hint');
+  assert.equal(win.eval(`getSceneParam()`), 'ttu', 'falls back to the stored hint');
+  win.eval(`clearSceneParam(); history.replaceState(null, '', '/?school=ut-austin');`);
+  assert.equal(win.eval(`getSceneParam()`), 'ut-austin', 'old ?school= share links still land');
 });
 
-test('onboarding school step: TTU highlighted, pick sets school via rpc, skip continues', async (t) => {
+test('onboarding scene step: hinted scene highlighted, pick joins via rpc, skip continues', async (t) => {
   const { win } = await loadSettled(t);
-  seedMe(win, `profile.school = null; window.__next = 0; SCHOOLS = [{ slug: 'ttu', display_name: 'Texas Tech University', color: '#CC0000' }, { slug: 'ut', display_name: 'UT Austin', color: '#BF5700' }];`);
-  win.eval(`showSetupSchool(() => { window.__next++; })`);
-  const page = win.document.getElementById('s-school-page');
-  assert.ok(page, 'school step renders');
-  const ttu = page.querySelector('.school-opt[data-slug="ttu"]');
-  assert.ok(ttu && ttu.classList.contains('primary'), 'TTU is the highlighted default');
-  assert.ok(page.querySelector('#s-school-type'), '"other school" type-your-own button');
-  assert.ok(page.querySelector('#s-school-skip'), '"none" skips');
-  assert.ok(page.querySelector('.school-opt[data-slug="ut"]'), 'other schools shown inline');
+  seedMe(win, `profile.school = null; window.__next = 0; localStorage.setItem('pm_scene_hint', 'ttu');
+    SCENES = [{ id: 'u1', slug: 'ttu', display_name: 'Texas Tech University', color: '#CC0000', pending: false, member_count: 3, joined: false },
+              { id: 'u2', slug: 'ut', display_name: 'UT Austin', color: '#BF5700', pending: false, member_count: 9, joined: false }];`);
+  win.eval(`showSetupScene(() => { window.__next++; })`);
+  const page = win.document.getElementById('s-scene-page');
+  assert.ok(page, 'scene step renders');
+  const ttu = page.querySelector('.scene-opt[data-slug="ttu"]');
+  assert.ok(ttu && ttu.classList.contains('primary'), 'hinted scene is the highlighted default');
+  assert.ok(page.querySelector('#s-scene-create'), '"create a scene" button');
+  assert.ok(page.querySelector('#s-scene-skip'), 'skip');
+  assert.ok(page.querySelector('.scene-opt[data-slug="ut"]'), 'other scenes shown inline');
 
   ttu.click();
   await tick();
-  const c = rpcCalls(win, 'set_school');
+  const c = rpcCalls(win, 'join_scene');
   assert.equal(c.length, 1);
   assert.deepEqual(plain(c[0].args), { p_slug: 'ttu' });
   assert.equal(win.eval(`profile.school`), 'ttu');
   assert.equal(win.__next, 1, 'continues to the next step');
 
-  win.eval(`profile.school = null; showSetupSchool(() => { window.__next++; })`);
-  win.document.getElementById('s-school-skip').click();
+  win.eval(`profile.school = null; showSetupScene(() => { window.__next++; })`);
+  win.document.getElementById('s-scene-skip').click();
   await tick();
   assert.equal(win.__next, 2);
-  assert.equal(rpcCalls(win, 'set_school').length, 1, 'skip does not call set_school');
+  assert.equal(rpcCalls(win, 'join_scene').length, 1, 'skip does not call join_scene');
 });
 
-test('existing users without a school get a one-time, dismissable prompt', async (t) => {
+test('existing users without a scene get a one-time, dismissable prompt', async (t) => {
   const { win } = await loadSettled(t);
-  seedMe(win, `profile.school = null; localStorage.removeItem('pm_school_prompted');`);
-  win.eval(`maybeShowSchoolNudge()`);
-  const sheet = win.document.getElementById('sheet-school');
+  seedMe(win, `profile.school = null; localStorage.removeItem('pm_scene_prompted');`);
+  win.eval(`maybeShowSceneNudge()`);
+  const sheet = win.document.getElementById('sheet-scenes');
   assert.ok(sheet && sheet.classList.contains('open'), 'nudge sheet opens');
   sheet.querySelector('[data-dismiss]').click();
   assert.ok(!sheet.classList.contains('open'));
-  assert.equal(win.eval(`localStorage.getItem('pm_school_prompted')`), '1');
-  win.eval(`maybeShowSchoolNudge()`);
+  assert.equal(win.eval(`localStorage.getItem('pm_scene_prompted')`), '1');
+  win.eval(`maybeShowSceneNudge()`);
   assert.ok(!sheet.classList.contains('open'), 'does not nag twice');
 
-  win.eval(`profile.school = 'ttu'; localStorage.removeItem('pm_school_prompted'); maybeShowSchoolNudge()`);
-  assert.ok(!sheet.classList.contains('open'), 'users with a school are never prompted');
+  win.eval(`profile.school = 'ttu'; localStorage.removeItem('pm_scene_prompted'); maybeShowSceneNudge()`);
+  assert.ok(!sheet.classList.contains('open'), 'users in a scene are never prompted');
 });
 
 /* ── friends bypass the city/radius push filter ── */

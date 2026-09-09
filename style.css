@@ -2547,7 +2547,7 @@ button { font: inherit; color: inherit; }
 .fr-selected .fr-check { background: var(--cobalt); border-color: var(--cobalt); }
 .fr-av { cursor: pointer; padding: 0; }
 .fr-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.fr-school { font-family: 'Caveat', cursive; font-weight: 700; font-size: 12px; color: var(--muted); }
+.fr-scene { font-family: 'Caveat', cursive; font-weight: 700; font-size: 12px; color: var(--muted); }
 .fr-meta { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); margin-left: auto; }
 .fr-req-actions { margin-left: auto; display: flex; gap: 6px; }
 .fr-empty { font-family: 'Caveat', cursive; font-weight: 700; font-size: 16px; color: var(--muted); text-align: center; padding: 10px 0; }
@@ -2561,12 +2561,18 @@ button { font: inherit; color: inherit; }
   margin: 6px 0 10px; padding: 0 2px;
 }
 
-/* ── School chooser (onboarding step + change-school sheet) ── */
+/* ── Scene chooser (onboarding step) + browse sheet ── */
 .setup-sub { font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted); margin: -8px 0 18px; text-align: center; }
-.school-opts, .school-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
-.school-opt {
+.scene-search { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+.scene-opts-label, .scene-section-label {
+  font-family: 'Caveat', cursive; font-weight: 700; font-size: 16px; color: var(--muted);
+  margin: 2px 2px 6px; text-align: left;
+}
+.scene-opts-label:empty { display: none; }
+.scene-opts, .scene-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.scene-opt {
   display: flex; align-items: center; gap: 10px;
-  padding: 13px 14px;
+  padding: 12px 14px;
   border: 2.5px solid var(--ink); border-radius: 16px;
   background: var(--cream); color: var(--ink);
   font-family: 'Space Grotesk'; font-weight: 700; font-size: 15px;
@@ -2574,37 +2580,52 @@ button { font: inherit; color: inherit; }
   box-shadow: 3px 3px 0 var(--ink);
   transition: transform .08s;
 }
-.school-opt:active { transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
-.school-opt.primary { background: var(--mustard); }
-.school-opt.school-other { background: var(--cream); font-weight: 600; color: var(--muted); }
-.school-opt:disabled { opacity: .6; pointer-events: none; }
-.school-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--school, var(--flame)); border: 2px solid var(--ink); flex: 0 0 auto; }
-.school-list .school-opt { box-shadow: 2px 2px 0 var(--ink); padding: 10px 12px; font-size: 14px; }
-#s-school-skip { display: block; margin: 4px auto 0; }
-
-/* "don't see your school? type it" — bottom of the other-schools list */
-.school-suggest-row { display: flex; flex-direction: column; gap: 8px; margin-top: 2px; }
-.school-list .school-type-your-own {
-  justify-content: center;
-  background: none; border: none; box-shadow: none; padding: 6px 2px;
-  font-family: 'Caveat', cursive; font-weight: 700; font-size: 17px; color: var(--muted);
-  text-decoration: underline; text-decoration-style: dashed; text-underline-offset: 3px;
+.scene-opt:active { transform: translate(3px,3px); box-shadow: 0 0 0 var(--ink); }
+.scene-opt.primary { background: var(--mustard); }
+.scene-opt.scene-other { background: var(--cream); font-weight: 600; color: var(--muted); justify-content: center; }
+.scene-opt:disabled { opacity: .6; pointer-events: none; }
+.scene-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--scene, var(--flame)); border: 2px solid var(--ink); flex: 0 0 auto; }
+.scene-opt-text, .scene-row-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.scene-opt-name, .scene-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scene-meta { font-family: 'Caveat', cursive; font-weight: 700; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scene-count {
+  flex: 0 0 auto; min-width: 26px; padding: 1px 7px; text-align: center;
+  border: 2px solid var(--ink); border-radius: 999px;
+  font-size: 12px; font-weight: 700; background: var(--cream);
 }
-.school-list .school-type-your-own:active { transform: none; box-shadow: none; }
-#s-school-input-wrap { display: flex; flex-direction: column; gap: 8px; }
-#s-school-input { width: 100%; box-sizing: border-box; }
-.school-suggest-hint { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); text-align: center; }
-.school-suggest-error { font-family: 'Caveat', cursive; font-size: 14px; color: var(--flame); text-align: center; }
-.school-suggest-error:empty { display: none; }
-.school-pending-badge {
+#s-scene-skip { display: block; margin: 4px auto 0; }
+.scene-empty { text-align: center; }
+
+/* "don't see it? + create a scene" — bottom of the list */
+.scene-create-row { display: flex; flex-direction: column; gap: 8px; margin: 2px 0 12px; }
+#s-scene-create-wrap { display: flex; flex-direction: column; gap: 8px; }
+#s-scene-create-wrap[hidden] { display: none; }
+#s-scene-create-wrap .av-input { width: 100%; box-sizing: border-box; }
+.scene-create-hint { font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); text-align: center; }
+.scene-create-error { font-family: 'Caveat', cursive; font-size: 14px; color: var(--flame); text-align: center; }
+.scene-create-error:empty { display: none; }
+.scene-pending-badge {
   display: inline-block; margin-left: 6px; padding: 0 6px;
   border: 1.5px solid var(--muted); border-radius: 999px;
   font-size: 10px; font-weight: 700; color: var(--muted); vertical-align: middle;
 }
 
-/* ── Roster school scope pill ── */
-.school-scope-row { display: flex; justify-content: flex-end; margin: -4px 2px 8px; }
-.school-scope {
+/* browse sheet rows: dot · name/meta · [mute] [leave] | [join] */
+.scene-section { margin-bottom: 14px; }
+.scene-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px;
+  border: 2px solid var(--ink); border-radius: 14px;
+  background: var(--cream); box-shadow: 2px 2px 0 var(--ink);
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 14px;
+}
+.scene-row .pa-btn { flex: 0 0 auto; }
+.scene-joined-chip { flex: 0 0 auto; font-family: 'Caveat', cursive; font-weight: 700; font-size: 14px; color: var(--muted); }
+.scene-row .tog-switch { flex: 0 0 auto; padding: 0; -webkit-appearance: none; appearance: none; }
+
+/* ── Roster scene scope pill ── */
+.scene-scope-row { display: flex; justify-content: flex-end; margin: -4px 2px 8px; }
+.scene-scope {
   border: 2px solid var(--ink); border-radius: 999px;
   padding: 3px 10px;
   background: var(--cream); color: var(--ink);
@@ -2612,8 +2633,25 @@ button { font: inherit; color: inherit; }
   cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
   transition: transform .08s;
 }
-.school-scope:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
-.school-scope.active { background: var(--ink); color: var(--cream); }
+.scene-scope:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+.scene-scope.active { background: var(--ink); color: var(--cream); }
+
+/* ── ping confirm: "ping who?" scene chips ── */
+.scene-picker { margin: -4px 0 10px; }
+.scene-picker-label { font-family: 'Caveat', cursive; font-weight: 700; font-size: 16px; color: var(--muted); margin-bottom: 6px; }
+.scene-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.scene-chip {
+  border: 2px solid var(--ink); border-radius: 999px;
+  padding: 4px 11px;
+  background: var(--cream); color: var(--ink);
+  font-family: 'Space Grotesk'; font-weight: 700; font-size: 12px;
+  cursor: pointer; box-shadow: 2px 2px 0 var(--ink);
+}
+.scene-chip.active { background: var(--ink); color: var(--cream); }
+.scene-chip:active { transform: translate(2px,2px); box-shadow: 0 0 0 var(--ink); }
+
+/* notification card: which scene a ping came from */
+.pc-scene { font-family: 'Caveat', cursive; font-weight: 700; font-size: 13px; color: var(--muted); }
 
 /* ── email-required signup: inline errors + "create an account" nudge ── */
 .setup-inline-err { font-family: 'Caveat', cursive; font-size: 15px; color: var(--flame); text-align: center; margin: -6px 0 10px; }
