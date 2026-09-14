@@ -250,4 +250,19 @@ await it('unknown action → 400', async () => {
   eq(r.status, 400);
 });
 
+for (const status of [400, 401, 403, 429, 500, 503]) {
+  await it('signin-send: provider rejection ' + status + ' must not report sent', async () => {
+    seedUser('reject@example.com', true);
+    const before = globalThis.fetch;
+    globalThis.fetch = async (input, init) => String(input).startsWith('https://api.resend.com/emails')
+      ? new Response('provider rejected', { status }) : before(input, init);
+    try {
+      const r = await call({ action: 'signin-send', email: 'reject@example.com' });
+      eq(r.status, 503);
+      eq(r.body.code, 'email_unavailable');
+      ok(!r.body.sent, 'must not show sent');
+    } finally { globalThis.fetch = before; }
+  });
+}
+
 console.log(JSON.stringify(results));

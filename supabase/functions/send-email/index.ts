@@ -265,7 +265,7 @@ serve(async (req: Request) => {
       }
 
       // Send via Resend
-      await fetch('https://api.resend.com/emails', {
+      const delivery = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${RESEND_API_KEY}`,
@@ -283,6 +283,12 @@ serve(async (req: Request) => {
           </div>`
         })
       })
+
+      if (!delivery.ok) {
+        return new Response(JSON.stringify({ error: 'email is temporarily unavailable — try again shortly', code: 'email_unavailable' }), {
+          status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
 
       return new Response(JSON.stringify({ sent: true, user_id: existingUser.id }), {
         status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }

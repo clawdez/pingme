@@ -1008,16 +1008,39 @@ async function restoreTimers(p) {
 
 /* ── AUTH ── */
 async function signInSendCode(email) {
+  return requestEmailCode('signin-send', email);
+}
+
+async function requestEmailCode(action, email) {
+  const controller = new AbortController();
+  let timer;
   try {
-    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error('email request timed out'), { name: 'AbortError' }));
+        controller.abort();
+      }, 15000);
+    });
+    return await Promise.race([deadline, (async () => {
+      const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
-      body: JSON.stringify({ action: 'signin-send', email })
-    });
-    const result = await r.json();
-    if (result.error) { toast(result.error); return { ok: false, error: result.error }; }
-    return { ok: true };
-  } catch (e) { toast('sign in failed: ' + e.message); return { ok: false, error: e.message }; }
+      body: JSON.stringify({ action, email }),
+      signal: controller.signal
+      });
+      const result = await r.json().catch(() => null);
+      if (r.status === 429) return { ok: false, code: 'rate_limited', error: 'please wait a minute before requesting another code' };
+      if (r.status >= 500 || result?.code === 'email_unavailable') return { ok: false, code: 'email_unavailable', error: 'email is temporarily unavailable — try again shortly' };
+      if (result?.code === 'already_registered' && r.ok) return { ok: false, code: 'already_registered', error: 'that email is already registered — sign in instead' };
+      // Preserve the existing generic sign-in recovery contract without
+      // treating unrelated provider/network errors as evidence of a new user.
+      if (r.ok && result?.ok === false && result?.error === 'if that email exists, we sent a code') return { ok: false, code: 'signin_unconfirmed', error: result.error };
+      if (!r.ok || result?.sent !== true || result?.error) return { ok: false, code: 'send_failed', error: typeof result?.error === 'string' ? result.error : 'could not confirm the email was sent — try again' };
+      return { ok: true };
+    })()]);
+  } catch (e) {
+    return { ok: false, code: e.name === 'AbortError' ? 'timeout' : 'network_error', error: e.name === 'AbortError' ? 'request timed out — check your inbox before trying again' : 'could not send the code — check your connection and try again' };
+  } finally { clearTimeout(timer); }
 }
 
 // Email-required signup: same shape as the server-side check in send-email.
@@ -1026,16 +1049,7 @@ function isValidEmail(email) {
 }
 
 async function signupSendCode(email) {
-  try {
-    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
-      body: JSON.stringify({ action: 'signup-send', email })
-    });
-    const result = await r.json();
-    if (result.error) return { ok: false, error: result.error, code: result.code };
-    return { ok: true };
-  } catch (e) { return { ok: false, error: 'could not send the code — check your connection and try again' }; }
+  return requestEmailCode('signup-send', email);
 }
 
 // The send-email `send`/`verify` actions (link an email to the signed-in
@@ -4187,6 +4201,7 @@ function showSetupEmail(prefillEmail) {
     '<div class="setup-page s-slide-in" id="s-page-email">' +
     '<h2 class="setup-h2">enter your email</h2>' +
     '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" value="' + esc(pre) + '" autofocus/>' +
+    '<div class="setup-inline-err" id="s-email-err" role="alert"></div>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '<div class="setup-nudge" id="s-email-nudge" hidden>no account with that email yet? ' +
@@ -4209,16 +4224,19 @@ function showSetupEmail(prefillEmail) {
 
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim().toLowerCase();
-    if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
     const btn = document.getElementById('s-email-go');
+    if (btn.disabled) return;
+    const error = document.getElementById('s-email-err');
+    if (!isValidEmail(email)) { error.textContent = 'enter a valid email'; return; }
+    error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
 
     const res = await signInSendCode(email);
     if (!res.ok) {
       btn.textContent = 'send me a code'; btn.disabled = false;
-      // The server answers "if that email exists…" for unknown accounts (no
-      // enumeration), so point new people at signup unless they're rate-limited.
-      if (!/wait/i.test(res.error || '')) nudge.hidden = false;
+      error.textContent = res.error;
+      // An unavailable delivery service is not evidence of a missing account.
+      nudge.hidden = res.code !== 'signin_unconfirmed';
       return;
     }
     nudge.hidden = true;
@@ -4285,9 +4303,10 @@ function showSetupEmail(prefillEmail) {
       }
     });
 
-    document.getElementById('s-email-retry').addEventListener('click', showSetupEmail);
-    document.getElementById('s-otp-back').addEventListener('click', showSetupEmail);
+    document.getElementById('s-email-retry').addEventListener('click', () => showSetupEmail(email));
+    document.getElementById('s-otp-back').addEventListener('click', () => showSetupEmail(email));
   });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('s-email-go').click(); });
 }
 
 // Screen 1c — Email-required signup: email → code → session → name step.
