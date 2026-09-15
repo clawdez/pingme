@@ -875,10 +875,11 @@ button { font: inherit; color: inherit; }
   z-index: 30;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .2s ease;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility 0s .2s;
   display: flex; align-items: center; justify-content: center;
 }
-.sheet-wrap.open { pointer-events: auto; opacity: 1; }
+.sheet-wrap.open { pointer-events: auto; opacity: 1; visibility: visible; transition: opacity .2s ease, visibility 0s 0s; }
 /* Scrim kept for tap-anywhere-to-dismiss, but visually transparent so the
    background stays visible behind the popup (no full-screen dimming). */
 .sheet-scrim { position: absolute; inset: 0; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent; }

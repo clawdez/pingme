@@ -3728,7 +3728,7 @@ function showLinkEmail() {
     '<div style="padding:16px 0">' +
     '<h3 class="link-email-h">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
-    '<input class="link-email-input" id="link-email-input" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
+    '<input class="link-email-input" id="link-email-input" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" autofocus/>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
@@ -3761,7 +3761,7 @@ function showLinkEmail() {
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
       '<h3 class="link-email-h">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
-      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" style="letter-spacing:4px" autofocus/>' +
+      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" aria-label="verification code" style="letter-spacing:4px" autofocus/>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
@@ -3901,7 +3901,7 @@ function showSetupEmail() {
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
     '<h2 class="setup-h2">enter your email</h2>' +
-    '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
+    '<input class="setup-name-input" id="setup-email" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" autofocus/>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '<button class="setup-skip" id="s-email-back">go back</button>' +
@@ -3932,7 +3932,7 @@ function showSetupEmail() {
       '<button class="setup-back" id="s-otp-back">&larr;</button>' +
       '<h2 class="setup-h2">check your inbox</h2>' +
       '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
-      '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+      '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="verification code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
       '<button class="setup-primary" id="s-otp-go">verify</button>' +
       '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
       '</div>' +
