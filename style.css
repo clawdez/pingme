@@ -1607,6 +1607,15 @@ button { font: inherit; color: inherit; }
   text-underline-offset: 3px;
 }
 
+.setup-signin-link {
+  background: none; border: 2px solid var(--ink);
+  border-radius: 14px;
+  font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+  font-size: 15px; color: var(--ink);
+  cursor: pointer; padding: 10px 20px;
+  margin-top: 4px;
+}
+
 /* Small disclaimer text */
 .setup-disclaimer {
   font-family: 'Space Grotesk'; font-weight: 500;

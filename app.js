@@ -823,8 +823,13 @@ async function boot() {
 
   setTab('home');
   hideSplash();
-  if (!profile) setTimeout(showSetup, 300);
-  else setTimeout(maybeShowSceneNudge, 1200);
+  if (!profile) {
+    const action = new URLSearchParams(location.search).get('action');
+    if (action === 'signin') setTimeout(showSetupEmail, 300);
+    else if (action === 'signup') setTimeout(() => showSetupSignupEmail(''), 300);
+    else setTimeout(showSetup, 300);
+    try { const u = new URL(location.href); u.searchParams.delete('action'); history.replaceState(null, '', u.pathname + (u.search || '')); } catch {}
+  } else setTimeout(maybeShowSceneNudge, 1200);
 
   // #5: pull canonical venue list once we have a connection
   loadVenues();
@@ -4194,7 +4199,7 @@ function showSetup() {
 
     '<button class="setup-primary" id="s1-in">i\'m in</button>' +
     '<div class="setup-disclaimer">you\'ll hear when someone\'s looking for a game. free, no spam.</div>' +
-    '<button class="setup-skip" id="s1-signin">already have an account? sign in</button>' +
+    '<button class="setup-signin-link" id="s1-signin">already have an account? sign in</button>' +
     '</div>' + // end s-page-1
     '</div>'; // end setup-fs
 
