@@ -4284,9 +4284,11 @@ function showSetupEmail(prefillEmail) {
     const signinOtpGen = setupScreenGen;
     let navigatedAway = false;
     let inFlight = false;
+    let activeCtrl = null;
     setTimeout(() => otpInp.focus(), 80);
     emailSendCooldowns.set(email, Date.now() + 60000);
 
+    const isStale = () => navigatedAway || setupScreenGen !== signinOtpGen;
     const resetVerify = (msg) => {
       otpErr.textContent = msg || '';
       verifyBtn.textContent = 'verify';
@@ -4304,6 +4306,7 @@ function showSetupEmail(prefillEmail) {
 
       try {
         const ctrl = new AbortController();
+        activeCtrl = ctrl;
         setTimeout(() => ctrl.abort(), 15000);
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
@@ -4311,20 +4314,21 @@ function showSetupEmail(prefillEmail) {
           body: JSON.stringify({ action: 'signin-verify', email, code }),
           signal: ctrl.signal
         });
-        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
+        if (isStale()) return;
         const result = await r.json().catch(() => null);
-        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
+        if (isStale()) return;
         if (!result || (!result.token_hash && !result.error)) {
           resetVerify('unexpected response — try again or request a new code');
           return;
         }
         if (result.error) { resetVerify(result.error); return; }
+        if (isStale()) return;
         const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
+        if (isStale()) return;
         if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
         localStorage.setItem('pm_linked_email', email);
       } catch (e) {
-        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
+        if (isStale()) return;
         resetVerify(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
       }
     });
@@ -4364,7 +4368,7 @@ function showSetupEmail(prefillEmail) {
       updateResendUI();
     });
 
-    const navAway = () => { navigatedAway = true; if (resendTimer) clearTimeout(resendTimer); showSetupEmail(email); };
+    const navAway = () => { navigatedAway = true; if (activeCtrl) activeCtrl.abort(); if (resendTimer) clearTimeout(resendTimer); showSetupEmail(email); };
     document.getElementById('s-email-retry').addEventListener('click', navAway);
     document.getElementById('s-otp-back').addEventListener('click', navAway);
   });
@@ -4455,7 +4459,9 @@ function showSetupSignupOtp(email) {
   const otpGen = ++setupScreenGen;
   let navigatedAway = false;
   let inFlight = false;
+  let activeCtrl = null;
   setTimeout(() => otpInp.focus(), 80);
+  const isStale = () => navigatedAway || setupScreenGen !== otpGen;
   const reset = (msg) => { err.textContent = msg || ''; verifyBtn.textContent = 'verify'; verifyBtn.disabled = false; inFlight = false; };
 
   verifyBtn.addEventListener('click', async () => {
@@ -4467,6 +4473,7 @@ function showSetupSignupOtp(email) {
     inFlight = true;
     try {
       const ctrl = new AbortController();
+      activeCtrl = ctrl;
       setTimeout(() => ctrl.abort(), 15000);
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
@@ -4474,17 +4481,18 @@ function showSetupSignupOtp(email) {
         body: JSON.stringify({ action: 'signup-verify', email, code }),
         signal: ctrl.signal
       });
-      if (navigatedAway || setupScreenGen !== otpGen) return;
+      if (isStale()) return;
       const result = await r.json().catch(() => null);
-      if (navigatedAway || setupScreenGen !== otpGen) return;
+      if (isStale()) return;
       if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
       if (result.error) { reset(result.error); return; }
+      if (isStale()) return;
       const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-      if (navigatedAway || setupScreenGen !== otpGen) return;
+      if (isStale()) return;
       if (error) { reset('couldn\'t sign you in — try again or request a new code'); return; }
       localStorage.setItem('pm_linked_email', email);
     } catch (e) {
-      if (navigatedAway || setupScreenGen !== otpGen) return;
+      if (isStale()) return;
       reset(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
     }
   });
@@ -4522,7 +4530,7 @@ function showSetupSignupOtp(email) {
     }
     updateSignupResendUI();
   });
-  const navAway = () => { navigatedAway = true; if (signupResendTimer) clearTimeout(signupResendTimer); showSetupSignupEmail(email); };
+  const navAway = () => { navigatedAway = true; if (activeCtrl) activeCtrl.abort(); if (signupResendTimer) clearTimeout(signupResendTimer); showSetupSignupEmail(email); };
   document.getElementById('s-otp-retry').addEventListener('click', navAway);
   document.getElementById('s-otp-back').addEventListener('click', navAway);
 }
