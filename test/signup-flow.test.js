@@ -285,3 +285,24 @@ test('link-email sends the user session token, not the anon key (function requir
   assert.equal(win.__fetch[1].body.action, 'verify');
   assert.equal(win.__fetch[1].headers.Authorization, 'Bearer sess-tok');
 });
+
+test('#app is inert while setup is active', async (t) => {
+  const { win } = loadSettled(t).then ? await loadSettled(t) : loadSettled(t);
+  await tick(350);
+  const app = win.document.getElementById('app');
+  const setupRoot = win.document.getElementById('setup-root');
+  assert.equal(app.inert, true, '#app should be inert during setup');
+  assert.equal(app.getAttribute('aria-hidden'), 'true', '#app should have aria-hidden during setup');
+  assert.equal(setupRoot.getAttribute('role'), 'dialog', 'setup-root should have dialog role');
+  assert.ok(setupRoot.innerHTML.length > 0, 'setup-root should have content');
+});
+
+test('#app is restored after setup completes', async (t) => {
+  const { win } = loadApp(t);
+  await tick(350);
+  const app = win.document.getElementById('app');
+  assert.equal(app.inert, true, '#app inert during setup');
+  win.eval('setSetupActive(false); document.getElementById("setup-root").innerHTML = "";');
+  assert.equal(app.inert, false, '#app should not be inert after setup clears');
+  assert.equal(app.getAttribute('aria-hidden'), null, 'aria-hidden should be removed');
+});

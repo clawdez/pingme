@@ -49,7 +49,7 @@ test('sign-in outage keeps email, restores button and does not offer account cre
   const element=id=>elements[id]||= {value:'',hidden:true,disabled:false,textContent:'',handlers:{},focus(){},addEventListener(event,fn){this.handlers[event]=fn;}};
   const root=element('setup-root');
   const context=app(async()=>({status:503,ok:false,json:async()=>({code:'email_unavailable'})}));
-  Object.assign(context,{document:{getElementById:element},esc:s=>s,FEATURES:{},showSetup(){},showSetupSignupEmail(){},setTimeout(){return 1;}});
+  Object.assign(context,{document:{getElementById:element},esc:s=>s,FEATURES:{},showSetup(){},showSetupSignupEmail(){},setSetupActive(){},setTimeout(){return 1;}});
   vm.runInContext(src.slice(src.indexOf('function showSetupEmail('),src.indexOf('// Screen 1c')),context);
   context.showSetupEmail('');
   element('setup-email').value='kept@example.com';

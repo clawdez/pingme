@@ -752,6 +752,7 @@ function bindAuthListener() {
         profile = await restoreTimers(existing);
         homeState = profile.status || 'off';
         document.getElementById('setup-root').innerHTML = '';
+        setSetupActive(false);
         await loadFriends();
         await loadRoster();
         await loadPings();
@@ -3216,6 +3217,7 @@ function renderSceneChooser(box, opts) {
 
 // Onboarding step (after the name screen): "where do you play?"
 function showSetupScene(next) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4132,8 +4134,21 @@ function isStandalonePWA() {
 
 /* ── T8: SETUP — 3-screen onboarding ── */
 
+function setSetupActive(active) {
+  const app = document.getElementById('app');
+  const root = document.getElementById('setup-root');
+  if (active) {
+    if (app) { app.inert = true; app.setAttribute('aria-hidden', 'true'); }
+    if (root) { root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', 'setup'); }
+  } else {
+    if (app) { app.inert = false; app.removeAttribute('aria-hidden'); }
+    if (root) { root.removeAttribute('role'); root.removeAttribute('aria-modal'); root.removeAttribute('aria-label'); }
+  }
+}
+
 // Screen 1 — Hero
 function showSetup() {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4194,6 +4209,7 @@ window.showSetup = showSetup;
 
 // Screen 1b — Email sign-in via custom OTP
 function showSetupEmail(prefillEmail) {
+  setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
   root.innerHTML =
@@ -4314,6 +4330,7 @@ function showSetupEmail(prefillEmail) {
 // back in from any device (the old anonymous signup lived only in this
 // browser's localStorage).
 function showSetupSignupEmail(prefillEmail) {
+  setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
   root.innerHTML =
@@ -4366,6 +4383,7 @@ function showSetupSignupEmail(prefillEmail) {
 }
 
 function showSetupSignupOtp(email) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4434,6 +4452,7 @@ function showSetupSignupOtp(email) {
 
 // Screen 2 — Name (called after magic link auth or as fallback)
 async function showSetupScreen2(user, existingProfile, prefill) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4527,6 +4546,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
 
 // Screen 3 — Push opt-in (T8 + T9)
 function showSetupScreen3() {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
 
   // T9: detect platform
@@ -4580,6 +4600,7 @@ function showSetupScreen3() {
 
   const done = () => {
     root.innerHTML = '';
+    setSetupActive(false);
     renderHome();
     registerPushSubscription();
     toast('welcome, ' + (profile?.name || 'raider'));
