@@ -4253,17 +4253,18 @@ function showSetupEmail(prefillEmail) {
     if (cooldownLeft > 0) { error.textContent = 'code already sent — wait ' + cooldownLeft + 's'; return; }
     error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
     const res = await signInSendCode(email);
     if (setupScreenGen !== myGen) return;
     if (!res.ok) {
+      emailSendCooldowns.delete(email);
       btn.textContent = 'send me a code'; btn.disabled = false;
       error.textContent = res.error;
       nudge.hidden = res.code !== 'signin_unconfirmed';
       return;
     }
     nudge.hidden = true;
-    emailSendCooldowns.set(email, Date.now() + 60000);
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
@@ -4429,14 +4430,15 @@ function showSetupSignupEmail(prefillEmail) {
     if (cooldownLeft > 0) { showErr('code already sent — wait ' + cooldownLeft + 's'); return; }
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
+    emailSendCooldowns.set(email, Date.now() + 60000);
     const res = await signupSendCode(email);
     if (setupScreenGen !== signupGen) return;
     if (!res.ok) {
+      emailSendCooldowns.delete(email);
       btn.textContent = 'send me a code'; btn.disabled = false;
       showErr(res.error, res.code === 'already_registered');
       return;
     }
-    emailSendCooldowns.set(email, Date.now() + 60000);
     showSetupSignupOtp(email);
   });
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
