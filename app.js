@@ -622,6 +622,8 @@ let playingExpiryTimer = null; // 90-min auto-expire for "playing" status
 let downReminderTimer = null; // 5-min warning before expiry
 let lastPingTime = 0; // rate limit pings (ms)
 const PING_COOLDOWN = 10000; // 10 seconds between pings
+const emailSendCooldowns = new Map(); // email → expiry timestamp (shared across screens)
+let setupScreenGen = 0; // incremented on every screen transition to detect stale callbacks
 
 /* ── FAVORITES ── */
 function getFavorites() {
@@ -4238,6 +4240,7 @@ function showSetupEmail(prefillEmail) {
   document.getElementById('s-email-new').addEventListener('click', toSignup);
   document.getElementById('s-email-nudge-go').addEventListener('click', toSignup);
 
+  const myGen = ++setupScreenGen;
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim().toLowerCase();
     const btn = document.getElementById('s-email-go');
@@ -4248,14 +4251,15 @@ function showSetupEmail(prefillEmail) {
     btn.textContent = 'sending...'; btn.disabled = true;
 
     const res = await signInSendCode(email);
+    if (setupScreenGen !== myGen) return;
     if (!res.ok) {
       btn.textContent = 'send me a code'; btn.disabled = false;
       error.textContent = res.error;
-      // An unavailable delivery service is not evidence of a missing account.
       nudge.hidden = res.code !== 'signin_unconfirmed';
       return;
     }
     nudge.hidden = true;
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
@@ -4277,9 +4281,11 @@ function showSetupEmail(prefillEmail) {
     const otpInp = document.getElementById('setup-otp');
     const otpErr = document.getElementById('s-signin-otp-err');
     const verifyBtn = document.getElementById('s-otp-go');
+    const signinOtpGen = setupScreenGen;
     let navigatedAway = false;
     let inFlight = false;
     setTimeout(() => otpInp.focus(), 80);
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
     const resetVerify = (msg) => {
       otpErr.textContent = msg || '';
@@ -4305,20 +4311,20 @@ function showSetupEmail(prefillEmail) {
           body: JSON.stringify({ action: 'signin-verify', email, code }),
           signal: ctrl.signal
         });
-        if (navigatedAway) return;
+        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
         const result = await r.json().catch(() => null);
-        if (navigatedAway) return;
+        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
         if (!result || (!result.token_hash && !result.error)) {
           resetVerify('unexpected response — try again or request a new code');
           return;
         }
         if (result.error) { resetVerify(result.error); return; }
         const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-        if (navigatedAway) return;
+        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
         if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
         localStorage.setItem('pm_linked_email', email);
       } catch (e) {
-        if (navigatedAway) return;
+        if (navigatedAway || setupScreenGen !== signinOtpGen) return;
         resetVerify(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
       }
     });
@@ -4327,24 +4333,38 @@ function showSetupEmail(prefillEmail) {
       if (otpInp.value.trim().length === 6) verifyBtn.click();
     });
 
-    let resendCooldown = 0;
     const resendBtn = document.getElementById('s-otp-resend-signin');
+    const resendLabel = 'didn\'t get it? send a new code';
+    let resendTimer = null;
+    function updateResendUI() {
+      const expiry = emailSendCooldowns.get(email) || 0;
+      const remaining = Math.ceil((expiry - Date.now()) / 1000);
+      if (remaining > 0) {
+        resendBtn.disabled = true;
+        resendBtn.textContent = 'resend in ' + remaining + 's';
+        resendTimer = setTimeout(updateResendUI, 1000);
+      } else {
+        resendBtn.disabled = false;
+        resendBtn.textContent = resendLabel;
+      }
+    }
+    updateResendUI();
     resendBtn.addEventListener('click', async () => {
-      if (resendBtn.disabled || resendCooldown > Date.now()) return;
+      if (resendBtn.disabled) return;
       resendBtn.disabled = true;
       const res = await signInSendCode(email);
       if (navigatedAway) return;
-      resendBtn.disabled = false;
       if (res.ok) {
         otpErr.textContent = '';
         toast('new code sent to ' + email);
-        resendCooldown = Date.now() + 60000;
+        emailSendCooldowns.set(email, Date.now() + 60000);
       } else {
         otpErr.textContent = res.error || 'could not resend — try again';
       }
+      updateResendUI();
     });
 
-    const navAway = () => { navigatedAway = true; showSetupEmail(email); };
+    const navAway = () => { navigatedAway = true; if (resendTimer) clearTimeout(resendTimer); showSetupEmail(email); };
     document.getElementById('s-email-retry').addEventListener('click', navAway);
     document.getElementById('s-otp-back').addEventListener('click', navAway);
   });
@@ -4391,6 +4411,7 @@ function showSetupSignupEmail(prefillEmail) {
     }
   };
 
+  const signupGen = ++setupScreenGen;
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
     const email = inp.value.trim().toLowerCase();
@@ -4398,11 +4419,13 @@ function showSetupSignupEmail(prefillEmail) {
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
     const res = await signupSendCode(email);
+    if (setupScreenGen !== signupGen) return;
     if (!res.ok) {
       btn.textContent = 'send me a code'; btn.disabled = false;
       showErr(res.error, res.code === 'already_registered');
       return;
     }
+    emailSendCooldowns.set(email, Date.now() + 60000);
     showSetupSignupOtp(email);
   });
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') btn.click(); });
@@ -4429,6 +4452,7 @@ function showSetupSignupOtp(email) {
   const otpInp = document.getElementById('setup-otp');
   const err = document.getElementById('s-otp-err');
   const verifyBtn = document.getElementById('s-otp-go');
+  const otpGen = ++setupScreenGen;
   let navigatedAway = false;
   let inFlight = false;
   setTimeout(() => otpInp.focus(), 80);
@@ -4450,17 +4474,17 @@ function showSetupSignupOtp(email) {
         body: JSON.stringify({ action: 'signup-verify', email, code }),
         signal: ctrl.signal
       });
-      if (navigatedAway) return;
+      if (navigatedAway || setupScreenGen !== otpGen) return;
       const result = await r.json().catch(() => null);
-      if (navigatedAway) return;
+      if (navigatedAway || setupScreenGen !== otpGen) return;
       if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
       if (result.error) { reset(result.error); return; }
       const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-      if (navigatedAway) return;
+      if (navigatedAway || setupScreenGen !== otpGen) return;
       if (error) { reset('couldn\'t sign you in — try again or request a new code'); return; }
       localStorage.setItem('pm_linked_email', email);
     } catch (e) {
-      if (navigatedAway) return;
+      if (navigatedAway || setupScreenGen !== otpGen) return;
       reset(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
     }
   });
@@ -4468,23 +4492,37 @@ function showSetupSignupOtp(email) {
     if (otpInp.value.trim().length === 6) verifyBtn.click();
   });
 
-  let resendCooldown = 0;
   const resendBtn = document.getElementById('s-otp-resend');
+  const signupResendLabel = 'didn\'t get it? send a new code';
+  let signupResendTimer = null;
+  function updateSignupResendUI() {
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      resendBtn.disabled = true;
+      resendBtn.textContent = 'resend in ' + remaining + 's';
+      signupResendTimer = setTimeout(updateSignupResendUI, 1000);
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.textContent = signupResendLabel;
+    }
+  }
+  updateSignupResendUI();
   resendBtn.addEventListener('click', async () => {
-    if (resendBtn.disabled || resendCooldown > Date.now()) return;
+    if (resendBtn.disabled) return;
     resendBtn.disabled = true;
     const res = await signupSendCode(email);
-    if (navigatedAway) return;
-    resendBtn.disabled = false;
+    if (navigatedAway || setupScreenGen !== otpGen) return;
     if (res.ok) {
       err.textContent = '';
       toast('new code sent to ' + email);
-      resendCooldown = Date.now() + 60000;
+      emailSendCooldowns.set(email, Date.now() + 60000);
     } else {
       err.textContent = res.error || 'could not resend — try again';
     }
+    updateSignupResendUI();
   });
-  const navAway = () => { navigatedAway = true; showSetupSignupEmail(email); };
+  const navAway = () => { navigatedAway = true; if (signupResendTimer) clearTimeout(signupResendTimer); showSetupSignupEmail(email); };
   document.getElementById('s-otp-retry').addEventListener('click', navAway);
   document.getElementById('s-otp-back').addEventListener('click', navAway);
 }

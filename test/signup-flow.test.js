@@ -217,6 +217,9 @@ test('expired code: error shown, "send a new code" requests a fresh one and stay
   await tick();
   assert.match(byId(win, 's-otp-err').textContent, /expired/);
   assert.equal(win.__verifyOtp.length, 0);
+  win.eval('emailSendCooldowns.clear()');
+  await tick(1200);
+  assert.equal(byId(win, 's-otp-resend').disabled, false, 'resend enabled after cooldown cleared');
   byId(win, 's-otp-resend').click();
   await tick();
   assert.equal(win.__fetch.filter(f => f.body.action === 'signup-send').length, 2, 'fresh code requested');
