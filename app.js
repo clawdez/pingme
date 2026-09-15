@@ -4247,6 +4247,24 @@ function showSetupEmail(prefillEmail) {
   document.getElementById('s-email-nudge-go').addEventListener('click', toSignup);
 
   const myGen = ++setupScreenGen;
+  const sendBtn = document.getElementById('s-email-go');
+  const sendBtnLabel = 'send me a code';
+  let sendCooldownTimer = null;
+  function updateSendCooldownUI() {
+    const email = inp.value.trim().toLowerCase();
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'code sent — wait ' + remaining + 's';
+      sendCooldownTimer = setTimeout(updateSendCooldownUI, 1000);
+    } else {
+      sendBtn.disabled = false;
+      sendBtn.textContent = sendBtnLabel;
+    }
+  }
+  inp.addEventListener('input', () => { if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; } updateSendCooldownUI(); });
+  updateSendCooldownUI();
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim().toLowerCase();
     const btn = document.getElementById('s-email-go');
@@ -4255,7 +4273,7 @@ function showSetupEmail(prefillEmail) {
     if (!isValidEmail(email)) { error.textContent = 'enter a valid email'; return; }
     const cooldownExpiry = emailSendCooldowns.get(email) || 0;
     const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
-    if (cooldownLeft > 0) { error.textContent = 'code already sent — wait ' + cooldownLeft + 's'; return; }
+    if (cooldownLeft > 0) { error.textContent = 'code already sent — wait ' + cooldownLeft + 's'; btn.disabled = true; updateSendCooldownUI(); return; }
     error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
     emailSendCooldowns.set(email, Date.now() + 60000);
@@ -4264,7 +4282,7 @@ function showSetupEmail(prefillEmail) {
     if (setupScreenGen !== myGen) return;
     if (!res.ok) {
       emailSendCooldowns.delete(email);
-      btn.textContent = 'send me a code'; btn.disabled = false;
+      btn.textContent = sendBtnLabel; btn.disabled = false;
       error.textContent = res.error;
       nudge.hidden = res.code !== 'signin_unconfirmed';
       return;
@@ -4426,13 +4444,30 @@ function showSetupSignupEmail(prefillEmail) {
   };
 
   const signupGen = ++setupScreenGen;
+  const signupBtnLabel = 'send me a code';
+  let signupCooldownTimer = null;
+  function updateSignupCooldownUI() {
+    const email = inp.value.trim().toLowerCase();
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      btn.disabled = true;
+      btn.textContent = 'code sent — wait ' + remaining + 's';
+      signupCooldownTimer = setTimeout(updateSignupCooldownUI, 1000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = signupBtnLabel;
+    }
+  }
+  inp.addEventListener('input', () => { if (signupCooldownTimer) { clearTimeout(signupCooldownTimer); signupCooldownTimer = null; } updateSignupCooldownUI(); });
+  updateSignupCooldownUI();
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
     const email = inp.value.trim().toLowerCase();
     if (!isValidEmail(email)) { showErr('enter a valid email'); return; }
     const cooldownExpiry = emailSendCooldowns.get(email) || 0;
     const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
-    if (cooldownLeft > 0) { showErr('code already sent — wait ' + cooldownLeft + 's'); return; }
+    if (cooldownLeft > 0) { showErr('code already sent — wait ' + cooldownLeft + 's'); btn.disabled = true; updateSignupCooldownUI(); return; }
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
     emailSendCooldowns.set(email, Date.now() + 60000);
@@ -4440,7 +4475,7 @@ function showSetupSignupEmail(prefillEmail) {
     if (setupScreenGen !== signupGen) return;
     if (!res.ok) {
       emailSendCooldowns.delete(email);
-      btn.textContent = 'send me a code'; btn.disabled = false;
+      btn.textContent = signupBtnLabel; btn.disabled = false;
       showErr(res.error, res.code === 'already_registered');
       return;
     }
