@@ -4267,19 +4267,34 @@ function showSetupEmail(prefillEmail) {
       '<h2 class="setup-h2">check your inbox</h2>' +
       '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
       '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="verification code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+      '<div class="setup-inline-err" id="s-signin-otp-err" role="alert"></div>' +
       '<button class="setup-primary" id="s-otp-go">verify</button>' +
+      '<button class="setup-skip" id="s-otp-resend-signin">didn\'t get it? send a new code</button>' +
       '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
       '</div>' +
       '</div>';
 
     const otpInp = document.getElementById('setup-otp');
+    const otpErr = document.getElementById('s-signin-otp-err');
+    const verifyBtn = document.getElementById('s-otp-go');
+    let navigatedAway = false;
+    let inFlight = false;
     setTimeout(() => otpInp.focus(), 80);
 
-    document.getElementById('s-otp-go').addEventListener('click', async () => {
+    const resetVerify = (msg) => {
+      otpErr.textContent = msg || '';
+      verifyBtn.textContent = 'verify';
+      verifyBtn.disabled = false;
+      inFlight = false;
+    };
+
+    verifyBtn.addEventListener('click', async () => {
+      if (verifyBtn.disabled || inFlight) return;
       const code = otpInp.value.trim();
-      if (code.length !== 6) { toast('enter the 6-digit code'); return; }
-      const verifyBtn = document.getElementById('s-otp-go');
+      if (!/^\d{6}$/.test(code)) { otpErr.textContent = 'enter the 6-digit code'; return; }
+      otpErr.textContent = '';
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      inFlight = true;
 
       try {
         const ctrl = new AbortController();
@@ -4290,37 +4305,48 @@ function showSetupEmail(prefillEmail) {
           body: JSON.stringify({ action: 'signin-verify', email, code }),
           signal: ctrl.signal
         });
-        const result = await r.json();
-        if (result.error) {
-          toast(result.error);
-          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (navigatedAway) return;
+        const result = await r.json().catch(() => null);
+        if (navigatedAway) return;
+        if (!result || (!result.token_hash && !result.error)) {
+          resetVerify('unexpected response — try again or request a new code');
           return;
         }
-        if (result.token_hash) {
-          // Use the token to sign in via Supabase client
-          const { data, error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-          if (error) {
-            toast('sign in failed — try again');
-            verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
-            return;
-          }
-          // Auth succeeded — onAuthStateChange will handle the rest
-        }
+        if (result.error) { resetVerify(result.error); return; }
+        const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+        if (navigatedAway) return;
+        if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
+        localStorage.setItem('pm_linked_email', email);
       } catch (e) {
-        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
-        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (navigatedAway) return;
+        resetVerify(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
       }
     });
 
-    // Auto-submit when 6 digits entered
     otpInp.addEventListener('input', () => {
-      if (otpInp.value.trim().length === 6) {
-        document.getElementById('s-otp-go').click();
+      if (otpInp.value.trim().length === 6) verifyBtn.click();
+    });
+
+    let resendCooldown = 0;
+    const resendBtn = document.getElementById('s-otp-resend-signin');
+    resendBtn.addEventListener('click', async () => {
+      if (resendBtn.disabled || resendCooldown > Date.now()) return;
+      resendBtn.disabled = true;
+      const res = await signInSendCode(email);
+      if (navigatedAway) return;
+      resendBtn.disabled = false;
+      if (res.ok) {
+        otpErr.textContent = '';
+        toast('new code sent to ' + email);
+        resendCooldown = Date.now() + 60000;
+      } else {
+        otpErr.textContent = res.error || 'could not resend — try again';
       }
     });
 
-    document.getElementById('s-email-retry').addEventListener('click', () => showSetupEmail(email));
-    document.getElementById('s-otp-back').addEventListener('click', () => showSetupEmail(email));
+    const navAway = () => { navigatedAway = true; showSetupEmail(email); };
+    document.getElementById('s-email-retry').addEventListener('click', navAway);
+    document.getElementById('s-otp-back').addEventListener('click', navAway);
   });
   inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('s-email-go').click(); });
 }
