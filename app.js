@@ -4263,8 +4263,9 @@ function showSetupEmail(prefillEmail) {
       sendBtn.textContent = sendBtnLabel;
     }
   }
-  inp.addEventListener('input', () => { if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; } updateSendCooldownUI(); });
+  inp.addEventListener('input', () => { signinSendForEmail = null; if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; } updateSendCooldownUI(); });
   updateSendCooldownUI();
+  let signinSendForEmail = null;
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim().toLowerCase();
     const btn = document.getElementById('s-email-go');
@@ -4277,9 +4278,11 @@ function showSetupEmail(prefillEmail) {
     error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
     emailSendCooldowns.set(email, Date.now() + 60000);
+    signinSendForEmail = email;
 
     const res = await signInSendCode(email);
     if (setupScreenGen !== myGen) return;
+    if (signinSendForEmail !== email) return;
     if (!res.ok) {
       emailSendCooldowns.delete(email);
       btn.textContent = sendBtnLabel; btn.disabled = false;
@@ -4459,8 +4462,9 @@ function showSetupSignupEmail(prefillEmail) {
       btn.textContent = signupBtnLabel;
     }
   }
-  inp.addEventListener('input', () => { if (signupCooldownTimer) { clearTimeout(signupCooldownTimer); signupCooldownTimer = null; } updateSignupCooldownUI(); });
+  inp.addEventListener('input', () => { signupSendForEmail = null; if (signupCooldownTimer) { clearTimeout(signupCooldownTimer); signupCooldownTimer = null; } updateSignupCooldownUI(); });
   updateSignupCooldownUI();
+  let signupSendForEmail = null;
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
     const email = inp.value.trim().toLowerCase();
@@ -4471,8 +4475,10 @@ function showSetupSignupEmail(prefillEmail) {
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
     emailSendCooldowns.set(email, Date.now() + 60000);
+    signupSendForEmail = email;
     const res = await signupSendCode(email);
     if (setupScreenGen !== signupGen) return;
+    if (signupSendForEmail !== email) return;
     if (!res.ok) {
       emailSendCooldowns.delete(email);
       btn.textContent = signupBtnLabel; btn.disabled = false;
