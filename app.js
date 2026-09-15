@@ -4150,6 +4150,7 @@ function setSetupActive(active) {
 
 // Screen 1 — Hero
 function showSetup() {
+  ++setupScreenGen;
   setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
@@ -4247,6 +4248,9 @@ function showSetupEmail(prefillEmail) {
     if (btn.disabled) return;
     const error = document.getElementById('s-email-err');
     if (!isValidEmail(email)) { error.textContent = 'enter a valid email'; return; }
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { error.textContent = 'code already sent — wait ' + cooldownLeft + 's'; return; }
     error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
 
@@ -4420,6 +4424,9 @@ function showSetupSignupEmail(prefillEmail) {
     if (btn.disabled) return;
     const email = inp.value.trim().toLowerCase();
     if (!isValidEmail(email)) { showErr('enter a valid email'); return; }
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { showErr('code already sent — wait ' + cooldownLeft + 's'); return; }
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
     const res = await signupSendCode(email);
