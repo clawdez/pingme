@@ -4064,12 +4064,17 @@ function showLinkEmail() {
   document.getElementById('link-email-cancel').addEventListener('click', () => {
     if (notisSection) notisSection.style.display = '';
     renderMe();
+    requestAnimationFrame(() => document.getElementById('row-email')?.focus());
   });
 
   document.getElementById('link-email-go').addEventListener('click', async () => {
     const email = document.getElementById('link-email-input').value.trim();
     if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
     const btn = document.getElementById('link-email-go');
+    // Cooldown: reuse the shared emailSendCooldowns map
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { toast('code already sent — wait ' + cooldownLeft + 's'); return; }
     btn.textContent = 'sending...'; btn.disabled = true;
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
@@ -4082,12 +4087,15 @@ function showLinkEmail() {
         body: JSON.stringify({ action: 'send', email, user_id: profile.id }),
         signal: sendCtrl.signal
       });
+      if (gen !== _linkEmailGen || !document.getElementById('link-email-go')) return;
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
     } catch (e) {
+      if (gen !== _linkEmailGen) return;
       toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
       btn.textContent = 'send code'; btn.disabled = false; return;
     }
     if (gen !== _linkEmailGen || !document.getElementById('link-email-input')) return;
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
     meWrap.innerHTML =
       '<div style="padding:16px 0">' +
@@ -4116,6 +4124,7 @@ function showLinkEmail() {
           body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
           signal: ctrl.signal
         });
+        if (gen !== _linkEmailGen || !document.getElementById('link-email-verify')) return;
         if (!r.ok) {
           toast('verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
@@ -4129,6 +4138,7 @@ function showLinkEmail() {
           return;
         }
       } catch (e) {
+        if (gen !== _linkEmailGen) return;
         toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
@@ -4157,6 +4167,7 @@ function showLinkEmail() {
     document.getElementById('link-email-done').addEventListener('click', () => {
       if (notisSection) notisSection.style.display = '';
       renderMe();
+      requestAnimationFrame(() => document.getElementById('row-email')?.focus());
     });
   });
 }
