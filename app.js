@@ -1752,6 +1752,19 @@ function openEmailActions() {
 }
 
 /* ── SHEETS ── */
+function openProfileStatSheet(id, opener) {
+  const sheet = document.getElementById(id);
+  if (!sheet) return;
+  sheet._statOpener = opener;
+  sheet.classList.add('open');
+  sheet.querySelector('.modal-close')?.focus();
+}
+function activateProfileStat(e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  if (!e.repeat) e.currentTarget.click();
+}
+
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
 // Handle both click and touchend for iOS reliability
 function handleDismiss(e) {
@@ -1761,6 +1774,9 @@ function handleDismiss(e) {
   if (!wrap) return;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
+  const statOpener = wrap._statOpener;
+  delete wrap._statOpener;
+  if (statOpener?.isConnected && statOpener.closest('#sheet-me.open') && !statOpener.closest('[inert], [aria-hidden="true"]')) statOpener.focus();
   // Reset firing locks immediately so re-entry to profile is instant.
   // Bug (c): when closing the profile sheet, ALL debounce flags must reset —
   // previously a stale lock would block re-entry on a fast re-tap.
@@ -3812,16 +3828,18 @@ function renderMe() {
       lbActiveTab = 'referrals';
       renderLeaderboard();
       renderMyInviteCodes();
-      document.getElementById('sheet-rank')?.classList.add('open');
+      openProfileStatSheet('sheet-rank', statRank);
     });
+    statRank.addEventListener('keydown', activateProfileStat);
   }
   const statElo = document.getElementById('stat-elo');
   if (statElo && !statElo._wired) {
     statElo._wired = true;
     statElo.addEventListener('click', () => {
       renderEloSheet();
-      document.getElementById('sheet-elo')?.classList.add('open');
+      openProfileStatSheet('sheet-elo', statElo);
     });
+    statElo.addEventListener('keydown', activateProfileStat);
   }
 
   // Email row icon click handler is wired globally at script startup
@@ -4089,9 +4107,15 @@ function showLinkEmail() {
           body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
           signal: ctrl.signal
         });
-        const result = await r.json();
-        if (result.error) {
-          toast(result.error);
+        if (!r.ok) {
+          toast('verification failed — try again');
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          return;
+        }
+        let result;
+        try { result = await r.json(); } catch { result = {}; }
+        if (result.error || result.verified !== true) {
+          toast(result.error || 'verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
