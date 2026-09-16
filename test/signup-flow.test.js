@@ -157,7 +157,7 @@ test('happy path: email → signup-send → code → signup-verify → verifyOtp
   win.__handlers['signup-send'] = { sent: true };
   win.__handlers['signup-verify'] = (b) => b.code === '123456'
     ? { verified: true, token_hash: 'th-1' }
-    : { ok: false, error: 'invalid code (4 attempts left)' };
+    : { ok: false, code: 'invalid', error: 'invalid code (4 attempts left)' };
   win.eval('showSetupSignupEmail()');
   byId(win, 'setup-signup-email').value = '  Ez@Example.com ';
   byId(win, 's-signup-go').click();
@@ -207,7 +207,7 @@ test('happy path: email → signup-send → code → signup-verify → verifyOtp
 test('expired code: error shown, "send a new code" requests a fresh one and stays on the code screen', async (t) => {
   const { win } = await loadSettled(t);
   win.__handlers['signup-send'] = { sent: true };
-  win.__handlers['signup-verify'] = { ok: false, error: 'invalid or expired code' };
+  win.__handlers['signup-verify'] = { ok: false, code: 'invalid', error: 'invalid or expired code' };
   win.eval('showSetupSignupEmail()');
   byId(win, 'setup-signup-email').value = 'ez@example.com';
   byId(win, 's-signup-go').click();

@@ -163,14 +163,14 @@ serve(async (req: Request) => {
         .single()
 
       if (!otpRow) {
-        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'invalid or expired code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
       if (otpRow.attempts >= 5) {
         await sb.from('email_otps').delete().eq('user_id', user_id)
-        return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'too many attempts — request a new code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -190,7 +190,7 @@ serve(async (req: Request) => {
       await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', user_id)
 
       if (otpRow.code !== code) {
-        return new Response(JSON.stringify({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -305,7 +305,7 @@ serve(async (req: Request) => {
       const findData = await findRes.json()
       const existingUser = findData.users?.find((u: any) => u.email === email)
       if (!existingUser) {
-        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'invalid or expired code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -318,14 +318,14 @@ serve(async (req: Request) => {
         .single()
 
       if (!otpRow) {
-        return new Response(JSON.stringify({ ok: false, error: 'invalid or expired code' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'invalid or expired code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
       if (otpRow.attempts >= 5) {
         await sb.from('email_otps').delete().eq('user_id', existingUser.id)
-        return new Response(JSON.stringify({ ok: false, error: 'too many attempts — request a new code' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'too many attempts — request a new code' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -344,7 +344,7 @@ serve(async (req: Request) => {
       await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', existingUser.id)
 
       if (otpRow.code !== code) {
-        return new Response(JSON.stringify({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -358,7 +358,7 @@ serve(async (req: Request) => {
       })
 
       if (linkErr || !linkData) {
-        return new Response(JSON.stringify({ ok: false, error: 'failed to generate session' }), {
+        return new Response(JSON.stringify({ ok: false, code: 'invalid', error: 'failed to generate session' }), {
           status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
@@ -452,13 +452,13 @@ serve(async (req: Request) => {
     if (action === 'signup-verify') {
       const normEmail = normaliseEmail(email)
       const codeStr = typeof code === 'string' ? code.trim() : ''
-      if (!normEmail || !/^\d{6}$/.test(codeStr)) return json({ ok: false, error: 'invalid or expired code' })
+      if (!normEmail || !/^\d{6}$/.test(codeStr)) return json({ ok: false, code: 'invalid', error: 'invalid or expired code' })
 
       const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
       const user = await findUserByEmail(normEmail)
       // Unknown email, or an account that is already registered (must sign in):
       // same generic answer either way.
-      if (!user || user.email_confirmed_at) return json({ ok: false, error: 'invalid or expired code' })
+      if (!user || user.email_confirmed_at) return json({ ok: false, code: 'invalid', error: 'invalid or expired code' })
 
       const { data: otpRow } = await sb.from('email_otps')
         .select('*')
@@ -466,11 +466,11 @@ serve(async (req: Request) => {
         .eq('email', normEmail)
         .gt('expires_at', new Date().toISOString())
         .single()
-      if (!otpRow) return json({ ok: false, error: 'invalid or expired code' })
+      if (!otpRow) return json({ ok: false, code: 'invalid', error: 'invalid or expired code' })
 
       if (otpRow.attempts >= 5) {
         await sb.from('email_otps').delete().eq('user_id', user.id)
-        return json({ ok: false, error: 'too many attempts — request a new code' })
+        return json({ ok: false, code: 'invalid', error: 'too many attempts — request a new code' })
       }
       // Progressive delay: 0s, 2s, 4s, 8s, 16s per attempt
       if (otpRow.attempts > 0) {
@@ -482,20 +482,20 @@ serve(async (req: Request) => {
       }
       await sb.from('email_otps').update({ attempts: (otpRow.attempts || 0) + 1 }).eq('user_id', user.id)
       if (otpRow.code !== codeStr) {
-        return json({ ok: false, error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' })
+        return json({ ok: false, code: 'invalid', error: 'invalid code (' + (4 - (otpRow.attempts || 0)) + ' attempts left)' })
       }
 
       // Code matches: confirm the email on the auth user, then mint a session token.
       const { error: confirmErr } = await sb.auth.admin.updateUserById(user.id, { email_confirm: true })
       if (confirmErr) {
         console.error('confirm error:', confirmErr)
-        return json({ ok: false, error: 'failed to verify email — try again' })
+        return json({ ok: false, code: 'invalid', error: 'failed to verify email — try again' })
       }
       const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email: normEmail })
       const tokenHash = linkData?.properties?.hashed_token
       if (linkErr || !tokenHash) {
         console.error('generateLink error:', linkErr)
-        return json({ ok: false, error: 'failed to generate session' })
+        return json({ ok: false, code: 'invalid', error: 'failed to generate session' })
       }
 
       await sb.from('email_otps').delete().eq('user_id', user.id)
