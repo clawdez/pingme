@@ -545,29 +545,8 @@ serve(async (req: Request) => {
       }
 
       if (flow === 'signin' || flow === 'signup') {
-        const normEmail = normaliseEmail(email)
-        if (!normEmail) return new Response(JSON.stringify({ error: 'invalid email' }), {
+        return new Response(JSON.stringify({ error: 'check-status requires authenticated link flow' }), {
           status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-        })
-        const user = await findUserByEmail(normEmail)
-        if (!user) {
-          return new Response(JSON.stringify({ code: 'no_active_challenge' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        }
-        const { data: otpRow } = await sb.from('email_otps').select('expires_at').eq('user_id', user.id).single()
-        if (!otpRow && user.email_confirmed_at) {
-          return new Response(JSON.stringify({ code: 'already_verified' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        }
-        if (otpRow && new Date(otpRow.expires_at) > new Date()) {
-          return new Response(JSON.stringify({ code: 'verification_pending' }), {
-            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-          })
-        }
-        return new Response(JSON.stringify({ code: 'no_active_challenge' }), {
-          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         })
       }
 
