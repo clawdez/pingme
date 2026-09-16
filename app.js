@@ -2,6 +2,7 @@
 
 // Feature flags — overridden on dev/preview deployments via window.PINGME_FEATURES in index.html
 const FEATURES = Object.assign({
+  challengeReplay: false,        // Enable only with reviewed durable claim/completed-replay server.
   matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
   accessCodes:   true,            // invite-only access codes
   leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
@@ -1071,9 +1072,20 @@ async function signupSendCode(email) {
 // account) resolve the user from the bearer JWT, so it has to be the user's
 // session token — the anon key gets a 401.
 async function userAuthHeaders() {
-  const { data: { session } } = await sb.auth.getSession();
-  const token = session && session.access_token ? session.access_token : SUPABASE_ANON;
-  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+  let { data: { session } } = await sb.auth.getSession();
+  if (session && session.access_token) {
+    try {
+      const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
+      if (exp * 1000 < Date.now() + 30000) {
+        const { data: refreshed } = await sb.auth.refreshSession();
+        session = refreshed.session;
+      }
+    } catch { /* decode failure — use as-is, server will 401 */ }
+  }
+  if (!session || !session.access_token) {
+    throw Object.assign(new Error('session expired — sign in again'), { code: 'session_expired' });
+  }
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token };
 }
 
 async function loadOrCreateProfile(user) {
@@ -4042,10 +4054,39 @@ function renderMe() {
   });
 }
 
+// Review-only pending state: no polling, new challenge, or identity mutation.
+function showVerificationPending(result, button, errorNode, resend) {
+  if (!result || !['verification_pending', 'busy', 'transport_unknown'].includes(result.code)) return false;
+  if (!button || !errorNode || !button.isConnected || !errorNode.isConnected) return true;
+  const replayEnabled = FEATURES.challengeReplay === true;
+  button.disabled = !replayEnabled;
+  button.dataset.verificationPending = 'true';
+  const codeInput = document.getElementById(button.id === 'link-email-verify' ? 'link-email-otp' : 'setup-otp');
+  if (codeInput) codeInput.readOnly = true;
+  button.textContent = replayEnabled ? 'retry same code' : 'verification pending';
+  if (resend) { resend.dataset.verificationPending = 'true'; resend.disabled = true; resend.textContent = 'verification pending'; }
+  errorNode.setAttribute('role', 'alert');
+  errorNode.setAttribute('tabindex', '-1');
+  errorNode.textContent = (result.code === 'transport_unknown'
+    ? 'We could not confirm the verification result because the connection was interrupted.'
+    : result.code === 'busy'
+      ? 'Verification is still processing. Its result is not available yet.'
+      : 'Verification is pending. We cannot confirm completion yet.') +
+    (replayEnabled
+      ? ' You can retry this same code to check for a completed result. A retry may still be pending; it does not request a new code.'
+      : ' Verification retries are paused because safe recovery is not available in this version.') +
+    ' Resend is paused. Going back does not cancel or reset verification.';
+  errorNode.focus();
+  return true;
+}
+
 let _linkEmailGen = 0;
 let _linkEmailSendOpId = 0;
 let _linkEmailVerifyOpId = 0;
 function showLinkEmail() {
+  const linkProfile = profile;
+  const linkUserId = profile && profile.id;
+  const sameAccount = () => profile === linkProfile && profile && profile.id === linkUserId;
   const gen = ++_linkEmailGen;
   _linkEmailSendOpId++;
   _linkEmailVerifyOpId++;
@@ -4084,7 +4125,8 @@ function showLinkEmail() {
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
 
-  setTimeout(() => document.getElementById('link-email-input').focus(), 80);
+  const emailInput = document.getElementById('link-email-input');
+  setTimeout(() => { if (sameAccount() && emailInput.isConnected) emailInput.focus(); }, 80);
 
   document.getElementById('link-email-cancel').addEventListener('click', () => {
     if (notisSection) notisSection.style.display = '';
@@ -4102,7 +4144,7 @@ function showLinkEmail() {
     if (cooldownLeft > 0) { toast('code already sent — wait ' + cooldownLeft + 's'); return; }
     btn.textContent = 'sending...'; btn.disabled = true;
     const sendOp = ++_linkEmailSendOpId;
-    const stale = () => sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen;
+    const stale = () => sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen || !sameAccount() || document.getElementById('link-email-go') !== btn;
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
     // Bind the entire auth+fetch under one abort so a hung getSession
@@ -4117,7 +4159,7 @@ function showLinkEmail() {
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ action: 'send', email, user_id: profile.id }),
+        body: JSON.stringify({ action: 'send', email, user_id: linkUserId }),
         signal: sendCtrl.signal
       });
       clearTimeout(authTimer);
@@ -4137,11 +4179,13 @@ function showLinkEmail() {
       '<h3 class="link-email-h">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
       '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" aria-label="verification code" style="letter-spacing:4px" autofocus/>' +
+      '<div id="link-email-verify-status" role="alert"></div>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
 
-    setTimeout(() => document.getElementById('link-email-otp').focus(), 80);
+    const otpInput = document.getElementById('link-email-otp');
+    setTimeout(() => { if (sameAccount() && otpInput.isConnected) otpInput.focus(); }, 80);
 
     document.getElementById('link-email-verify').addEventListener('click', async () => {
       const verifyBtn = document.getElementById('link-email-verify');
@@ -4150,7 +4194,7 @@ function showLinkEmail() {
       if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
       const verifyOp = ++_linkEmailVerifyOpId;
-      const vStale = () => verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen;
+      const vStale = () => verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen || !sameAccount() || document.getElementById('link-email-verify') !== verifyBtn;
       try {
         const ctrl = new AbortController();
         const vTimer = setTimeout(() => ctrl.abort(), 15000);
@@ -4161,28 +4205,28 @@ function showLinkEmail() {
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
           headers,
-          body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
+          body: JSON.stringify({ action: 'verify', email, code, user_id: linkUserId }),
           signal: ctrl.signal
         });
         clearTimeout(vTimer);
         if (vStale()) return;
-        if (!r.ok) {
-          toast('verification failed — try again');
-          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
-          return;
-        }
         let result;
         try { result = await r.json(); } catch { result = {}; }
         if (vStale()) return;
-        if (result.error || result.verified !== true) {
+        if (showVerificationPending(result, verifyBtn, document.getElementById('link-email-verify-status'))) return;
+        if (!r.ok || result.error || result.verified !== true) {
           toast(result.error || 'verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
       } catch (e) {
         if (vStale()) return;
-        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
-        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (e && e.code === 'session_expired') {
+          toast('session expired — sign in again');
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          return;
+        }
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, document.getElementById('link-email-verify-status'));
         return;
       }
       if (vStale()) return;
@@ -4203,7 +4247,8 @@ function showLinkEmail() {
 
     // Auto-submit when full code entered
     document.getElementById('link-email-otp').addEventListener('input', (e) => {
-      if (e.target.value.trim().length >= 6) document.getElementById('link-email-verify').click();
+      const button = document.getElementById('link-email-verify');
+      if (button.dataset.verificationPending !== 'true' && e.target.value.trim().length >= 6) button.click();
     });
 
     document.getElementById('link-email-done').addEventListener('click', () => {
@@ -4435,6 +4480,7 @@ function showSetupEmail(prefillEmail) {
         if (isStale()) return;
         const result = await r.json().catch(() => null);
         if (isStale()) return;
+        if (showVerificationPending(result, verifyBtn, otpErr, resendBtn)) { inFlight = false; return; }
         if (!result || (!result.token_hash && !result.error)) {
           resetVerify('unexpected response — try again or request a new code');
           return;
@@ -4447,18 +4493,20 @@ function showSetupEmail(prefillEmail) {
         localStorage.setItem('pm_linked_email', email);
       } catch (e) {
         if (isStale()) return;
-        resetVerify(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, otpErr, resendBtn);
+        inFlight = false;
       }
     });
 
     otpInp.addEventListener('input', () => {
-      if (otpInp.value.trim().length === 6) verifyBtn.click();
+      if (verifyBtn.dataset.verificationPending !== 'true' && otpInp.value.trim().length === 6) verifyBtn.click();
     });
 
     const resendBtn = document.getElementById('s-otp-resend-signin');
     const resendLabel = 'didn\'t get it? send a new code';
     let resendTimer = null;
     function updateResendUI() {
+      if (resendBtn.dataset.verificationPending === 'true') return;
       const expiry = emailSendCooldowns.get(email) || 0;
       const remaining = Math.ceil((expiry - Date.now()) / 1000);
       if (remaining > 0) {
@@ -4626,6 +4674,7 @@ function showSetupSignupOtp(email) {
       if (isStale()) return;
       const result = await r.json().catch(() => null);
       if (isStale()) return;
+      if (showVerificationPending(result, verifyBtn, err, resendBtn)) { inFlight = false; return; }
       if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
       if (result.error) { reset(result.error); return; }
       if (isStale()) return;
@@ -4635,17 +4684,19 @@ function showSetupSignupOtp(email) {
       localStorage.setItem('pm_linked_email', email);
     } catch (e) {
       if (isStale()) return;
-      reset(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
+      showVerificationPending({ code: 'transport_unknown' }, verifyBtn, err, resendBtn);
+      inFlight = false;
     }
   });
   otpInp.addEventListener('input', () => {
-    if (otpInp.value.trim().length === 6) verifyBtn.click();
+    if (verifyBtn.dataset.verificationPending !== 'true' && otpInp.value.trim().length === 6) verifyBtn.click();
   });
 
   const resendBtn = document.getElementById('s-otp-resend');
   const signupResendLabel = 'didn\'t get it? send a new code';
   let signupResendTimer = null;
   function updateSignupResendUI() {
+    if (resendBtn.dataset.verificationPending === 'true') return;
     const expiry = emailSendCooldowns.get(email) || 0;
     const remaining = Math.ceil((expiry - Date.now()) / 1000);
     if (remaining > 0) {

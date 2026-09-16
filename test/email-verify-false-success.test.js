@@ -11,7 +11,8 @@ async function setupLinkedProfile(t) {
   await tick(350);
   app.win.eval(`
     window.__fetch = []; window.__handlers = {};
-    window.__session = { user: { id: 'u1' } };
+    const __mockJwtPayload = btoa(JSON.stringify({ sub: 'u1', exp: Math.floor(Date.now()/1000) + 3600 }));
+    window.__session = { user: { id: 'u1' }, access_token: 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.' + __mockJwtPayload + '.fake' };
     window.__profileRow = { id: 'u1', name: 'tester', email_verified: false };
     window.__confirmed = false;
     window.fetch = async (url, opts) => {
@@ -117,7 +118,7 @@ test('200 with {error: "bad code"} -> no pm_linked_email, shows error', async (t
   assert.equal(win.localStorage.getItem('pm_linked_email'), null, 'no cache write on error response');
 });
 
-test('network error -> no pm_linked_email, verify button re-enabled', async (t) => {
+test('network error -> no pm_linked_email, verify enters pending state', async (t) => {
   const { win } = await setupLinkedProfile(t);
   await driveToVerifyStep(win);
   win.eval(`window.__handlers['verify'] = null; window.fetch = async () => { throw new Error('network down'); };`);
@@ -127,7 +128,8 @@ test('network error -> no pm_linked_email, verify button re-enabled', async (t) 
   assert.equal(win.localStorage.getItem('pm_linked_email'), null, 'no cache write on network error');
   const btn = byId(win, 'link-email-verify');
   assert.ok(btn, 'verify button still present');
-  assert.equal(btn.disabled, false, 'verify button re-enabled after error');
+  assert.equal(btn.disabled, true, 'verify button disabled in pending state (challengeReplay off)');
+  assert.equal(btn.dataset.verificationPending, 'true', 'pending flag set');
 });
 
 test('abort/timeout -> no pm_linked_email, verify button re-enabled', async (t) => {
