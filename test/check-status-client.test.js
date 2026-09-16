@@ -86,54 +86,104 @@ test('checkVerificationStatus(link): expired session surfaces session_expired wi
   assert.equal(win.eval('window.__fetchCalls.length'), 0);
 });
 
-test('showVerificationPending: signin recovery "check status" click shows sign-in-normally guidance, not a raw 400', async (t) => {
+test('showVerificationPending: signin recovery uses session-await, not dead check-status button', async (t) => {
   const { win } = await loadSettled(t);
   win.eval(`
     window.__fetchCalls = [];
     window.fetch = async (url, opts) => { window.__fetchCalls.push(url); return { ok: true, status: 200, json: async () => ({}) }; };
     window.__onVerifiedCalled = false;
+    window.__authCallback = null;
+    sb = {
+      auth: {
+        onAuthStateChange: (cb) => {
+          window.__authCallback = cb;
+          return { data: { subscription: { unsubscribe: () => {} } } };
+        }
+      }
+    };
     const btn = document.createElement('button');
     btn.id = 'test-verify-btn';
     document.body.appendChild(btn);
     const errNode = document.createElement('div');
     errNode.id = 'test-err-node';
     document.body.appendChild(errNode);
-    const recoveryCtx = { flow: 'signin', email: 'a@example.com', onVerified: () => { window.__onVerifiedCalled = true; } };
+    const recoveryCtx = { flow: 'signin', email: 'a@example.com', onVerified: (s) => { window.__onVerifiedCalled = true; window.__verifiedStatus = s; } };
     window.__pending = showVerificationPending({ code: 'verification_pending' }, btn, errNode, null, recoveryCtx);
   `);
   assert.equal(win.eval('window.__pending'), true);
   const checkBtn = win.document.querySelector('.verification-check-status');
-  assert.ok(checkBtn, 'check-status button should render for a recovery context');
+  assert.equal(checkBtn, null, 'signin flow must NOT render a check-status button');
+  const waitEl = win.document.querySelector('.verification-session-wait');
+  assert.ok(waitEl, 'signin flow must render a session-await listener');
+  assert.equal(win.eval('window.__fetchCalls.length'), 0, 'no network calls during session-await setup');
+  assert.ok(win.eval('typeof window.__authCallback === "function"'), 'onAuthStateChange listener must be registered');
 
-  checkBtn.click();
+  // Simulate correct session arriving
+  await win.eval(`window.__authCallback('SIGNED_IN', { user: { email: 'a@example.com' } })`);
   await tick(50);
-
-  assert.equal(win.eval('window.__fetchCalls.length'), 0, 'signin recovery check must never hit the dead endpoint');
-  assert.equal(win.eval('window.__onVerifiedCalled'), false);
+  assert.equal(win.eval('window.__onVerifiedCalled'), true, 'onVerified must fire on matching session');
   const errText = win.document.getElementById('test-err-node').textContent;
-  assert.match(errText, /sign in normally/i, 'must direct the user to sign in normally, not show a raw server error');
-  assert.doesNotMatch(errText, /requires authenticated link flow/i, 'must not leak the raw server error string');
-  assert.equal(checkBtn.style.display, 'none', 'dead-end recovery button should hide itself');
+  assert.match(errText, /signed in as a@example\.com/i, 'must confirm the verified email');
 });
 
-test('showVerificationPending: signup recovery "check status" click also resolves gracefully', async (t) => {
+test('showVerificationPending: signin recovery rejects mismatched email', async (t) => {
   const { win } = await loadSettled(t);
   win.eval(`
-    window.__fetchCalls = [];
-    window.fetch = async (url, opts) => { window.__fetchCalls.push(url); return { ok: true, status: 200, json: async () => ({}) }; };
+    window.__onVerifiedCalled = false;
+    window.__authCallback = null;
+    sb = {
+      auth: {
+        onAuthStateChange: (cb) => {
+          window.__authCallback = cb;
+          return { data: { subscription: { unsubscribe: () => {} } } };
+        }
+      }
+    };
+    const btn = document.createElement('button');
+    btn.id = 'test-verify-btn-m';
+    document.body.appendChild(btn);
+    const errNode = document.createElement('div');
+    errNode.id = 'test-err-node-m';
+    document.body.appendChild(errNode);
+    const recoveryCtx = { flow: 'signin', email: 'a@example.com', onVerified: () => { window.__onVerifiedCalled = true; } };
+    showVerificationPending({ code: 'transport_unknown' }, btn, errNode, null, recoveryCtx);
+  `);
+  await win.eval(`window.__authCallback('SIGNED_IN', { user: { email: 'wrong@example.com' } })`);
+  await tick(50);
+  assert.equal(win.eval('window.__onVerifiedCalled'), false, 'onVerified must NOT fire for mismatched email');
+  const waitText = win.document.querySelector('.verification-session-wait').textContent;
+  assert.match(waitText, /expected a@example\.com/i, 'must explain the email mismatch');
+});
+
+test('showVerificationPending: signup recovery uses session-await, unlocks resend after timeout', async (t) => {
+  const { win } = await loadSettled(t);
+  win.eval(`
+    window.__authCallback = null;
+    sb = {
+      auth: {
+        onAuthStateChange: (cb) => {
+          window.__authCallback = cb;
+          return { data: { subscription: { unsubscribe: () => {} } } };
+        }
+      }
+    };
     const btn = document.createElement('button');
     btn.id = 'test-verify-btn-2';
     document.body.appendChild(btn);
     const errNode = document.createElement('div');
     errNode.id = 'test-err-node-2';
     document.body.appendChild(errNode);
-    const recoveryCtx = { flow: 'signup', email: 'a@example.com', onVerified: () => {} };
-    showVerificationPending({ code: 'busy' }, btn, errNode, null, recoveryCtx);
+    const resendBtn = document.createElement('button');
+    resendBtn.id = 'test-resend-btn';
+    document.body.appendChild(resendBtn);
+    const recoveryCtx = { flow: 'signup', email: 'b@example.com', onVerified: () => {} };
+    showVerificationPending({ code: 'busy' }, btn, errNode, resendBtn, recoveryCtx);
   `);
-  const checkBtn = win.document.querySelectorAll('.verification-check-status')[0];
-  checkBtn.click();
-  await tick(50);
-  assert.equal(win.eval('window.__fetchCalls.length'), 0);
-  const errText = win.document.getElementById('test-err-node-2').textContent;
-  assert.match(errText, /sign in normally/i);
+  const checkBtn = win.document.querySelector('.verification-check-status');
+  assert.equal(checkBtn, null, 'signup flow must NOT render a check-status button');
+  const waitEl = win.document.querySelector('.verification-session-wait');
+  assert.ok(waitEl, 'signup flow must render a session-await listener');
+  const resendBtn = win.document.getElementById('test-resend-btn');
+  assert.equal(resendBtn.disabled, true, 'resend starts disabled');
+  assert.equal(resendBtn.dataset.verificationPending, 'true', 'resend marked pending');
 });

@@ -4103,6 +4103,8 @@ function showVerificationPending(result, button, errorNode, resend, recoveryCtx)
   errorNode.setAttribute('role', 'alert');
   errorNode.setAttribute('tabindex', '-1');
   const canRecover = recoveryCtx && recoveryCtx.flow && recoveryCtx.email;
+  const isLinkFlow = canRecover && recoveryCtx.flow === 'link';
+  const isAuthFlow = canRecover && (recoveryCtx.flow === 'signin' || recoveryCtx.flow === 'signup');
   errorNode.textContent = (result.code === 'verification_recovery_required'
     ? 'This verification cannot safely continue with the current code. Completion is still unconfirmed.'
     : result.code === 'transport_unknown'
@@ -4112,57 +4114,109 @@ function showVerificationPending(result, button, errorNode, resend, recoveryCtx)
       : 'Verification is pending. We cannot confirm completion yet.') +
     (replayEnabled
       ? ' You can retry this same code to check for a completed result. A retry may still be pending; it does not request a new code.'
-      : canRecover
+      : isLinkFlow
         ? ' Tap "check status" to see if your verification completed on the server.'
-        : result.code === 'verification_recovery_required'
-          ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
-          : ' Verification retries are paused because safe recovery is not available in this version.') +
-    ' Resend is paused. Going back does not cancel or reset verification.';
+        : isAuthFlow
+          ? ' Waiting for your session to complete. If your code worked, this will resolve automatically.'
+          : result.code === 'verification_recovery_required'
+            ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
+            : ' Verification retries are paused because safe recovery is not available in this version.') +
+    (isAuthFlow ? '' : ' Resend is paused. Going back does not cancel or reset verification.');
   if (canRecover && !replayEnabled) {
-    const existing = errorNode.parentElement.querySelector('.verification-check-status');
-    if (!existing) {
-      const checkBtn = document.createElement('button');
-      checkBtn.className = 'link-email-btn verification-check-status';
-      checkBtn.textContent = 'check status';
-      checkBtn.style.marginTop = '8px';
-      checkBtn.addEventListener('click', async () => {
-        checkBtn.disabled = true;
-        checkBtn.textContent = 'checking...';
-        try {
-          const status = await checkVerificationStatus(recoveryCtx.flow, recoveryCtx.email);
-          if (status.verified) {
-            recoveryCtx.onVerified(status);
-            return;
-          }
-          if (status.code === 'already_verified') {
-            errorNode.textContent = 'Your email is verified. Go back and sign in to continue.';
-            checkBtn.disabled = true; checkBtn.style.display = 'none';
-            return;
-          }
-          if (status.code === 'verification_pending') {
-            errorNode.textContent = 'Verification is still pending on the server. The original code has not been consumed yet. Try again in a moment.';
-          } else if (status.code === 'no_active_challenge') {
-            errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
-          } else if (status.code === 'session_expired') {
-            errorNode.textContent = 'Session expired — go back and sign in again to check verification status.';
-            checkBtn.disabled = true; checkBtn.style.display = 'none';
-          } else if (status.code === 'signin_required') {
-            errorNode.textContent = 'Status checks aren\'t available for this step. Go back and sign in normally with a fresh code.';
-            checkBtn.disabled = true; checkBtn.style.display = 'none';
-          } else {
-            errorNode.textContent = status.error || 'Could not determine verification status.';
-          }
-        } catch {
-          errorNode.textContent = 'Could not reach the server to check status. Try again.';
-        }
-        checkBtn.disabled = false;
-        checkBtn.textContent = 'check status';
-      });
-      errorNode.after(checkBtn);
+    if (isAuthFlow) {
+      _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, codeInput);
+    } else {
+      _renderCheckStatusButton(recoveryCtx, errorNode);
     }
   }
   errorNode.focus();
   return true;
+}
+
+function _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, codeInput) {
+  const existing = errorNode.parentElement.querySelector('.verification-session-wait');
+  if (existing) return;
+  const waitEl = document.createElement('div');
+  waitEl.className = 'verification-session-wait';
+  waitEl.textContent = 'listening for session...';
+  waitEl.style.marginTop = '8px';
+  waitEl.style.fontSize = '13px';
+  waitEl.style.opacity = '0.7';
+  errorNode.after(waitEl);
+
+  let resolved = false;
+  const cleanup = () => { resolved = true; if (unsub) unsub(); clearTimeout(resendUnlock); };
+
+  const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+    if (resolved || !waitEl.isConnected) { cleanup(); return; }
+    if (event !== 'SIGNED_IN' || !session || !session.user) return;
+    const sessionEmail = (session.user.email || '').toLowerCase().trim();
+    const expectedEmail = recoveryCtx.email.toLowerCase().trim();
+    if (sessionEmail !== expectedEmail) {
+      waitEl.textContent = 'signed in as ' + sessionEmail + ' — expected ' + expectedEmail + '. go back and try again.';
+      cleanup();
+      return;
+    }
+    cleanup();
+    waitEl.textContent = 'session confirmed.';
+    if (button) { button.dataset.verificationPending = ''; button.disabled = true; button.textContent = 'verified'; }
+    if (resend) { resend.dataset.verificationPending = ''; resend.disabled = true; resend.style.display = 'none'; }
+    if (codeInput) codeInput.readOnly = true;
+    errorNode.textContent = 'Verification complete — signed in as ' + sessionEmail + '.';
+    localStorage.setItem('pm_linked_email', expectedEmail);
+    if (recoveryCtx.onVerified) recoveryCtx.onVerified({ verified: true, email: expectedEmail });
+  });
+  const unsub = () => { try { subscription.unsubscribe(); } catch {} };
+
+  const resendUnlock = setTimeout(() => {
+    if (resolved || !waitEl.isConnected) return;
+    waitEl.textContent = 'no session detected yet. you can resend a code or go back.';
+    if (resend && resend.isConnected) {
+      resend.dataset.verificationPending = '';
+      resend.disabled = false;
+      resend.textContent = 'send a new code';
+    }
+  }, 30000);
+}
+
+function _renderCheckStatusButton(recoveryCtx, errorNode) {
+  const existing = errorNode.parentElement.querySelector('.verification-check-status');
+  if (existing) return;
+  const checkBtn = document.createElement('button');
+  checkBtn.className = 'link-email-btn verification-check-status';
+  checkBtn.textContent = 'check status';
+  checkBtn.style.marginTop = '8px';
+  checkBtn.addEventListener('click', async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = 'checking...';
+    try {
+      const status = await checkVerificationStatus(recoveryCtx.flow, recoveryCtx.email);
+      if (status.verified) {
+        recoveryCtx.onVerified(status);
+        return;
+      }
+      if (status.code === 'already_verified') {
+        errorNode.textContent = 'Your email is verified. Go back and sign in to continue.';
+        checkBtn.disabled = true; checkBtn.style.display = 'none';
+        return;
+      }
+      if (status.code === 'verification_pending') {
+        errorNode.textContent = 'Verification is still pending on the server. The original code has not been consumed yet. Try again in a moment.';
+      } else if (status.code === 'no_active_challenge') {
+        errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
+      } else if (status.code === 'session_expired') {
+        errorNode.textContent = 'Session expired — go back and sign in again to check verification status.';
+        checkBtn.disabled = true; checkBtn.style.display = 'none';
+      } else {
+        errorNode.textContent = status.error || 'Could not determine verification status.';
+      }
+    } catch {
+      errorNode.textContent = 'Could not reach the server to check status. Try again.';
+    }
+    checkBtn.disabled = false;
+    checkBtn.textContent = 'check status';
+  });
+  errorNode.after(checkBtn);
 }
 
 let _linkEmailGen = 0;
@@ -4594,6 +4648,7 @@ function showSetupEmail(prefillEmail) {
         if (isStale()) return;
         result = verificationResponseState(result, r, verifyBtn);
         const signinRecovery = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.verified && status.email) return;
           if (status.token_hash) {
             const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
             if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
@@ -4614,6 +4669,7 @@ function showSetupEmail(prefillEmail) {
       } catch (e) {
         if (isStale()) return;
         const signinRecoveryCatch = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.verified && status.email) return;
           if (status.token_hash) {
             const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
             if (error) { resetVerify('sign in failed — recovery could not complete'); return; }
@@ -4803,6 +4859,7 @@ function showSetupSignupOtp(email) {
       if (isStale()) return;
       result = verificationResponseState(result, r, verifyBtn);
       const signupRecovery = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.verified && status.email) return;
         if (status.token_hash) {
           const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
           if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
@@ -4820,6 +4877,7 @@ function showSetupSignupOtp(email) {
     } catch (e) {
       if (isStale()) return;
       const signupRecoveryCatch = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.verified && status.email) return;
         if (status.token_hash) {
           const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
           if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
