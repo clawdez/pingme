@@ -1074,13 +1074,18 @@ async function signupSendCode(email) {
 async function userAuthHeaders() {
   let { data: { session } } = await sb.auth.getSession();
   if (session && session.access_token) {
+    let needsRefresh = false;
     try {
       const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
-      if (exp * 1000 < Date.now() + 30000) {
-        const { data: refreshed } = await sb.auth.refreshSession();
-        session = refreshed.session;
+      needsRefresh = exp * 1000 < Date.now() + 30000;
+    } catch { needsRefresh = true; }
+    if (needsRefresh) {
+      const { data: refreshed, error: refreshErr } = await sb.auth.refreshSession();
+      if (refreshErr || !refreshed.session) {
+        throw Object.assign(new Error('session expired — sign in again'), { code: 'session_expired' });
       }
-    } catch { /* decode failure — use as-is, server will 401 */ }
+      session = refreshed.session;
+    }
   }
   if (!session || !session.access_token) {
     throw Object.assign(new Error('session expired — sign in again'), { code: 'session_expired' });
