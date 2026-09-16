@@ -790,6 +790,12 @@ async function boot() {
     navigator.storage.persist().catch(() => {});
   }
 
+  // Lock app inert immediately so keyboard cannot reach concealed controls
+  // during the boot window. setSetupActive(true) will maintain this; if
+  // the user turns out to be authenticated, setSetupActive(false) restores it.
+  const appEl = document.getElementById('app');
+  if (appEl) { appEl.inert = true; appEl.setAttribute('aria-hidden', 'true'); }
+
   if (!sb) {
     setTab('home');
     renderHome();
@@ -1412,7 +1418,7 @@ function handleProfileAv(e) {
   setTimeout(() => { profileAvFiring = false; }, 300);
   try {
     if (e.type === 'touchend') e.preventDefault();
-    document.getElementById('sheet-me').classList.add('open');
+    openSheet(document.getElementById('sheet-me'));
     renderMe();
     renderNotis();
     // Mark pings as read when modal opens
@@ -1454,8 +1460,8 @@ document.addEventListener('click', (e) => {
 // above it so they can't end up floating over the homepage.
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#sheet-me [data-dismiss], #sheet-me .me-back')) return;
-  document.getElementById('sheet-settings')?.classList.remove('open');
-  document.getElementById('sheet-email')?.classList.remove('open');
+  closeSheet(document.getElementById('sheet-settings'));
+  closeSheet(document.getElementById('sheet-email'));
 });
 
 // Any settings item tap also dismisses the overlay
@@ -1463,7 +1469,7 @@ document.addEventListener('click', (e) => {
   const item = e.target.closest('#settings-list .me-dd-item');
   if (!item) return;
   // small delay so the item's own handler fires first
-  setTimeout(() => document.getElementById('sheet-settings')?.classList.remove('open'), 0);
+  setTimeout(() => closeSheet(document.getElementById('sheet-settings')), 0);
 });
 
 // Profile visibility: public / business / private — stored in localStorage
@@ -1492,10 +1498,10 @@ function openSettingsOverlay() {
     list.innerHTML =
       '<button class="me-dd-item" id="set-signin">sign in to play</button>';
     document.getElementById('set-signin').addEventListener('click', () => {
-      document.getElementById('sheet-settings')?.classList.remove('open');
+      closeSheet(document.getElementById('sheet-settings'));
       showSetup();
     });
-    document.getElementById('sheet-settings')?.classList.add('open');
+    openSheet(document.getElementById('sheet-settings'));
     return;
   }
 
@@ -1564,7 +1570,7 @@ function openSettingsOverlay() {
   });
 
   document.getElementById('set-test-notif').addEventListener('click', () => {
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       toast('enable notifications first');
       return;
@@ -1579,15 +1585,15 @@ function openSettingsOverlay() {
   });
 
   document.getElementById('set-friends').addEventListener('click', () => {
-    document.getElementById('sheet-settings').classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     openFriendsSheet('friends');
   });
   document.getElementById('set-scenes').addEventListener('click', () => {
-    document.getElementById('sheet-settings').classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     openSceneSheet();
   });
   document.getElementById('set-invite').addEventListener('click', () => {
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     const url = getShareUrl();
     if (navigator.clipboard) {
       navigator.clipboard.writeText(url).then(() => toast('invite code copied')).catch(() => toast('copy failed'));
@@ -1598,7 +1604,7 @@ function openSettingsOverlay() {
 
   document.getElementById('set-signout').addEventListener('click', async () => {
     if (!confirm('sign out?')) return;
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     if (profile?.id && sb) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
@@ -1612,14 +1618,14 @@ function openSettingsOverlay() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
   });
 
   document.getElementById('set-delete').addEventListener('click', async () => {
     if (!confirm('delete your account? this cannot be undone.')) return;
     if (!confirm('are you sure? all your data will be permanently deleted.')) return;
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     const myId = profile?.id;
     if (myId && sb) await sb.from('profiles').delete().eq('id', myId);
     if (sb) await sb.auth.signOut();
@@ -1629,12 +1635,12 @@ function openSettingsOverlay() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('account deleted');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
     setTimeout(showSetup, 300);
   });
 
-  document.getElementById('sheet-settings')?.classList.add('open');
+  openSheet(document.getElementById('sheet-settings'));
 }
 
 function openEmailOverlay() {
@@ -1657,11 +1663,11 @@ function openEmailOverlay() {
         localStorage.removeItem('pm_linked_email');
         if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
       }
-      document.getElementById('sheet-email')?.classList.remove('open');
+      closeSheet(document.getElementById('sheet-email'));
       showLinkEmail();
     };
   }
-  document.getElementById('sheet-email')?.classList.add('open');
+  openSheet(document.getElementById('sheet-email'));
 }
 
 // Two-step email tap:
@@ -1672,7 +1678,7 @@ function handleEmailTap() {
   if (!profile) { showSetup(); return; }
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
   const verified = !!(profile && profile.email_verified) || !!cachedEmail;
-  document.getElementById('sheet-me')?.classList.add('open');
+  openSheet(document.getElementById('sheet-me'));
   document.getElementById('me-settings-dd')?.classList.remove('open');
 
   // If not yet verified, skip the confirm pill — go straight to verify flow
@@ -1718,7 +1724,7 @@ function openEmailActions() {
   // sheet instead of stacking another full-screen modal.
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
   const verified = !!(profile && profile.email_verified) || !!cachedEmail;
-  document.getElementById('sheet-me')?.classList.add('open');
+  openSheet(document.getElementById('sheet-me'));
   document.getElementById('me-settings-dd')?.classList.remove('open');
 
   let card = document.getElementById('me-email-inline');
@@ -1752,11 +1758,21 @@ function openEmailActions() {
 }
 
 /* ── SHEETS ── */
+function openSheet(el) {
+  if (!el) return;
+  el.inert = false;
+  el.classList.add('open');
+}
+function closeSheet(el) {
+  if (!el) return;
+  el.classList.remove('open');
+  el.inert = true;
+}
 function openProfileStatSheet(id, opener) {
   const sheet = document.getElementById(id);
   if (!sheet) return;
   sheet._statOpener = opener;
-  sheet.classList.add('open');
+  openSheet(sheet);
   sheet.querySelector('.modal-close')?.focus();
 }
 function activateProfileStat(e) {
@@ -1774,6 +1790,7 @@ function handleDismiss(e) {
   if (!wrap) return;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
+  wrap.inert = true;
   const statOpener = wrap._statOpener;
   delete wrap._statOpener;
   if (statOpener?.isConnected && statOpener.closest('#sheet-me.open') && !statOpener.closest('[inert], [aria-hidden="true"]')) statOpener.focus();
@@ -1808,7 +1825,7 @@ async function handleConfirmPing(e) {
     return;
   }
   confirmPingFiring = true;
-  document.getElementById('sheet-ping-confirm').classList.remove('open');
+  closeSheet(document.getElementById('sheet-ping-confirm'));
   const targetState = homeState; // 'down' or 'playing'
   if (targetState === 'down') downDur = 60;
   const ok = await setMyStatus(targetState);
@@ -1910,11 +1927,11 @@ async function setHomeState(st) {
   if (st === 'down') {
     renderVenuePicker();
     renderScenePicker();
-    document.getElementById('sheet-ping-confirm').classList.add('open');
+    openSheet(document.getElementById('sheet-ping-confirm'));
   } else if (st === 'playing') {
     renderVenuePicker();
     renderScenePicker();
-    document.getElementById('sheet-ping-confirm').classList.add('open');
+    openSheet(document.getElementById('sheet-ping-confirm'));
   } else {
     await setMyStatus(st);
   }
@@ -2529,7 +2546,7 @@ function openRaiderSheet(r) {
       btn.classList.add('rs-ping-sent');
       // Push notification handled server-side via DB webhook on ping insert
       setTimeout(() => {
-        document.getElementById('sheet-raider').classList.remove('open');
+        closeSheet(document.getElementById('sheet-raider'));
       }, 800);
     };
 
@@ -2539,13 +2556,13 @@ function openRaiderSheet(r) {
     const invBtn = document.getElementById('rs-invite-venue-btn');
     if (invBtn) {
       invBtn.onclick = () => {
-        document.getElementById('sheet-raider').classList.remove('open');
+        closeSheet(document.getElementById('sheet-raider'));
         openInviteToVenue(r);
       };
     }
   }
 
-  document.getElementById('sheet-raider').classList.add('open');
+  openSheet(document.getElementById('sheet-raider'));
 }
 
 /* ── INVITE TO VENUE (handshake) ──
@@ -3596,7 +3613,7 @@ function renderNotis() {
           homeState = 'down';
           app.dataset.homeState = 'down';
         }
-        document.getElementById('sheet-me').classList.remove('open');
+        closeSheet(document.getElementById('sheet-me'));
         renderHome();
         toast('locked in — see you at ' + (getVenueName() || 'the table'));
         return;
@@ -3608,7 +3625,7 @@ function renderNotis() {
         if (!ok) { toast('failed to update status'); renderNotis(); return; }
         homeState = 'down';
         app.dataset.homeState = 'down';
-        document.getElementById('sheet-me').classList.remove('open');
+        closeSheet(document.getElementById('sheet-me'));
         renderHome();
         toast('you\'re down — heading to ' + getVenueName());
         return;
@@ -3623,7 +3640,7 @@ function renderNotis() {
     btn.addEventListener('click', () => {
       const fromId = btn.dataset.from;
       if (!fromId) return;
-      document.getElementById('sheet-me').classList.remove('open');
+      closeSheet(document.getElementById('sheet-me'));
       if (window.pmMatch?.open) window.pmMatch.open(fromId);
       else toast('match tracking not enabled');
     })
@@ -3991,7 +4008,7 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
   });
 
@@ -4015,7 +4032,7 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('account deleted');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
     setTimeout(showSetup, 300);
   });
@@ -4888,8 +4905,10 @@ function showQrShare() {
   }
 
   // Close profile modal, open share
-  document.getElementById('sheet-me').classList.remove('open');
-  document.getElementById('sheet-share').classList.add('open');
+  const meSheet = document.getElementById('sheet-me');
+  meSheet.classList.remove('open');
+  meSheet.inert = true;
+  openSheet(document.getElementById('sheet-share'));
 }
 
 /* ── CHAT (removed — using SMS deep links instead) ── */
