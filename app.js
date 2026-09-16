@@ -1044,7 +1044,7 @@ async function requestEmailCode(action, email) {
       body: JSON.stringify({ action, email }),
       signal: controller.signal
       });
-      const result = await r.json().catch(() => null);
+      let result = await r.json().catch(() => null);
       if (r.status === 429) return { ok: false, code: 'rate_limited', error: 'please wait a minute before requesting another code' };
       if (r.status >= 500 || result?.code === 'email_unavailable') return { ok: false, code: 'email_unavailable', error: 'email is temporarily unavailable — try again shortly' };
       if (result?.code === 'already_registered' && r.ok) return { ok: false, code: 'already_registered', error: 'that email is already registered — sign in instead' };
@@ -4054,11 +4054,24 @@ function renderMe() {
   });
 }
 
+// Only recognized structured results establish a safe retry; gateway errors do not.
+function verificationResponseState(result, response, button) {
+  const pending = button.dataset.verificationPending === 'true';
+  if (result && ['verification_pending', 'busy'].includes(result.code)) return result;
+  if (result && result.code === 'retry_verification' && typeof result.error === 'string') return result;
+  const success = button.id === 'link-email-verify' ? result?.verified === true : typeof result?.token_hash === 'string' && result.token_hash.length > 0;
+  if (response.ok && result && !result.error && success) return result;
+  if (result && result.code === 'invalid' && typeof result.error === 'string' && response.status < 500) {
+    return pending ? { code: 'verification_recovery_required' } : result;
+  }
+  return { code: pending ? 'verification_recovery_required' : 'transport_unknown' };
+}
+
 // Review-only pending state: no polling, new challenge, or identity mutation.
 function showVerificationPending(result, button, errorNode, resend) {
-  if (!result || !['verification_pending', 'busy', 'transport_unknown'].includes(result.code)) return false;
+  if (!result || !['verification_pending', 'busy', 'transport_unknown', 'verification_recovery_required'].includes(result.code)) return false;
   if (!button || !errorNode || !button.isConnected || !errorNode.isConnected) return true;
-  const replayEnabled = FEATURES.challengeReplay === true;
+  const replayEnabled = FEATURES.challengeReplay === true && result.code !== 'verification_recovery_required';
   button.disabled = !replayEnabled;
   button.dataset.verificationPending = 'true';
   const codeInput = document.getElementById(button.id === 'link-email-verify' ? 'link-email-otp' : 'setup-otp');
@@ -4067,14 +4080,18 @@ function showVerificationPending(result, button, errorNode, resend) {
   if (resend) { resend.dataset.verificationPending = 'true'; resend.disabled = true; resend.textContent = 'verification pending'; }
   errorNode.setAttribute('role', 'alert');
   errorNode.setAttribute('tabindex', '-1');
-  errorNode.textContent = (result.code === 'transport_unknown'
+  errorNode.textContent = (result.code === 'verification_recovery_required'
+    ? 'This verification cannot safely continue with the current code. Completion is still unconfirmed.'
+    : result.code === 'transport_unknown'
     ? 'We could not confirm the verification result because the connection was interrupted.'
     : result.code === 'busy'
       ? 'Verification is still processing. Its result is not available yet.'
       : 'Verification is pending. We cannot confirm completion yet.') +
     (replayEnabled
       ? ' You can retry this same code to check for a completed result. A retry may still be pending; it does not request a new code.'
-      : ' Verification retries are paused because safe recovery is not available in this version.') +
+      : result.code === 'verification_recovery_required'
+        ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
+        : ' Verification retries are paused because safe recovery is not available in this version.') +
     ' Resend is paused. Going back does not cancel or reset verification.';
   errorNode.focus();
   return true;
@@ -4211,8 +4228,9 @@ function showLinkEmail() {
         clearTimeout(vTimer);
         if (vStale()) return;
         let result;
-        try { result = await r.json(); } catch { result = {}; }
+        try { result = await r.json(); } catch { result = null; }
         if (vStale()) return;
+        result = verificationResponseState(result, r, verifyBtn);
         if (showVerificationPending(result, verifyBtn, document.getElementById('link-email-verify-status'))) return;
         if (!r.ok || result.error || result.verified !== true) {
           toast(result.error || 'verification failed — try again');
@@ -4478,8 +4496,9 @@ function showSetupEmail(prefillEmail) {
           signal: ctrl.signal
         });
         if (isStale()) return;
-        const result = await r.json().catch(() => null);
+        let result = await r.json().catch(() => null);
         if (isStale()) return;
+        result = verificationResponseState(result, r, verifyBtn);
         if (showVerificationPending(result, verifyBtn, otpErr, resendBtn)) { inFlight = false; return; }
         if (!result || (!result.token_hash && !result.error)) {
           resetVerify('unexpected response — try again or request a new code');
@@ -4672,8 +4691,9 @@ function showSetupSignupOtp(email) {
         signal: ctrl.signal
       });
       if (isStale()) return;
-      const result = await r.json().catch(() => null);
+      let result = await r.json().catch(() => null);
       if (isStale()) return;
+      result = verificationResponseState(result, r, verifyBtn);
       if (showVerificationPending(result, verifyBtn, err, resendBtn)) { inFlight = false; return; }
       if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
       if (result.error) { reset(result.error); return; }
