@@ -4072,13 +4072,13 @@ function verificationResponseState(result, response, button) {
   return { code: pending ? 'verification_recovery_required' : 'transport_unknown' };
 }
 
+// check-status only exists server-side for the authenticated link flow — the
+// signin/signup branch was removed entirely (email enumeration risk). Don't
+// even make the request for those flows; the server would just 400.
 async function checkVerificationStatus(flow, email) {
+  if (flow !== 'link') return { code: 'signin_required' };
   const headers = { 'Content-Type': 'application/json' };
-  if (flow === 'link') {
-    try { Object.assign(headers, await userAuthHeaders()); } catch { return { code: 'session_expired' }; }
-  } else {
-    headers['Authorization'] = 'Bearer ' + SUPABASE_ANON;
-  }
+  try { Object.assign(headers, await userAuthHeaders()); } catch { return { code: 'session_expired' }; }
   const ctrl = new AbortController();
   setTimeout(() => ctrl.abort(), 10000);
   const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
@@ -4145,6 +4145,9 @@ function showVerificationPending(result, button, errorNode, resend, recoveryCtx)
             errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
           } else if (status.code === 'session_expired') {
             errorNode.textContent = 'Session expired — go back and sign in again to check verification status.';
+            checkBtn.disabled = true; checkBtn.style.display = 'none';
+          } else if (status.code === 'signin_required') {
+            errorNode.textContent = 'Status checks aren\'t available for this step. Go back and sign in normally with a fresh code.';
             checkBtn.disabled = true; checkBtn.style.display = 'none';
           } else {
             errorNode.textContent = status.error || 'Could not determine verification status.';

@@ -250,6 +250,52 @@ await it('unknown action → 400', async () => {
   eq(r.status, 400);
 });
 
+/* ── check-status ── */
+
+await it('check-status: flow=signin → 400, no user lookup, no enumeration', async () => {
+  seedUser('exists@example.com', true);
+  const r = await call({ action: 'check-status', flow: 'signin', email: 'exists@example.com' });
+  eq(r.status, 400); match(r.body.error, /link flow/);
+});
+
+await it('check-status: flow=signup → 400, no user lookup', async () => {
+  const r = await call({ action: 'check-status', flow: 'signup', email: 'ghost@example.com' });
+  eq(r.status, 400); match(r.body.error, /link flow/);
+});
+
+await it('check-status: unknown flow → 400', async () => {
+  const r = await call({ action: 'check-status', flow: 'bogus', email: 'a@example.com' });
+  eq(r.status, 400);
+});
+
+await it('check-status: flow=link with no Authorization → 401', async () => {
+  const r = await call({ action: 'check-status', flow: 'link', email: 'a@example.com' });
+  eq(r.status, 401);
+});
+
+await it('check-status: flow=link, verified profile → verified true', async () => {
+  const me = seedUser(null, false); db.tokens['tok-me'] = me;
+  db.tables.profiles.push({ id: me.id, email_verified: true });
+  const r = await call({ action: 'check-status', flow: 'link', email: 'a@example.com' }, { Authorization: 'Bearer tok-me' });
+  eq(r.status, 200); eq(r.body.verified, true);
+});
+
+await it('check-status: flow=link, unverified profile + live otp → verification_pending', async () => {
+  const me = seedUser(null, false); db.tokens['tok-me'] = me;
+  db.tables.profiles.push({ id: me.id, email_verified: false });
+  db.tables.email_otps.push({ id: 'x', user_id: me.id, email: 'a@example.com', code: '123456', attempts: 0,
+    expires_at: new Date(Date.now() + 600000).toISOString(), created_at: new Date().toISOString() });
+  const r = await call({ action: 'check-status', flow: 'link', email: 'a@example.com' }, { Authorization: 'Bearer tok-me' });
+  eq(r.status, 200); eq(r.body.code, 'verification_pending');
+});
+
+await it('check-status: flow=link, unverified profile + no otp → no_active_challenge', async () => {
+  const me = seedUser(null, false); db.tokens['tok-me'] = me;
+  db.tables.profiles.push({ id: me.id, email_verified: false });
+  const r = await call({ action: 'check-status', flow: 'link', email: 'a@example.com' }, { Authorization: 'Bearer tok-me' });
+  eq(r.status, 200); eq(r.body.code, 'no_active_challenge');
+});
+
 for (const status of [400, 401, 403, 429, 500, 503]) {
   await it('signin-send: provider rejection ' + status + ' must not report sent', async () => {
     seedUser('reject@example.com', true);
