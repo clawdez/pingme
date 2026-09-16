@@ -557,14 +557,7 @@ serve(async (req: Request) => {
         }
         const { data: otpRow } = await sb.from('email_otps').select('expires_at').eq('user_id', user.id).single()
         if (!otpRow && user.email_confirmed_at) {
-          const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email: normEmail })
-          const tokenHash = linkData?.properties?.hashed_token
-          if (linkErr || !tokenHash) {
-            return new Response(JSON.stringify({ code: 'recovery_failed', error: 'could not generate session' }), {
-              status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-            })
-          }
-          return new Response(JSON.stringify({ verified: true, token_hash: tokenHash }), {
+          return new Response(JSON.stringify({ code: 'already_verified' }), {
             status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           })
         }

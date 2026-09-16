@@ -4134,6 +4134,11 @@ function showVerificationPending(result, button, errorNode, resend, recoveryCtx)
             recoveryCtx.onVerified(status);
             return;
           }
+          if (status.code === 'already_verified') {
+            errorNode.textContent = 'Your email is verified. Go back and sign in to continue.';
+            checkBtn.disabled = true; checkBtn.style.display = 'none';
+            return;
+          }
           if (status.code === 'verification_pending') {
             errorNode.textContent = 'Verification is still pending on the server. The original code has not been consumed yet. Try again in a moment.';
           } else if (status.code === 'no_active_challenge') {
