@@ -4039,8 +4039,12 @@ function renderMe() {
 }
 
 let _linkEmailGen = 0;
+let _linkEmailSendOpId = 0;
+let _linkEmailVerifyOpId = 0;
 function showLinkEmail() {
   const gen = ++_linkEmailGen;
+  _linkEmailSendOpId++;
+  _linkEmailVerifyOpId++;
   const modal = document.querySelector('#sheet-me .modal-center');
   const meWrap = document.getElementById('me-wrap');
   const notisSection = document.getElementById('me-notis-section');
@@ -4093,6 +4097,7 @@ function showLinkEmail() {
     const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
     if (cooldownLeft > 0) { toast('code already sent — wait ' + cooldownLeft + 's'); return; }
     btn.textContent = 'sending...'; btn.disabled = true;
+    const sendOp = ++_linkEmailSendOpId;
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
     try {
@@ -4104,14 +4109,14 @@ function showLinkEmail() {
         body: JSON.stringify({ action: 'send', email, user_id: profile.id }),
         signal: sendCtrl.signal
       });
-      if (gen !== _linkEmailGen || !document.getElementById('link-email-go')) return;
+      if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
     } catch (e) {
-      if (gen !== _linkEmailGen) return;
+      if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
       toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
       btn.textContent = 'send code'; btn.disabled = false; return;
     }
-    if (gen !== _linkEmailGen || !document.getElementById('link-email-input')) return;
+    if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
     emailSendCooldowns.set(email, Date.now() + 60000);
 
     meWrap.innerHTML =
@@ -4132,6 +4137,7 @@ function showLinkEmail() {
       const code = document.getElementById('link-email-otp').value.trim();
       if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      const verifyOp = ++_linkEmailVerifyOpId;
       try {
         const ctrl = new AbortController();
         setTimeout(() => ctrl.abort(), 15000);
@@ -4141,7 +4147,7 @@ function showLinkEmail() {
           body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
           signal: ctrl.signal
         });
-        if (gen !== _linkEmailGen || !document.getElementById('link-email-verify')) return;
+        if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
         if (!r.ok) {
           toast('verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
@@ -4155,12 +4161,12 @@ function showLinkEmail() {
           return;
         }
       } catch (e) {
-        if (gen !== _linkEmailGen) return;
+        if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
         toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
-      if (gen !== _linkEmailGen || !document.getElementById('link-email-verify')) return;
+      if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
       // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)
