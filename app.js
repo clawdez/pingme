@@ -433,6 +433,7 @@ function openAddVenueModal() {
   if (!el) {
     el = document.createElement('div');
     el.className = 'sheet-wrap';
+    el.inert = true;
     el.id = 'sheet-add-venue';
     el.innerHTML = `
       <div class="sheet-scrim" data-dismiss></div>
@@ -2575,6 +2576,7 @@ function openInviteToVenue(target) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'sheet-wrap';
+    el.inert = true;
     el.id = 'sheet-invite-venue';
     el.innerHTML =
       '<div class="sheet-scrim" data-dismiss></div>' +
@@ -2652,6 +2654,7 @@ function ensureFriendsSheet() {
   if (el) return el;
   el = document.createElement('div');
   el.className = 'sheet-wrap';
+  el.inert = true;
   el.id = 'sheet-friends';
   el.innerHTML =
     '<div class="sheet-scrim" data-dismiss></div>' +
@@ -3349,6 +3352,7 @@ function ensureSceneSheet() {
   if (el) return el;
   el = document.createElement('div');
   el.className = 'sheet-wrap';
+  el.inert = true;
   el.id = 'sheet-scenes';
   el.innerHTML =
     '<div class="sheet-scrim" data-dismiss></div>' +
@@ -4098,25 +4102,33 @@ function showLinkEmail() {
     if (cooldownLeft > 0) { toast('code already sent — wait ' + cooldownLeft + 's'); return; }
     btn.textContent = 'sending...'; btn.disabled = true;
     const sendOp = ++_linkEmailSendOpId;
+    const stale = () => sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen;
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
+    // Bind the entire auth+fetch under one abort so a hung getSession
+    // doesn't leave the button disabled with no feedback.
     try {
       const sendCtrl = new AbortController();
-      setTimeout(() => sendCtrl.abort(), 15000);
+      const authTimer = setTimeout(() => sendCtrl.abort(), 15000);
+      let headers;
+      try { headers = await Promise.race([userAuthHeaders(), new Promise((_, rej) => { sendCtrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('auth timed out'), { name: 'AbortError' }))); })]); }
+      catch (e) { clearTimeout(authTimer); throw e; }
+      if (stale()) { clearTimeout(authTimer); return; }
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
-        headers: await userAuthHeaders(),
+        headers,
         body: JSON.stringify({ action: 'send', email, user_id: profile.id }),
         signal: sendCtrl.signal
       });
-      if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
+      clearTimeout(authTimer);
+      if (stale()) return;
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
     } catch (e) {
-      if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
+      if (stale()) return;
       toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
       btn.textContent = 'send code'; btn.disabled = false; return;
     }
-    if (sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen) return;
+    if (stale()) return;
     emailSendCooldowns.set(email, Date.now() + 60000);
 
     meWrap.innerHTML =
@@ -4138,16 +4150,22 @@ function showLinkEmail() {
       if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
       const verifyOp = ++_linkEmailVerifyOpId;
+      const vStale = () => verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen;
       try {
         const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 15000);
+        const vTimer = setTimeout(() => ctrl.abort(), 15000);
+        let headers;
+        try { headers = await Promise.race([userAuthHeaders(), new Promise((_, rej) => { ctrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('auth timed out'), { name: 'AbortError' }))); })]); }
+        catch (e) { clearTimeout(vTimer); throw e; }
+        if (vStale()) { clearTimeout(vTimer); return; }
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
-          headers: await userAuthHeaders(),
+          headers,
           body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
           signal: ctrl.signal
         });
-        if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
+        clearTimeout(vTimer);
+        if (vStale()) return;
         if (!r.ok) {
           toast('verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
@@ -4155,18 +4173,19 @@ function showLinkEmail() {
         }
         let result;
         try { result = await r.json(); } catch { result = {}; }
+        if (vStale()) return;
         if (result.error || result.verified !== true) {
           toast(result.error || 'verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
       } catch (e) {
-        if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
+        if (vStale()) return;
         toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
-      if (verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen) return;
+      if (vStale()) return;
       // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)

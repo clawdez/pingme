@@ -46,3 +46,32 @@ test('openSheet removes inert, closeSheet restores it', async (t) => {
   assert.equal(elo.inert, true, 'closeSheet must restore inert');
   assert.ok(!elo.classList.contains('open'));
 });
+
+test('dynamically-created sheets start inert', async (t) => {
+  const { win } = loadApp(t);
+  await tick(100);
+  // Seed profile so sheet-creation functions don't bail
+  win.eval(`profile = { id: 'me', name: 'ez', color: '#000' }; roster = [];`);
+
+  // Trigger creation of dynamic sheets
+  win.eval(`openAddVenueModal()`);
+  const addVenue = win.document.getElementById('sheet-add-venue');
+  assert.ok(addVenue, 'sheet-add-venue should exist');
+  // Close it and verify inert is set
+  win.eval(`closeSheet(document.getElementById('sheet-add-venue'))`);
+  assert.equal(addVenue.inert, true, 'sheet-add-venue must be inert when closed');
+
+  // ensureFriendsSheet creates sheet-friends
+  win.eval(`ensureFriendsSheet()`);
+  const friends = win.document.getElementById('sheet-friends');
+  assert.ok(friends, 'sheet-friends should exist');
+  assert.ok(friends.inert || friends.hasAttribute('inert'),
+    'sheet-friends must start inert before being opened');
+
+  // ensureSceneSheet creates sheet-scenes
+  win.eval(`ensureSceneSheet()`);
+  const scenes = win.document.getElementById('sheet-scenes');
+  assert.ok(scenes, 'sheet-scenes should exist');
+  assert.ok(scenes.inert || scenes.hasAttribute('inert'),
+    'sheet-scenes must start inert before being opened');
+});
