@@ -4067,8 +4067,25 @@ function verificationResponseState(result, response, button) {
   return { code: pending ? 'verification_recovery_required' : 'transport_unknown' };
 }
 
+async function checkVerificationStatus(flow, email) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (flow === 'link') {
+    try { Object.assign(headers, await userAuthHeaders()); } catch { return { code: 'session_expired' }; }
+  } else {
+    headers['Authorization'] = 'Bearer ' + SUPABASE_ANON;
+  }
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), 10000);
+  const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+    method: 'POST', headers,
+    body: JSON.stringify({ action: 'check-status', flow, email }),
+    signal: ctrl.signal
+  });
+  return r.json();
+}
+
 // Review-only pending state: no polling, new challenge, or identity mutation.
-function showVerificationPending(result, button, errorNode, resend) {
+function showVerificationPending(result, button, errorNode, resend, recoveryCtx) {
   if (!result || !['verification_pending', 'busy', 'transport_unknown', 'verification_recovery_required'].includes(result.code)) return false;
   if (!button || !errorNode || !button.isConnected || !errorNode.isConnected) return true;
   const replayEnabled = FEATURES.challengeReplay === true && result.code !== 'verification_recovery_required';
@@ -4080,6 +4097,7 @@ function showVerificationPending(result, button, errorNode, resend) {
   if (resend) { resend.dataset.verificationPending = 'true'; resend.disabled = true; resend.textContent = 'verification pending'; }
   errorNode.setAttribute('role', 'alert');
   errorNode.setAttribute('tabindex', '-1');
+  const canRecover = recoveryCtx && recoveryCtx.flow && recoveryCtx.email;
   errorNode.textContent = (result.code === 'verification_recovery_required'
     ? 'This verification cannot safely continue with the current code. Completion is still unconfirmed.'
     : result.code === 'transport_unknown'
@@ -4089,10 +4107,46 @@ function showVerificationPending(result, button, errorNode, resend) {
       : 'Verification is pending. We cannot confirm completion yet.') +
     (replayEnabled
       ? ' You can retry this same code to check for a completed result. A retry may still be pending; it does not request a new code.'
-      : result.code === 'verification_recovery_required'
-        ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
-        : ' Verification retries are paused because safe recovery is not available in this version.') +
+      : canRecover
+        ? ' Tap "check status" to see if your verification completed on the server.'
+        : result.code === 'verification_recovery_required'
+          ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
+          : ' Verification retries are paused because safe recovery is not available in this version.') +
     ' Resend is paused. Going back does not cancel or reset verification.';
+  if (canRecover && !replayEnabled) {
+    const existing = errorNode.parentElement.querySelector('.verification-check-status');
+    if (!existing) {
+      const checkBtn = document.createElement('button');
+      checkBtn.className = 'link-email-btn verification-check-status';
+      checkBtn.textContent = 'check status';
+      checkBtn.style.marginTop = '8px';
+      checkBtn.addEventListener('click', async () => {
+        checkBtn.disabled = true;
+        checkBtn.textContent = 'checking...';
+        try {
+          const status = await checkVerificationStatus(recoveryCtx.flow, recoveryCtx.email);
+          if (status.verified) {
+            recoveryCtx.onVerified(status);
+            return;
+          }
+          if (status.code === 'verification_pending') {
+            errorNode.textContent = 'Verification is still pending on the server. The original code has not been consumed yet. Try again in a moment.';
+          } else if (status.code === 'no_active_challenge') {
+            errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
+          } else if (status.code === 'session_expired') {
+            errorNode.textContent = 'Session expired — sign in again to check verification status.';
+          } else {
+            errorNode.textContent = status.error || 'Could not determine verification status.';
+          }
+        } catch {
+          errorNode.textContent = 'Could not reach the server to check status. Try again.';
+        }
+        checkBtn.disabled = false;
+        checkBtn.textContent = 'check status';
+      });
+      errorNode.after(checkBtn);
+    }
+  }
   errorNode.focus();
   return true;
 }
@@ -4231,7 +4285,16 @@ function showLinkEmail() {
         try { result = await r.json(); } catch { result = null; }
         if (vStale()) return;
         result = verificationResponseState(result, r, verifyBtn);
-        if (showVerificationPending(result, verifyBtn, document.getElementById('link-email-verify-status'))) return;
+        const linkRecovery = { flow: 'link', email, onVerified: () => {
+          pings = pings.filter(p => p.verb !== 'system');
+          sb.auth.refreshSession().catch(() => {});
+          localStorage.setItem('pm_linked_email', email);
+          profile._linkedEmail = email;
+          toast('email linked!');
+          if (notisSection) notisSection.style.display = '';
+          updateNotisBadge(); renderNotis(); renderMe(); updateLinkEmailDot();
+        }};
+        if (showVerificationPending(result, verifyBtn, document.getElementById('link-email-verify-status'), null, linkRecovery)) return;
         if (!r.ok || result.error || result.verified !== true) {
           toast(result.error || 'verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
@@ -4244,7 +4307,16 @@ function showLinkEmail() {
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
-        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, document.getElementById('link-email-verify-status'));
+        const linkRecoveryCatch = { flow: 'link', email, onVerified: () => {
+          pings = pings.filter(p => p.verb !== 'system');
+          sb.auth.refreshSession().catch(() => {});
+          localStorage.setItem('pm_linked_email', email);
+          profile._linkedEmail = email;
+          toast('email linked!');
+          if (notisSection) notisSection.style.display = '';
+          updateNotisBadge(); renderNotis(); renderMe(); updateLinkEmailDot();
+        }};
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, document.getElementById('link-email-verify-status'), null, linkRecoveryCatch);
         return;
       }
       if (vStale()) return;
@@ -4499,7 +4571,14 @@ function showSetupEmail(prefillEmail) {
         let result = await r.json().catch(() => null);
         if (isStale()) return;
         result = verificationResponseState(result, r, verifyBtn);
-        if (showVerificationPending(result, verifyBtn, otpErr, resendBtn)) { inFlight = false; return; }
+        const signinRecovery = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.token_hash) {
+            const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+            if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
+            localStorage.setItem('pm_linked_email', email);
+          }
+        }};
+        if (showVerificationPending(result, verifyBtn, otpErr, resendBtn, signinRecovery)) { inFlight = false; return; }
         if (!result || (!result.token_hash && !result.error)) {
           resetVerify('unexpected response — try again or request a new code');
           return;
@@ -4512,7 +4591,14 @@ function showSetupEmail(prefillEmail) {
         localStorage.setItem('pm_linked_email', email);
       } catch (e) {
         if (isStale()) return;
-        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, otpErr, resendBtn);
+        const signinRecoveryCatch = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.token_hash) {
+            const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+            if (error) { resetVerify('sign in failed — recovery could not complete'); return; }
+            localStorage.setItem('pm_linked_email', email);
+          }
+        }};
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, otpErr, resendBtn, signinRecoveryCatch);
         inFlight = false;
       }
     });
@@ -4694,7 +4780,14 @@ function showSetupSignupOtp(email) {
       let result = await r.json().catch(() => null);
       if (isStale()) return;
       result = verificationResponseState(result, r, verifyBtn);
-      if (showVerificationPending(result, verifyBtn, err, resendBtn)) { inFlight = false; return; }
+      const signupRecovery = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.token_hash) {
+          const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+          if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
+          localStorage.setItem('pm_linked_email', email);
+        }
+      }};
+      if (showVerificationPending(result, verifyBtn, err, resendBtn, signupRecovery)) { inFlight = false; return; }
       if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
       if (result.error) { reset(result.error); return; }
       if (isStale()) return;
@@ -4704,7 +4797,14 @@ function showSetupSignupOtp(email) {
       localStorage.setItem('pm_linked_email', email);
     } catch (e) {
       if (isStale()) return;
-      showVerificationPending({ code: 'transport_unknown' }, verifyBtn, err, resendBtn);
+      const signupRecoveryCatch = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.token_hash) {
+          const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+          if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
+          localStorage.setItem('pm_linked_email', email);
+        }
+      }};
+      showVerificationPending({ code: 'transport_unknown' }, verifyBtn, err, resendBtn, signupRecoveryCatch);
       inFlight = false;
     }
   });

@@ -46,7 +46,7 @@ serve(async (req: Request) => {
   const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
   try {
-    const { action, email, code } = await req.json()
+    const { action, email, code, flow } = await req.json()
 
     if (action === 'send') {
       // BLOCKER-E2 fix: derive user_id from the caller's JWT, never from the body.
@@ -505,6 +505,82 @@ serve(async (req: Request) => {
       await sb.from('profiles').update({ email_verified: true }).eq('id', user.id)
 
       return json({ verified: true, token_hash: tokenHash })
+    }
+
+    if (action === 'check-status') {
+      const sb = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+      if (flow === 'link') {
+        const authHeader = req.headers.get('Authorization') || req.headers.get('authorization')
+        if (!authHeader) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || ''
+        const userSb = createClient(SUPABASE_URL, ANON_KEY, {
+          global: { headers: { Authorization: authHeader } }
+        })
+        const { data: { user }, error: authErr } = await userSb.auth.getUser()
+        if (authErr || !user) {
+          return new Response(JSON.stringify({ error: 'unauthorized' }), {
+            status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        const { data: prof } = await sb.from('profiles').select('email_verified').eq('id', user.id).single()
+        if (prof?.email_verified) {
+          return new Response(JSON.stringify({ verified: true }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        const { data: otpRow } = await sb.from('email_otps').select('expires_at').eq('user_id', user.id).single()
+        if (otpRow && new Date(otpRow.expires_at) > new Date()) {
+          return new Response(JSON.stringify({ code: 'verification_pending' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        return new Response(JSON.stringify({ code: 'no_active_challenge' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      if (flow === 'signin' || flow === 'signup') {
+        const normEmail = normaliseEmail(email)
+        if (!normEmail) return new Response(JSON.stringify({ error: 'invalid email' }), {
+          status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+        const user = await findUserByEmail(normEmail)
+        if (!user) {
+          return new Response(JSON.stringify({ code: 'no_active_challenge' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        const { data: otpRow } = await sb.from('email_otps').select('expires_at').eq('user_id', user.id).single()
+        if (!otpRow && user.email_confirmed_at) {
+          const { data: linkData, error: linkErr } = await sb.auth.admin.generateLink({ type: 'magiclink', email: normEmail })
+          const tokenHash = linkData?.properties?.hashed_token
+          if (linkErr || !tokenHash) {
+            return new Response(JSON.stringify({ code: 'recovery_failed', error: 'could not generate session' }), {
+              status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            })
+          }
+          return new Response(JSON.stringify({ verified: true, token_hash: tokenHash }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        if (otpRow && new Date(otpRow.expires_at) > new Date()) {
+          return new Response(JSON.stringify({ code: 'verification_pending' }), {
+            status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          })
+        }
+        return new Response(JSON.stringify({ code: 'no_active_challenge' }), {
+          status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        })
+      }
+
+      return new Response(JSON.stringify({ error: 'flow must be link, signin, or signup' }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      })
     }
 
     return new Response(JSON.stringify({ error: 'unknown action' }), {
