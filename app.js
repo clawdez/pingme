@@ -4021,7 +4021,9 @@ function renderMe() {
   });
 }
 
+let _linkEmailGen = 0;
 function showLinkEmail() {
+  const gen = ++_linkEmailGen;
   const modal = document.querySelector('#sheet-me .modal-center');
   const meWrap = document.getElementById('me-wrap');
   const notisSection = document.getElementById('me-notis-section');
@@ -4072,13 +4074,20 @@ function showLinkEmail() {
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
     try {
+      const sendCtrl = new AbortController();
+      setTimeout(() => sendCtrl.abort(), 15000);
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
         headers: await userAuthHeaders(),
-        body: JSON.stringify({ action: 'send', email, user_id: profile.id })
+        body: JSON.stringify({ action: 'send', email, user_id: profile.id }),
+        signal: sendCtrl.signal
       });
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
-    } catch (e) { toast('failed: ' + e.message); btn.textContent = 'send code'; btn.disabled = false; return; }
+    } catch (e) {
+      toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
+      btn.textContent = 'send code'; btn.disabled = false; return;
+    }
+    if (gen !== _linkEmailGen || !document.getElementById('link-email-input')) return;
 
     meWrap.innerHTML =
       '<div style="padding:16px 0">' +
@@ -4124,6 +4133,7 @@ function showLinkEmail() {
         verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
         return;
       }
+      if (gen !== _linkEmailGen || !document.getElementById('link-email-verify')) return;
       // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)

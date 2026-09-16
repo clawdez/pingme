@@ -152,3 +152,43 @@ test('control: 200 with {verified: true} -> pm_linked_email IS written', async (
   await tick(100);
   assert.equal(win.localStorage.getItem('pm_linked_email'), 'test@example.com', 'cache written on verified:true');
 });
+
+test('stale send response from prior flow discarded after re-open', async (t) => {
+  const { win } = await setupLinkedProfile(t);
+  let resolveSend;
+  win.eval(`
+    window.__handlers['send'] = null;
+    window.__staleSendPromise = null;
+    const origFetch = window.fetch;
+    window.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      if (body.action === 'send') {
+        return new Promise(r => { window.__resolveStaleSend = (v) => r(v); });
+      }
+      return origFetch(url, opts);
+    };
+    showLinkEmail();
+  `);
+  await tick();
+  const emailInput = byId(win, 'link-email-input');
+  assert.ok(emailInput, 'email input present');
+  emailInput.value = 'old@example.com';
+  byId(win, 'link-email-go').click();
+  await tick(50);
+  // User closes and re-opens (new generation)
+  win.eval(`
+    window.__handlers['send'] = { success: true };
+    window.fetch = async (url, opts) => {
+      const body = JSON.parse(opts.body);
+      return { ok: true, status: 200, json: async () => ({ success: true }) };
+    };
+    showLinkEmail();
+  `);
+  await tick(50);
+  // Now resolve the OLD send — should be discarded
+  win.eval(`window.__resolveStaleSend({ ok: true, status: 200, json: async () => ({ success: true }) });`);
+  await tick(100);
+  // Should still show the fresh email input, not the OTP screen from stale flow
+  assert.ok(byId(win, 'link-email-input'), 'fresh flow still on email input, stale send discarded');
+  assert.equal(byId(win, 'link-email-otp'), null, 'no OTP screen from stale response');
+});
