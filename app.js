@@ -4146,6 +4146,7 @@ function _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, code
 
   let resolved = false;
   const cleanup = () => { resolved = true; if (unsub) unsub(); clearTimeout(resendUnlock); };
+  waitEl._recoveryCleanup = cleanup;
 
   const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
     if (resolved || !waitEl.isConnected) { cleanup(); return; }
@@ -4177,6 +4178,28 @@ function _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, code
       resend.textContent = 'send a new code';
     }
   }, 30000);
+}
+
+function _resetAfterResend(verifyBtn, codeInput, errorNode, resend) {
+  const waitEl = errorNode.parentElement && errorNode.parentElement.querySelector('.verification-session-wait');
+  if (waitEl) {
+    if (typeof waitEl._recoveryCleanup === 'function') waitEl._recoveryCleanup();
+    waitEl.remove();
+  }
+  if (verifyBtn) {
+    verifyBtn.dataset.verificationPending = '';
+    verifyBtn.disabled = false;
+    verifyBtn.textContent = 'verify';
+  }
+  if (codeInput) {
+    codeInput.readOnly = false;
+    codeInput.value = '';
+    codeInput.focus();
+  }
+  if (resend) {
+    resend.dataset.verificationPending = '';
+  }
+  if (errorNode) errorNode.textContent = '';
 }
 
 function _renderCheckStatusButton(recoveryCtx, errorNode) {
@@ -4708,7 +4731,7 @@ function showSetupEmail(prefillEmail) {
       const res = await signInSendCode(email);
       if (navigatedAway) return;
       if (res.ok) {
-        otpErr.textContent = '';
+        _resetAfterResend(verifyBtn, otpInp, otpErr, resendBtn);
         toast('new code sent to ' + email);
         emailSendCooldowns.set(email, Date.now() + 60000);
       } else {
@@ -4915,7 +4938,7 @@ function showSetupSignupOtp(email) {
     const res = await signupSendCode(email);
     if (navigatedAway || setupScreenGen !== otpGen) return;
     if (res.ok) {
-      err.textContent = '';
+      _resetAfterResend(verifyBtn, otpInp, err, resendBtn);
       toast('new code sent to ' + email);
       emailSendCooldowns.set(email, Date.now() + 60000);
     } else {

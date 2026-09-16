@@ -187,3 +187,120 @@ test('showVerificationPending: signup recovery uses session-await, unlocks resen
   assert.equal(resendBtn.disabled, true, 'resend starts disabled');
   assert.equal(resendBtn.dataset.verificationPending, 'true', 'resend marked pending');
 });
+
+test('_resetAfterResend: cleans session-await, resets pending state, makes input writable', async (t) => {
+  const { win } = await loadSettled(t);
+  win.eval(`
+    window.__unsubCalled = false;
+    window.__authCallback = null;
+    sb = {
+      auth: {
+        onAuthStateChange: (cb) => {
+          window.__authCallback = cb;
+          return { data: { subscription: { unsubscribe: () => { window.__unsubCalled = true; } } } };
+        }
+      }
+    };
+    const btn = document.createElement('button');
+    btn.id = 'test-reset-verify';
+    document.body.appendChild(btn);
+    const errNode = document.createElement('div');
+    errNode.id = 'test-reset-err';
+    document.body.appendChild(errNode);
+    const resendBtn = document.createElement('button');
+    resendBtn.id = 'test-reset-resend';
+    document.body.appendChild(resendBtn);
+    const codeInput = document.createElement('input');
+    codeInput.id = 'setup-otp';
+    codeInput.value = '123456';
+    document.body.appendChild(codeInput);
+    const recoveryCtx = { flow: 'signin', email: 'c@example.com', onVerified: () => {} };
+    showVerificationPending({ code: 'transport_unknown' }, btn, errNode, resendBtn, recoveryCtx);
+  `);
+  const btn = win.document.getElementById('test-reset-verify');
+  const codeInput = win.document.querySelector('#setup-otp');
+  const resend = win.document.getElementById('test-reset-resend');
+  const errNode = win.document.getElementById('test-reset-err');
+  assert.equal(btn.dataset.verificationPending, 'true', 'verify pending before reset');
+  assert.equal(codeInput.readOnly, true, 'code readOnly before reset');
+  assert.equal(resend.dataset.verificationPending, 'true', 'resend pending before reset');
+  assert.ok(win.document.querySelector('.verification-session-wait'), 'session-wait exists before reset');
+
+  win.eval(`_resetAfterResend(
+    document.getElementById('test-reset-verify'),
+    document.querySelector('#setup-otp'),
+    document.getElementById('test-reset-err'),
+    document.getElementById('test-reset-resend')
+  )`);
+  await tick(20);
+
+  assert.equal(btn.dataset.verificationPending, '', 'verify pending cleared');
+  assert.equal(btn.disabled, false, 'verify re-enabled');
+  assert.equal(btn.textContent, 'verify', 'verify text reset');
+  assert.equal(codeInput.readOnly, false, 'code input writable');
+  assert.equal(codeInput.value, '', 'old code cleared');
+  assert.equal(resend.dataset.verificationPending, '', 'resend pending cleared');
+  assert.equal(errNode.textContent, '', 'error cleared');
+  assert.equal(win.document.querySelector('.verification-session-wait'), null, 'session-wait removed');
+  assert.equal(win.eval('window.__unsubCalled'), true, 'auth subscription unsubscribed');
+});
+
+test('resend after verify failure: full challenge lifecycle — timeout, resend, new code usable', async (t) => {
+  const { win } = await loadSettled(t);
+  win.eval(`
+    window.__authCallback = null;
+    window.__unsubCalled = false;
+    sb = {
+      auth: {
+        onAuthStateChange: (cb) => {
+          window.__authCallback = cb;
+          return { data: { subscription: { unsubscribe: () => { window.__unsubCalled = true; } } } };
+        }
+      }
+    };
+    const btn = document.createElement('button');
+    btn.id = 'lifecycle-verify';
+    document.body.appendChild(btn);
+    const errNode = document.createElement('div');
+    errNode.id = 'lifecycle-err';
+    document.body.appendChild(errNode);
+    const resendBtn = document.createElement('button');
+    resendBtn.id = 'lifecycle-resend';
+    document.body.appendChild(resendBtn);
+    const codeInput = document.createElement('input');
+    codeInput.id = 'setup-otp';
+    codeInput.value = '111111';
+    document.body.appendChild(codeInput);
+    const recoveryCtx = { flow: 'signin', email: 'd@example.com', onVerified: () => {} };
+    showVerificationPending({ code: 'transport_unknown' }, btn, errNode, resendBtn, recoveryCtx);
+  `);
+
+  const btn = win.document.getElementById('lifecycle-verify');
+  const codeInput = win.document.querySelector('#setup-otp');
+  const resend = win.document.getElementById('lifecycle-resend');
+
+  assert.equal(btn.dataset.verificationPending, 'true', 'pending after verify failure');
+  assert.equal(codeInput.readOnly, true, 'code locked after verify failure');
+  assert.equal(resend.disabled, true, 'resend locked initially');
+
+  // Simulate backend-confirmed resend
+  win.eval(`_resetAfterResend(
+    document.getElementById('lifecycle-verify'),
+    document.querySelector('#setup-otp'),
+    document.getElementById('lifecycle-err'),
+    document.getElementById('lifecycle-resend')
+  )`);
+  await tick(20);
+
+  assert.equal(btn.dataset.verificationPending, '', 'pending cleared after resend');
+  assert.equal(btn.disabled, false, 'verify re-enabled after resend');
+  assert.equal(codeInput.readOnly, false, 'code writable after resend');
+  assert.equal(codeInput.value, '', 'old code cleared for new entry');
+  assert.equal(win.eval('window.__unsubCalled'), true, 'old auth listener cleaned up');
+  assert.equal(win.document.querySelector('.verification-session-wait'), null, 'old recovery UI removed');
+
+  // User can now type new code and verify again
+  codeInput.value = '999999';
+  assert.equal(codeInput.value, '999999', 'new code enterable');
+  assert.equal(btn.disabled, false, 'verify clickable for new code');
+});
