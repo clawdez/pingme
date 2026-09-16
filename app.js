@@ -4139,7 +4139,8 @@ function showVerificationPending(result, button, errorNode, resend, recoveryCtx)
           } else if (status.code === 'no_active_challenge') {
             errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
           } else if (status.code === 'session_expired') {
-            errorNode.textContent = 'Session expired — sign in again to check verification status.';
+            errorNode.textContent = 'Session expired — go back and sign in again to check verification status.';
+            checkBtn.disabled = true; checkBtn.style.display = 'none';
           } else {
             errorNode.textContent = status.error || 'Could not determine verification status.';
           }
@@ -4197,6 +4198,7 @@ function showLinkEmail() {
     '<h3 class="link-email-h">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
     '<input class="link-email-input" id="link-email-input" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" autofocus/>' +
+    '<div id="link-email-send-status" role="alert"></div>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
@@ -4243,6 +4245,12 @@ function showLinkEmail() {
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
     } catch (e) {
       if (stale()) return;
+      if (e && e.code === 'session_expired') {
+        const statusEl = document.getElementById('link-email-send-status');
+        if (statusEl) { statusEl.textContent = 'Session expired — go back and sign in again.'; statusEl.setAttribute('role', 'alert'); statusEl.focus(); }
+        else toast('session expired — sign in again');
+        btn.textContent = 'send code'; btn.disabled = true; return;
+      }
       toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
       btn.textContent = 'send code'; btn.disabled = false; return;
     }
@@ -4308,8 +4316,9 @@ function showLinkEmail() {
       } catch (e) {
         if (vStale()) return;
         if (e && e.code === 'session_expired') {
-          toast('session expired — sign in again');
-          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+          const statusEl = document.getElementById('link-email-verify-status');
+          if (statusEl) { statusEl.textContent = 'Session expired — go back and sign in again to resume.'; statusEl.setAttribute('role', 'alert'); statusEl.focus(); }
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = true;
           return;
         }
         const linkRecoveryCatch = { flow: 'link', email, onVerified: () => {
