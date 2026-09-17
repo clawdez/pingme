@@ -50,7 +50,7 @@ async function loadSettled(t) {
         onAuthStateChange: (cb) => { window.__authCb = cb; return { data: { subscription: { unsubscribe() {} } } }; },
         verifyOtp: async (args) => { window.__verifyOtp.push(args); return window.__verifyOtpResult || { data: { session: {} }, error: null }; },
         signInAnonymously: async () => { window.__anon++; return { data: { user: { id: 'anon-1' } }, error: null }; },
-        refreshSession: async () => ({ data: {}, error: null }),
+        refreshSession: async () => ({ data: { session: window.__session }, error: null }),
       },
       channel: () => ({ on() { return this; }, subscribe() { return this; } }),
       removeChannel() {}
