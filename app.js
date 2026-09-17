@@ -4242,6 +4242,35 @@ function _renderCheckStatusButton(recoveryCtx, errorNode) {
   errorNode.after(checkBtn);
 }
 
+// A11y: the link-email panel is injected into #me-wrap, which lives *inside*
+// the profile card. Without a focus trap, Shift+Tab from the first field
+// escapes backward into the profile chrome — including the sheet's close
+// control (.me-back) that is visually behind the active panel. Trap Tab within
+// the panel so keyboard navigation can't reach controls outside the current
+// screen. Recomputes focusables on every keydown so it keeps working across the
+// email → code innerHTML swap (the #me-wrap element itself persists).
+const LINK_EMAIL_FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function _trapLinkEmailFocus(container) {
+  if (!container || container._linkEmailTrap) return;
+  container._linkEmailTrap = true;
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const list = Array.from(container.querySelectorAll(LINK_EMAIL_FOCUSABLE))
+      .filter((el) => !el.hidden && el.getAttribute('aria-hidden') !== 'true' &&
+        el.type !== 'hidden' && el.style.display !== 'none');
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = container.ownerDocument.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !container.contains(active)) { e.preventDefault(); last.focus(); }
+    } else if (active === last) {
+      e.preventDefault(); first.focus();
+    }
+  });
+}
+
 let _linkEmailGen = 0;
 let _linkEmailSendOpId = 0;
 let _linkEmailVerifyOpId = 0;
@@ -4279,14 +4308,15 @@ function showLinkEmail() {
   }
 
   meWrap.innerHTML =
-    '<div style="padding:16px 0">' +
-    '<h3 class="link-email-h">link your email</h3>' +
+    '<div class="link-email-panel" role="dialog" aria-modal="true" aria-label="link your email" style="padding:16px 0">' +
+    '<h3 class="link-email-h" id="link-email-title">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
     '<input class="link-email-input" id="link-email-input" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" autofocus/>' +
     '<div id="link-email-send-status" role="alert"></div>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
+  _trapLinkEmailFocus(meWrap);
 
   const emailInput = document.getElementById('link-email-input');
   setTimeout(() => { if (sameAccount() && emailInput.isConnected) emailInput.focus(); }, 80);
@@ -4343,15 +4373,16 @@ function showLinkEmail() {
     emailSendCooldowns.set(email, Date.now() + 60000);
 
     meWrap.innerHTML =
-      '<div style="padding:16px 0">' +
+      '<div class="link-email-panel" role="dialog" aria-modal="true" aria-label="enter your code" style="padding:16px 0">' +
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
-      '<h3 class="link-email-h">enter your code</h3>' +
+      '<h3 class="link-email-h" id="link-email-title">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
       '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" aria-label="verification code" style="letter-spacing:4px" autofocus/>' +
       '<div id="link-email-verify-status" role="alert"></div>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
+    _trapLinkEmailFocus(meWrap);
 
     const otpInput = document.getElementById('link-email-otp');
     setTimeout(() => { if (sameAccount() && otpInput.isConnected) otpInput.focus(); }, 80);
@@ -4536,11 +4567,37 @@ function showSetup() {
 }
 window.showSetup = showSetup;
 
+// Focus trap for setup screens — prevents Tab/Shift+Tab from escaping to
+// hidden sheet controls behind the active panel. Recomputes focusables on
+// every keydown so it works across innerHTML swaps.
+const SETUP_FOCUSABLE =
+  'a[href],button:not([disabled]):not([hidden]),input:not([disabled]):not([hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function _trapSetupFocus(container) {
+  if (!container || !container.addEventListener || container._setupFocusTrap) return;
+  container._setupFocusTrap = true;
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const list = Array.from(container.querySelectorAll(SETUP_FOCUSABLE))
+      .filter((el) => !el.hidden && el.getAttribute('aria-hidden') !== 'true' &&
+        el.type !== 'hidden' && el.style.display !== 'none' && el.offsetParent !== null);
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = container.ownerDocument.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !container.contains(active)) { e.preventDefault(); last.focus(); }
+    } else if (active === last) {
+      e.preventDefault(); first.focus();
+    }
+  });
+}
+
 // Screen 1b — Email sign-in via custom OTP
 function showSetupEmail(prefillEmail) {
   setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
+  if (root && root.setAttribute) root.setAttribute('aria-label', 'sign in');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
@@ -4555,6 +4612,7 @@ function showSetupEmail(prefillEmail) {
     '<button class="setup-skip" id="s-email-new">new here? create an account</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const inp = document.getElementById('setup-email');
   const nudge = document.getElementById('s-email-nudge');
@@ -4615,6 +4673,7 @@ function showSetupEmail(prefillEmail) {
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
+    if (root && root.setAttribute) root.setAttribute('aria-label', 'verify sign-in code');
     root.innerHTML =
       '<div class="setup-fs">' +
       '<div class="setup-page s-slide-in">' +
@@ -4629,6 +4688,7 @@ function showSetupEmail(prefillEmail) {
       '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
       '</div>' +
       '</div>';
+    if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
     const otpInp = document.getElementById('setup-otp');
     const otpErr = document.getElementById('s-signin-otp-err');
@@ -4755,6 +4815,7 @@ function showSetupSignupEmail(prefillEmail) {
   setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
+  root.setAttribute('aria-label', 'create account');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-signup">' +
@@ -4767,6 +4828,7 @@ function showSetupSignupEmail(prefillEmail) {
     '<button class="setup-skip" id="s-signup-signin">already have an account? sign in</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const inp = document.getElementById('setup-signup-email');
   const err = document.getElementById('s-signup-err');
@@ -4834,6 +4896,7 @@ function showSetupSignupEmail(prefillEmail) {
 function showSetupSignupOtp(email) {
   setSetupActive(true);
   const root = document.getElementById('setup-root');
+  root.setAttribute('aria-label', 'verify signup code');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-signup-otp">' +
@@ -4848,6 +4911,7 @@ function showSetupSignupOtp(email) {
     '<button class="setup-skip" id="s-otp-retry">use a different email</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const otpInp = document.getElementById('setup-otp');
   const err = document.getElementById('s-otp-err');

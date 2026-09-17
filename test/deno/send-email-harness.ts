@@ -250,6 +250,71 @@ await it('unknown action → 400', async () => {
   eq(r.status, 400);
 });
 
+/* ── token issuance is uncertain / expires mid-flow (real handler, no mocks) ── */
+
+await it('signin-verify: right code but token issuance fails → graceful invalid, OTP kept for retry, no session', async () => {
+  const u = seedUser('flaky@example.com', true);
+  await call({ action: 'signin-send', email: 'flaky@example.com' });
+  const code = otpRows()[0].code;
+  db.linkFail = true; // GoTrue fails to mint the session token
+  const r = await call({ action: 'signin-verify', email: 'flaky@example.com', code });
+  eq(r.status, 200, 'status'); eq(r.body.ok, false, 'not ok'); eq(r.body.code, 'invalid');
+  match(r.body.error, /failed to generate session/, 'surfaces the issuance failure, not a crash');
+  ok(!r.body.token_hash, 'no token handed to the client');
+  eq(otpRows().length, 1, 'OTP is preserved so the user can retry once issuance recovers');
+});
+
+await it('signup-verify: right code, email confirmed, but token issuance fails → graceful invalid, recover via sign-in', async () => {
+  const { code, user } = await startSignup('halfway@example.com');
+  db.linkFail = true;
+  const r = await call({ action: 'signup-verify', email: 'halfway@example.com', code });
+  eq(r.status, 200); eq(r.body.ok, false); eq(r.body.code, 'invalid');
+  match(r.body.error, /failed to generate session/);
+  ok(!r.body.token_hash, 'no session minted on uncertain issuance');
+  ok(user.email_confirmed_at, 'email is confirmed, so the account can recover through the sign-in flow');
+});
+
+await it('signup-send: an account left email-confirmed by a failed issuance is now treated as registered (sign in)', async () => {
+  // Continues the uncertain-state above: the user re-enters signup, and the
+  // server routes them to sign-in instead of duplicating the account.
+  const { code } = await startSignup('recover@example.com');
+  db.linkFail = true;
+  await call({ action: 'signup-verify', email: 'recover@example.com', code });
+  db.linkFail = false;
+  const again = await call({ action: 'signup-send', email: 'recover@example.com' });
+  eq(again.status, 200); eq(again.body.ok, false); eq(again.body.code, 'already_registered');
+});
+
+await it('signup-send → recover through sign-in after a failed issuance mints a real token_hash', async () => {
+  const { code, user } = await startSignup('reissue@example.com');
+  db.linkFail = true;
+  await call({ action: 'signup-verify', email: 'reissue@example.com', code });
+  db.linkFail = false;
+  // The failed issuance leaves the signup OTP row behind; the per-minute send
+  // limiter would 429 an instant retry, so age it to simulate the user waiting.
+  if (otpRows()[0]) otpRows()[0].created_at = new Date(Date.now() - 61000).toISOString();
+  const send = await call({ action: 'signin-send', email: 'reissue@example.com' });
+  eq(send.status, 200); eq(send.body.sent, true);
+  const signinCode = otpRows()[0].code;
+  const verify = await call({ action: 'signin-verify', email: 'reissue@example.com', code: signinCode });
+  eq(verify.status, 200); eq(verify.body.verified, true);
+  eq(verify.body.token_hash, 'hash-magiclink-' + user.id, 'issuance recovers and mints a session');
+});
+
+await it('verify: expired / unrecognised bearer token → 401, OTP untouched, email not linked', async () => {
+  const me = seedUser(null, false); db.tokens['tok-live'] = me;
+  await call({ action: 'send', email: 'link@example.com' }, { Authorization: 'Bearer tok-live' });
+  const before = otpRows().length; eq(before, 1, 'otp staged');
+  const code = otpRows()[0].code;
+  // Session expires mid-flow: the client presents a bearer the server can no
+  // longer resolve to a user. It must reject cleanly, not link the email.
+  const r = await call({ action: 'verify', email: 'link@example.com', code }, { Authorization: 'Bearer tok-expired' });
+  eq(r.status, 401, 'expired session is rejected');
+  eq(me.email, null, 'email never linked under an unresolved session');
+  ok(!me.email_confirmed_at, 'account not confirmed by an expired token');
+  eq(otpRows().length, 1, 'OTP left intact for a retry after re-auth');
+});
+
 /* ── check-status ── */
 
 await it('check-status: flow=signin → 400, no user lookup, no enumeration', async () => {
