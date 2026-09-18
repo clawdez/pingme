@@ -10,9 +10,19 @@ const ALLOWED_ORIGINS = [
 
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get('Origin') || ''
-  const allowed = ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0]
+  const configuredPreview = (Deno.env.get('PINGME_PREVIEW_ORIGIN') || '').trim()
+  let previewOrigin = ''
+  try {
+    const parsed = new URL(configuredPreview)
+    if (parsed.protocol === 'https:' && parsed.origin === configuredPreview && !parsed.hostname.includes('*')) {
+      previewOrigin = configuredPreview
+    }
+  } catch { /* Missing or invalid configuration grants no additional origin. */ }
+  const allowed = ALLOWED_ORIGINS.includes(origin) || (previewOrigin !== '' && origin === previewOrigin)
+    ? origin : ALLOWED_ORIGINS[0]
   return {
     'Access-Control-Allow-Origin': allowed,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
     'Vary': 'Origin',
   }
