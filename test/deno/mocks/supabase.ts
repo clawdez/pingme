@@ -10,13 +10,14 @@ export interface Db {
   tokens: Record<string, Row>;
   log: any[];
   resendFail: boolean;
+  linkFail: boolean;
 }
 export const db: Db = ((globalThis as any).__db ??= {
-  tables: { email_otps: [], profiles: [], pings: [] }, users: [], tokens: {}, log: [], resendFail: false,
+  tables: { email_otps: [], profiles: [], pings: [] }, users: [], tokens: {}, log: [], resendFail: false, linkFail: false,
 });
 export function resetDb() {
   db.tables = { email_otps: [], profiles: [], pings: [] };
-  db.users = []; db.tokens = {}; db.log = []; db.resendFail = false;
+  db.users = []; db.tokens = {}; db.log = []; db.resendFail = false; db.linkFail = false;
 }
 
 class Query {
@@ -103,6 +104,9 @@ export function createClient(_url: string, _key: string, opts?: any) {
           db.log.push({ admin: 'generateLink', attrs });
           const u = db.users.find((x) => x.email === attrs.email);
           if (!u) return { data: null, error: { message: 'User not found' } };
+          // Simulate GoTrue failing to mint / expiring the token issuance so the
+          // handler's "failed to generate session" branch can be exercised.
+          if (db.linkFail) return { data: null, error: { message: 'token issuance failed' } };
           return { data: { properties: { hashed_token: 'hash-' + attrs.type + '-' + u.id, action_link: 'https://x/verify' } }, error: null };
         },
       },

@@ -150,7 +150,7 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Ping confirm -->
-  <div class="sheet-wrap" id="sheet-ping-confirm">
+  <div class="sheet-wrap" id="sheet-ping-confirm" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-rally">
       <button class="modal-close" data-dismiss>&times;</button>
@@ -162,15 +162,15 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Player profile modal -->
-  <div class="sheet-wrap" id="sheet-raider">
+  <div class="sheet-wrap" id="sheet-raider" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center"><button class="modal-close" data-dismiss>&times;</button><div id="raider-body"></div></div>
   </div>
 
   <!-- Profile (me) page -->
-  <div class="sheet-wrap me-page" id="sheet-me">
+  <div class="sheet-wrap me-page" id="sheet-me" inert>
     <div class="modal-center modal-tall me-card">
-      <button class="me-back" data-dismiss title="close"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M9 9 L31 31 M31 9 L9 31"/></svg></button>
+      <button class="me-back" data-dismiss title="close" aria-label="close profile"><svg viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" filter="url(#wobble)"><path d="M9 9 L31 31 M31 9 L9 31"/></svg></button>
 
       <!-- banner with avatar -->
       <div class="me-banner">
@@ -194,9 +194,9 @@ if ('serviceWorker' in navigator) {
 
       <!-- stats: elo / games / rank -->
       <div class="me-stats me-stats-3">
-        <div class="me-stat" id="stat-elo" role="button"><span class="ms-num">1200</span><span class="ms-lbl">elo</span></div>
+        <div class="me-stat" id="stat-elo" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="sheet-elo"><span class="ms-num">1200</span><span class="ms-lbl">elo</span></div>
         <div class="me-stat"><span class="ms-num" id="stat-games">0</span><span class="ms-lbl">games</span></div>
-        <div class="me-stat" id="stat-rank" role="button"><span class="ms-num">—</span><span class="ms-lbl">rank</span></div>
+        <div class="me-stat" id="stat-rank" role="button" tabindex="0" aria-haspopup="dialog" aria-controls="sheet-rank"><span class="ms-num">—</span><span class="ms-lbl">rank</span></div>
       </div>
 
       <!-- settings panel (hidden by default, toggled by gear) -->
@@ -222,7 +222,7 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Settings overlay (above profile page) -->
-  <div class="sheet-wrap" id="sheet-settings">
+  <div class="sheet-wrap" id="sheet-settings" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
       <button class="modal-close" data-dismiss>&times;</button>
@@ -232,7 +232,7 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Email overlay (above profile page) -->
-  <div class="sheet-wrap" id="sheet-email">
+  <div class="sheet-wrap" id="sheet-email" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
       <button class="modal-close" data-dismiss>&times;</button>
@@ -243,7 +243,7 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Share modal -->
-  <div class="sheet-wrap" id="sheet-share">
+  <div class="sheet-wrap" id="sheet-share" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
       <button class="modal-close" data-dismiss>&times;</button>
@@ -258,10 +258,10 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Rank leaderboard sheet -->
-  <div class="sheet-wrap" id="sheet-rank">
+  <div class="sheet-wrap" id="sheet-rank" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-tall">
-      <button class="modal-close" data-dismiss>&times;</button>
+      <button class="modal-close" data-dismiss aria-label="close rank">&times;</button>
       <h3>rankings</h3>
       <div class="lb-list" id="lb-list"></div>
       <div class="my-codes-label">your invite codes</div>
@@ -270,7 +270,7 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- Ping detail / respond sheet -->
-  <div class="sheet-wrap" id="sheet-ping">
+  <div class="sheet-wrap" id="sheet-ping" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center">
       <button class="modal-close" data-dismiss>&times;</button>
@@ -286,10 +286,10 @@ if ('serviceWorker' in navigator) {
   </div>
 
   <!-- ELO detail sheet -->
-  <div class="sheet-wrap" id="sheet-elo">
+  <div class="sheet-wrap" id="sheet-elo" inert>
     <div class="sheet-scrim" data-dismiss></div>
     <div class="modal-center modal-tall">
-      <button class="modal-close" data-dismiss>&times;</button>
+      <button class="modal-close" data-dismiss aria-label="close elo">&times;</button>
       <h3>your elo</h3>
       <div class="elo-big" id="elo-big">1200</div>
       <div class="elo-tier" id="elo-tier">unranked</div>

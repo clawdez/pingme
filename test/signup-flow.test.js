@@ -50,7 +50,7 @@ async function loadSettled(t) {
         onAuthStateChange: (cb) => { window.__authCb = cb; return { data: { subscription: { unsubscribe() {} } } }; },
         verifyOtp: async (args) => { window.__verifyOtp.push(args); return window.__verifyOtpResult || { data: { session: {} }, error: null }; },
         signInAnonymously: async () => { window.__anon++; return { data: { user: { id: 'anon-1' } }, error: null }; },
-        refreshSession: async () => ({ data: {}, error: null }),
+        refreshSession: async () => ({ data: { session: window.__session }, error: null }),
       },
       channel: () => ({ on() { return this; }, subscribe() { return this; } }),
       removeChannel() {}
@@ -157,7 +157,7 @@ test('happy path: email → signup-send → code → signup-verify → verifyOtp
   win.__handlers['signup-send'] = { sent: true };
   win.__handlers['signup-verify'] = (b) => b.code === '123456'
     ? { verified: true, token_hash: 'th-1' }
-    : { ok: false, error: 'invalid code (4 attempts left)' };
+    : { ok: false, code: 'invalid', error: 'invalid code (4 attempts left)' };
   win.eval('showSetupSignupEmail()');
   byId(win, 'setup-signup-email').value = '  Ez@Example.com ';
   byId(win, 's-signup-go').click();
@@ -207,7 +207,7 @@ test('happy path: email → signup-send → code → signup-verify → verifyOtp
 test('expired code: error shown, "send a new code" requests a fresh one and stays on the code screen', async (t) => {
   const { win } = await loadSettled(t);
   win.__handlers['signup-send'] = { sent: true };
-  win.__handlers['signup-verify'] = { ok: false, error: 'invalid or expired code' };
+  win.__handlers['signup-verify'] = { ok: false, code: 'invalid', error: 'invalid or expired code' };
   win.eval('showSetupSignupEmail()');
   byId(win, 'setup-signup-email').value = 'ez@example.com';
   byId(win, 's-signup-go').click();
@@ -217,6 +217,9 @@ test('expired code: error shown, "send a new code" requests a fresh one and stay
   await tick();
   assert.match(byId(win, 's-otp-err').textContent, /expired/);
   assert.equal(win.__verifyOtp.length, 0);
+  win.eval('emailSendCooldowns.clear()');
+  await tick(1200);
+  assert.equal(byId(win, 's-otp-resend').disabled, false, 'resend enabled after cooldown cleared');
   byId(win, 's-otp-resend').click();
   await tick();
   assert.equal(win.__fetch.filter(f => f.body.action === 'signup-send').length, 2, 'fresh code requested');
@@ -284,4 +287,25 @@ test('link-email sends the user session token, not the anon key (function requir
   await tick();
   assert.equal(win.__fetch[1].body.action, 'verify');
   assert.equal(win.__fetch[1].headers.Authorization, 'Bearer sess-tok');
+});
+
+test('#app is inert while setup is active', async (t) => {
+  const { win } = loadSettled(t).then ? await loadSettled(t) : loadSettled(t);
+  await tick(350);
+  const app = win.document.getElementById('app');
+  const setupRoot = win.document.getElementById('setup-root');
+  assert.equal(app.inert, true, '#app should be inert during setup');
+  assert.equal(app.getAttribute('aria-hidden'), 'true', '#app should have aria-hidden during setup');
+  assert.equal(setupRoot.getAttribute('role'), 'dialog', 'setup-root should have dialog role');
+  assert.ok(setupRoot.innerHTML.length > 0, 'setup-root should have content');
+});
+
+test('#app is restored after setup completes', async (t) => {
+  const { win } = loadApp(t);
+  await tick(350);
+  const app = win.document.getElementById('app');
+  assert.equal(app.inert, true, '#app inert during setup');
+  win.eval('setSetupActive(false); document.getElementById("setup-root").innerHTML = "";');
+  assert.equal(app.inert, false, '#app should not be inert after setup clears');
+  assert.equal(app.getAttribute('aria-hidden'), null, 'aria-hidden should be removed');
 });

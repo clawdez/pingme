@@ -2,6 +2,7 @@
 
 // Feature flags — overridden on dev/preview deployments via window.PINGME_FEATURES in index.html
 const FEATURES = Object.assign({
+  challengeReplay: false,        // Enable only with reviewed durable claim/completed-replay server.
   matchTracking: false,           // #6: ELO + IRL match tracking + voice scoring
   accessCodes:   true,            // invite-only access codes
   leaderboardLinkedOnly: false,   // #10: gate leaderboard to email-linked accounts only
@@ -433,6 +434,7 @@ function openAddVenueModal() {
   if (!el) {
     el = document.createElement('div');
     el.className = 'sheet-wrap';
+    el.inert = true;
     el.id = 'sheet-add-venue';
     el.innerHTML = `
       <div class="sheet-scrim" data-dismiss></div>
@@ -622,6 +624,8 @@ let playingExpiryTimer = null; // 90-min auto-expire for "playing" status
 let downReminderTimer = null; // 5-min warning before expiry
 let lastPingTime = 0; // rate limit pings (ms)
 const PING_COOLDOWN = 10000; // 10 seconds between pings
+const emailSendCooldowns = new Map(); // email → expiry timestamp (shared across screens)
+let setupScreenGen = 0; // incremented on every screen transition to detect stale callbacks
 
 /* ── FAVORITES ── */
 function getFavorites() {
@@ -752,6 +756,7 @@ function bindAuthListener() {
         profile = await restoreTimers(existing);
         homeState = profile.status || 'off';
         document.getElementById('setup-root').innerHTML = '';
+        setSetupActive(false);
         await loadFriends();
         await loadRoster();
         await loadPings();
@@ -787,6 +792,12 @@ async function boot() {
     navigator.storage.persist().catch(() => {});
   }
 
+  // Lock app inert immediately so keyboard cannot reach concealed controls
+  // during the boot window. setSetupActive(true) will maintain this; if
+  // the user turns out to be authenticated, setSetupActive(false) restores it.
+  const appEl = document.getElementById('app');
+  if (appEl) { appEl.inert = true; appEl.setAttribute('aria-hidden', 'true'); }
+
   if (!sb) {
     setTab('home');
     renderHome();
@@ -820,8 +831,13 @@ async function boot() {
 
   setTab('home');
   hideSplash();
-  if (!profile) setTimeout(showSetup, 300);
-  else setTimeout(maybeShowSceneNudge, 1200);
+  if (!profile) {
+    const action = new URLSearchParams(location.search).get('action');
+    if (action === 'signin') setTimeout(showSetupEmail, 300);
+    else if (action === 'signup') setTimeout(() => showSetupSignupEmail(''), 300);
+    else setTimeout(showSetup, 300);
+    try { const u = new URL(location.href); u.searchParams.delete('action'); history.replaceState(null, '', u.pathname + (u.search || '')); } catch {}
+  } else setTimeout(maybeShowSceneNudge, 1200);
 
   // #5: pull canonical venue list once we have a connection
   loadVenues();
@@ -1008,16 +1024,39 @@ async function restoreTimers(p) {
 
 /* ── AUTH ── */
 async function signInSendCode(email) {
+  return requestEmailCode('signin-send', email);
+}
+
+async function requestEmailCode(action, email) {
+  const controller = new AbortController();
+  let timer;
   try {
-    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(Object.assign(new Error('email request timed out'), { name: 'AbortError' }));
+        controller.abort();
+      }, 15000);
+    });
+    return await Promise.race([deadline, (async () => {
+      const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
-      body: JSON.stringify({ action: 'signin-send', email })
-    });
-    const result = await r.json();
-    if (result.error) { toast(result.error); return { ok: false, error: result.error }; }
-    return { ok: true };
-  } catch (e) { toast('sign in failed: ' + e.message); return { ok: false, error: e.message }; }
+      body: JSON.stringify({ action, email }),
+      signal: controller.signal
+      });
+      let result = await r.json().catch(() => null);
+      if (r.status === 429) return { ok: false, code: 'rate_limited', error: 'please wait a minute before requesting another code' };
+      if (r.status >= 500 || result?.code === 'email_unavailable') return { ok: false, code: 'email_unavailable', error: 'email is temporarily unavailable — try again shortly' };
+      if (result?.code === 'already_registered' && r.ok) return { ok: false, code: 'already_registered', error: 'that email is already registered — sign in instead' };
+      // Preserve the existing generic sign-in recovery contract without
+      // treating unrelated provider/network errors as evidence of a new user.
+      if (r.ok && result?.ok === false && result?.error === 'if that email exists, we sent a code') return { ok: false, code: 'signin_unconfirmed', error: result.error };
+      if (!r.ok || result?.sent !== true || result?.error) return { ok: false, code: 'send_failed', error: typeof result?.error === 'string' ? result.error : 'could not confirm the email was sent — try again' };
+      return { ok: true };
+    })()]);
+  } catch (e) {
+    return { ok: false, code: e.name === 'AbortError' ? 'timeout' : 'network_error', error: e.name === 'AbortError' ? 'request timed out — check your inbox before trying again' : 'could not send the code — check your connection and try again' };
+  } finally { clearTimeout(timer); }
 }
 
 // Email-required signup: same shape as the server-side check in send-email.
@@ -1026,25 +1065,32 @@ function isValidEmail(email) {
 }
 
 async function signupSendCode(email) {
-  try {
-    const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + SUPABASE_ANON },
-      body: JSON.stringify({ action: 'signup-send', email })
-    });
-    const result = await r.json();
-    if (result.error) return { ok: false, error: result.error, code: result.code };
-    return { ok: true };
-  } catch (e) { return { ok: false, error: 'could not send the code — check your connection and try again' }; }
+  return requestEmailCode('signup-send', email);
 }
 
 // The send-email `send`/`verify` actions (link an email to the signed-in
 // account) resolve the user from the bearer JWT, so it has to be the user's
 // session token — the anon key gets a 401.
 async function userAuthHeaders() {
-  const { data: { session } } = await sb.auth.getSession();
-  const token = session && session.access_token ? session.access_token : SUPABASE_ANON;
-  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+  let { data: { session } } = await sb.auth.getSession();
+  if (session && session.access_token) {
+    let needsRefresh = false;
+    try {
+      const exp = JSON.parse(atob(session.access_token.split('.')[1])).exp;
+      needsRefresh = exp * 1000 < Date.now() + 30000;
+    } catch { needsRefresh = true; }
+    if (needsRefresh) {
+      const { data: refreshed, error: refreshErr } = await sb.auth.refreshSession();
+      if (refreshErr || !refreshed.session) {
+        throw Object.assign(new Error('session expired — sign in again'), { code: 'session_expired' });
+      }
+      session = refreshed.session;
+    }
+  }
+  if (!session || !session.access_token) {
+    throw Object.assign(new Error('session expired — sign in again'), { code: 'session_expired' });
+  }
+  return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token };
 }
 
 async function loadOrCreateProfile(user) {
@@ -1390,7 +1436,7 @@ function handleProfileAv(e) {
   setTimeout(() => { profileAvFiring = false; }, 300);
   try {
     if (e.type === 'touchend') e.preventDefault();
-    document.getElementById('sheet-me').classList.add('open');
+    openSheet(document.getElementById('sheet-me'));
     renderMe();
     renderNotis();
     // Mark pings as read when modal opens
@@ -1432,8 +1478,8 @@ document.addEventListener('click', (e) => {
 // above it so they can't end up floating over the homepage.
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#sheet-me [data-dismiss], #sheet-me .me-back')) return;
-  document.getElementById('sheet-settings')?.classList.remove('open');
-  document.getElementById('sheet-email')?.classList.remove('open');
+  closeSheet(document.getElementById('sheet-settings'));
+  closeSheet(document.getElementById('sheet-email'));
 });
 
 // Any settings item tap also dismisses the overlay
@@ -1441,7 +1487,7 @@ document.addEventListener('click', (e) => {
   const item = e.target.closest('#settings-list .me-dd-item');
   if (!item) return;
   // small delay so the item's own handler fires first
-  setTimeout(() => document.getElementById('sheet-settings')?.classList.remove('open'), 0);
+  setTimeout(() => closeSheet(document.getElementById('sheet-settings')), 0);
 });
 
 // Profile visibility: public / business / private — stored in localStorage
@@ -1470,10 +1516,10 @@ function openSettingsOverlay() {
     list.innerHTML =
       '<button class="me-dd-item" id="set-signin">sign in to play</button>';
     document.getElementById('set-signin').addEventListener('click', () => {
-      document.getElementById('sheet-settings')?.classList.remove('open');
+      closeSheet(document.getElementById('sheet-settings'));
       showSetup();
     });
-    document.getElementById('sheet-settings')?.classList.add('open');
+    openSheet(document.getElementById('sheet-settings'));
     return;
   }
 
@@ -1542,7 +1588,7 @@ function openSettingsOverlay() {
   });
 
   document.getElementById('set-test-notif').addEventListener('click', () => {
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     if (!('Notification' in window) || Notification.permission !== 'granted') {
       toast('enable notifications first');
       return;
@@ -1557,15 +1603,15 @@ function openSettingsOverlay() {
   });
 
   document.getElementById('set-friends').addEventListener('click', () => {
-    document.getElementById('sheet-settings').classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     openFriendsSheet('friends');
   });
   document.getElementById('set-scenes').addEventListener('click', () => {
-    document.getElementById('sheet-settings').classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     openSceneSheet();
   });
   document.getElementById('set-invite').addEventListener('click', () => {
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     const url = getShareUrl();
     if (navigator.clipboard) {
       navigator.clipboard.writeText(url).then(() => toast('invite code copied')).catch(() => toast('copy failed'));
@@ -1576,7 +1622,7 @@ function openSettingsOverlay() {
 
   document.getElementById('set-signout').addEventListener('click', async () => {
     if (!confirm('sign out?')) return;
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     if (profile?.id && sb) {
       await sb.from('profiles').update({
         status: 'off', venue: null, duration: null, started_at: null
@@ -1590,14 +1636,14 @@ function openSettingsOverlay() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
   });
 
   document.getElementById('set-delete').addEventListener('click', async () => {
     if (!confirm('delete your account? this cannot be undone.')) return;
     if (!confirm('are you sure? all your data will be permanently deleted.')) return;
-    document.getElementById('sheet-settings')?.classList.remove('open');
+    closeSheet(document.getElementById('sheet-settings'));
     const myId = profile?.id;
     if (myId && sb) await sb.from('profiles').delete().eq('id', myId);
     if (sb) await sb.auth.signOut();
@@ -1607,12 +1653,12 @@ function openSettingsOverlay() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('account deleted');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
     setTimeout(showSetup, 300);
   });
 
-  document.getElementById('sheet-settings')?.classList.add('open');
+  openSheet(document.getElementById('sheet-settings'));
 }
 
 function openEmailOverlay() {
@@ -1635,11 +1681,11 @@ function openEmailOverlay() {
         localStorage.removeItem('pm_linked_email');
         if (profile) { profile._linkedEmail = null; profile.email_verified = false; }
       }
-      document.getElementById('sheet-email')?.classList.remove('open');
+      closeSheet(document.getElementById('sheet-email'));
       showLinkEmail();
     };
   }
-  document.getElementById('sheet-email')?.classList.add('open');
+  openSheet(document.getElementById('sheet-email'));
 }
 
 // Two-step email tap:
@@ -1650,7 +1696,7 @@ function handleEmailTap() {
   if (!profile) { showSetup(); return; }
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
   const verified = !!(profile && profile.email_verified) || !!cachedEmail;
-  document.getElementById('sheet-me')?.classList.add('open');
+  openSheet(document.getElementById('sheet-me'));
   document.getElementById('me-settings-dd')?.classList.remove('open');
 
   // If not yet verified, skip the confirm pill — go straight to verify flow
@@ -1696,7 +1742,7 @@ function openEmailActions() {
   // sheet instead of stacking another full-screen modal.
   const cachedEmail = (profile && profile._linkedEmail) || localStorage.getItem('pm_linked_email') || '';
   const verified = !!(profile && profile.email_verified) || !!cachedEmail;
-  document.getElementById('sheet-me')?.classList.add('open');
+  openSheet(document.getElementById('sheet-me'));
   document.getElementById('me-settings-dd')?.classList.remove('open');
 
   let card = document.getElementById('me-email-inline');
@@ -1730,6 +1776,29 @@ function openEmailActions() {
 }
 
 /* ── SHEETS ── */
+function openSheet(el) {
+  if (!el) return;
+  el.inert = false;
+  el.classList.add('open');
+}
+function closeSheet(el) {
+  if (!el) return;
+  el.classList.remove('open');
+  el.inert = true;
+}
+function openProfileStatSheet(id, opener) {
+  const sheet = document.getElementById(id);
+  if (!sheet) return;
+  sheet._statOpener = opener;
+  openSheet(sheet);
+  sheet.querySelector('.modal-close')?.focus();
+}
+function activateProfileStat(e) {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  e.preventDefault();
+  if (!e.repeat) e.currentTarget.click();
+}
+
 // Use event delegation so dynamically-added [data-dismiss] buttons also work
 // Handle both click and touchend for iOS reliability
 function handleDismiss(e) {
@@ -1739,6 +1808,10 @@ function handleDismiss(e) {
   if (!wrap) return;
   if (e.type === 'touchend') e.preventDefault(); // prevent ghost click
   wrap.classList.remove('open');
+  wrap.inert = true;
+  const statOpener = wrap._statOpener;
+  delete wrap._statOpener;
+  if (statOpener?.isConnected && statOpener.closest('#sheet-me.open') && !statOpener.closest('[inert], [aria-hidden="true"]')) statOpener.focus();
   // Reset firing locks immediately so re-entry to profile is instant.
   // Bug (c): when closing the profile sheet, ALL debounce flags must reset —
   // previously a stale lock would block re-entry on a fast re-tap.
@@ -1770,7 +1843,7 @@ async function handleConfirmPing(e) {
     return;
   }
   confirmPingFiring = true;
-  document.getElementById('sheet-ping-confirm').classList.remove('open');
+  closeSheet(document.getElementById('sheet-ping-confirm'));
   const targetState = homeState; // 'down' or 'playing'
   if (targetState === 'down') downDur = 60;
   const ok = await setMyStatus(targetState);
@@ -1872,11 +1945,11 @@ async function setHomeState(st) {
   if (st === 'down') {
     renderVenuePicker();
     renderScenePicker();
-    document.getElementById('sheet-ping-confirm').classList.add('open');
+    openSheet(document.getElementById('sheet-ping-confirm'));
   } else if (st === 'playing') {
     renderVenuePicker();
     renderScenePicker();
-    document.getElementById('sheet-ping-confirm').classList.add('open');
+    openSheet(document.getElementById('sheet-ping-confirm'));
   } else {
     await setMyStatus(st);
   }
@@ -2491,7 +2564,7 @@ function openRaiderSheet(r) {
       btn.classList.add('rs-ping-sent');
       // Push notification handled server-side via DB webhook on ping insert
       setTimeout(() => {
-        document.getElementById('sheet-raider').classList.remove('open');
+        closeSheet(document.getElementById('sheet-raider'));
       }, 800);
     };
 
@@ -2501,13 +2574,13 @@ function openRaiderSheet(r) {
     const invBtn = document.getElementById('rs-invite-venue-btn');
     if (invBtn) {
       invBtn.onclick = () => {
-        document.getElementById('sheet-raider').classList.remove('open');
+        closeSheet(document.getElementById('sheet-raider'));
         openInviteToVenue(r);
       };
     }
   }
 
-  document.getElementById('sheet-raider').classList.add('open');
+  openSheet(document.getElementById('sheet-raider'));
 }
 
 /* ── INVITE TO VENUE (handshake) ──
@@ -2520,6 +2593,7 @@ function openInviteToVenue(target) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'sheet-wrap';
+    el.inert = true;
     el.id = 'sheet-invite-venue';
     el.innerHTML =
       '<div class="sheet-scrim" data-dismiss></div>' +
@@ -2597,6 +2671,7 @@ function ensureFriendsSheet() {
   if (el) return el;
   el = document.createElement('div');
   el.className = 'sheet-wrap';
+  el.inert = true;
   el.id = 'sheet-friends';
   el.innerHTML =
     '<div class="sheet-scrim" data-dismiss></div>' +
@@ -3202,6 +3277,7 @@ function renderSceneChooser(box, opts) {
 
 // Onboarding step (after the name screen): "where do you play?"
 function showSetupScene(next) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -3293,6 +3369,7 @@ function ensureSceneSheet() {
   if (el) return el;
   el = document.createElement('div');
   el.className = 'sheet-wrap';
+  el.inert = true;
   el.id = 'sheet-scenes';
   el.innerHTML =
     '<div class="sheet-scrim" data-dismiss></div>' +
@@ -3557,7 +3634,7 @@ function renderNotis() {
           homeState = 'down';
           app.dataset.homeState = 'down';
         }
-        document.getElementById('sheet-me').classList.remove('open');
+        closeSheet(document.getElementById('sheet-me'));
         renderHome();
         toast('locked in — see you at ' + (getVenueName() || 'the table'));
         return;
@@ -3569,7 +3646,7 @@ function renderNotis() {
         if (!ok) { toast('failed to update status'); renderNotis(); return; }
         homeState = 'down';
         app.dataset.homeState = 'down';
-        document.getElementById('sheet-me').classList.remove('open');
+        closeSheet(document.getElementById('sheet-me'));
         renderHome();
         toast('you\'re down — heading to ' + getVenueName());
         return;
@@ -3584,7 +3661,7 @@ function renderNotis() {
     btn.addEventListener('click', () => {
       const fromId = btn.dataset.from;
       if (!fromId) return;
-      document.getElementById('sheet-me').classList.remove('open');
+      closeSheet(document.getElementById('sheet-me'));
       if (window.pmMatch?.open) window.pmMatch.open(fromId);
       else toast('match tracking not enabled');
     })
@@ -3789,16 +3866,18 @@ function renderMe() {
       lbActiveTab = 'referrals';
       renderLeaderboard();
       renderMyInviteCodes();
-      document.getElementById('sheet-rank')?.classList.add('open');
+      openProfileStatSheet('sheet-rank', statRank);
     });
+    statRank.addEventListener('keydown', activateProfileStat);
   }
   const statElo = document.getElementById('stat-elo');
   if (statElo && !statElo._wired) {
     statElo._wired = true;
     statElo.addEventListener('click', () => {
       renderEloSheet();
-      document.getElementById('sheet-elo')?.classList.add('open');
+      openProfileStatSheet('sheet-elo', statElo);
     });
+    statElo.addEventListener('keydown', activateProfileStat);
   }
 
   // Email row icon click handler is wired globally at script startup
@@ -3950,7 +4029,7 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('signed out');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
   });
 
@@ -3974,13 +4053,234 @@ function renderMe() {
     placeBall(SNAP.off, true);
     app.dataset.homeState = 'off';
     toast('account deleted');
-    document.getElementById('sheet-me').classList.remove('open');
+    closeSheet(document.getElementById('sheet-me'));
     renderHome();
     setTimeout(showSetup, 300);
   });
 }
 
+// Only recognized structured results establish a safe retry; gateway errors do not.
+function verificationResponseState(result, response, button) {
+  const pending = button.dataset.verificationPending === 'true';
+  if (result && ['verification_pending', 'busy'].includes(result.code)) return result;
+  if (result && result.code === 'retry_verification' && typeof result.error === 'string') return result;
+  const success = button.id === 'link-email-verify' ? result?.verified === true : typeof result?.token_hash === 'string' && result.token_hash.length > 0;
+  if (response.ok && result && !result.error && success) return result;
+  if (result && result.code === 'invalid' && typeof result.error === 'string' && response.status < 500) {
+    return pending ? { code: 'verification_recovery_required' } : result;
+  }
+  return { code: pending ? 'verification_recovery_required' : 'transport_unknown' };
+}
+
+// check-status only exists server-side for the authenticated link flow — the
+// signin/signup branch was removed entirely (email enumeration risk). Don't
+// even make the request for those flows; the server would just 400.
+async function checkVerificationStatus(flow, email) {
+  if (flow !== 'link') return { code: 'signin_required' };
+  const headers = { 'Content-Type': 'application/json' };
+  try { Object.assign(headers, await userAuthHeaders()); } catch { return { code: 'session_expired' }; }
+  const ctrl = new AbortController();
+  setTimeout(() => ctrl.abort(), 10000);
+  const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
+    method: 'POST', headers,
+    body: JSON.stringify({ action: 'check-status', flow, email }),
+    signal: ctrl.signal
+  });
+  return r.json();
+}
+
+// Review-only pending state: no polling, new challenge, or identity mutation.
+function showVerificationPending(result, button, errorNode, resend, recoveryCtx) {
+  if (!result || !['verification_pending', 'busy', 'transport_unknown', 'verification_recovery_required'].includes(result.code)) return false;
+  if (!button || !errorNode || !button.isConnected || !errorNode.isConnected) return true;
+  const replayEnabled = FEATURES.challengeReplay === true && result.code !== 'verification_recovery_required';
+  button.disabled = !replayEnabled;
+  button.dataset.verificationPending = 'true';
+  const codeInput = document.getElementById(button.id === 'link-email-verify' ? 'link-email-otp' : 'setup-otp');
+  if (codeInput) codeInput.readOnly = true;
+  button.textContent = replayEnabled ? 'retry same code' : 'verification pending';
+  if (resend) { resend.dataset.verificationPending = 'true'; resend.disabled = true; resend.textContent = 'verification pending'; }
+  errorNode.setAttribute('role', 'alert');
+  errorNode.setAttribute('tabindex', '-1');
+  const canRecover = recoveryCtx && recoveryCtx.flow && recoveryCtx.email;
+  const isLinkFlow = canRecover && recoveryCtx.flow === 'link';
+  const isAuthFlow = canRecover && (recoveryCtx.flow === 'signin' || recoveryCtx.flow === 'signup');
+  errorNode.textContent = (result.code === 'verification_recovery_required'
+    ? 'This verification cannot safely continue with the current code. Completion is still unconfirmed.'
+    : result.code === 'transport_unknown'
+    ? 'We could not confirm the verification result because the connection was interrupted.'
+    : result.code === 'busy'
+      ? 'Verification is still processing. Its result is not available yet.'
+      : 'Verification is pending. We cannot confirm completion yet.') +
+    (replayEnabled
+      ? ' You can retry this same code to check for a completed result. A retry may still be pending; it does not request a new code.'
+      : isLinkFlow
+        ? ' Tap "check status" to see if your verification completed on the server.'
+        : isAuthFlow
+          ? ' Waiting for your session to complete. If your code worked, this will resolve automatically.'
+          : result.code === 'verification_recovery_required'
+            ? ' Verification and resend remain paused. You can go back; access has not been confirmed.'
+            : ' Verification retries are paused because safe recovery is not available in this version.') +
+    (isAuthFlow ? '' : ' Resend is paused. Going back does not cancel or reset verification.');
+  if (canRecover && !replayEnabled) {
+    if (isAuthFlow) {
+      _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, codeInput);
+    } else {
+      _renderCheckStatusButton(recoveryCtx, errorNode);
+    }
+  }
+  errorNode.focus();
+  return true;
+}
+
+function _startSessionAwaitRecovery(recoveryCtx, errorNode, button, resend, codeInput) {
+  const existing = errorNode.parentElement.querySelector('.verification-session-wait');
+  if (existing) return;
+  const waitEl = document.createElement('div');
+  waitEl.className = 'verification-session-wait';
+  waitEl.textContent = 'listening for session...';
+  waitEl.style.marginTop = '8px';
+  waitEl.style.fontSize = '13px';
+  waitEl.style.opacity = '0.7';
+  errorNode.after(waitEl);
+
+  let resolved = false;
+  const cleanup = () => { resolved = true; if (unsub) unsub(); clearTimeout(resendUnlock); };
+  waitEl._recoveryCleanup = cleanup;
+
+  const { data: { subscription } } = sb.auth.onAuthStateChange(async (event, session) => {
+    if (resolved || !waitEl.isConnected) { cleanup(); return; }
+    if (event !== 'SIGNED_IN' || !session || !session.user) return;
+    const sessionEmail = (session.user.email || '').toLowerCase().trim();
+    const expectedEmail = recoveryCtx.email.toLowerCase().trim();
+    if (sessionEmail !== expectedEmail) {
+      waitEl.textContent = 'signed in as ' + sessionEmail + ' — expected ' + expectedEmail + '. go back and try again.';
+      cleanup();
+      return;
+    }
+    cleanup();
+    waitEl.textContent = 'session confirmed.';
+    if (button) { button.dataset.verificationPending = ''; button.disabled = true; button.textContent = 'verified'; }
+    if (resend) { resend.dataset.verificationPending = ''; resend.disabled = true; resend.style.display = 'none'; }
+    if (codeInput) codeInput.readOnly = true;
+    errorNode.textContent = 'Verification complete — signed in as ' + sessionEmail + '.';
+    localStorage.setItem('pm_linked_email', expectedEmail);
+    if (recoveryCtx.onVerified) recoveryCtx.onVerified({ verified: true, email: expectedEmail });
+  });
+  const unsub = () => { try { subscription.unsubscribe(); } catch {} };
+
+  const resendUnlock = setTimeout(() => {
+    if (resolved || !waitEl.isConnected) return;
+    waitEl.textContent = 'no session detected yet. you can resend a code or go back.';
+    if (resend && resend.isConnected) {
+      resend.dataset.verificationPending = '';
+      resend.disabled = false;
+      resend.textContent = 'send a new code';
+    }
+  }, 30000);
+}
+
+function _resetAfterResend(verifyBtn, codeInput, errorNode, resend) {
+  const waitEl = errorNode.parentElement && errorNode.parentElement.querySelector('.verification-session-wait');
+  if (waitEl) {
+    if (typeof waitEl._recoveryCleanup === 'function') waitEl._recoveryCleanup();
+    waitEl.remove();
+  }
+  if (verifyBtn) {
+    verifyBtn.dataset.verificationPending = '';
+    verifyBtn.disabled = false;
+    verifyBtn.textContent = 'verify';
+  }
+  if (codeInput) {
+    codeInput.readOnly = false;
+    codeInput.value = '';
+    codeInput.focus();
+  }
+  if (resend) {
+    resend.dataset.verificationPending = '';
+  }
+  if (errorNode) errorNode.textContent = '';
+}
+
+function _renderCheckStatusButton(recoveryCtx, errorNode) {
+  const existing = errorNode.parentElement.querySelector('.verification-check-status');
+  if (existing) return;
+  const checkBtn = document.createElement('button');
+  checkBtn.className = 'link-email-btn verification-check-status';
+  checkBtn.textContent = 'check status';
+  checkBtn.style.marginTop = '8px';
+  checkBtn.addEventListener('click', async () => {
+    checkBtn.disabled = true;
+    checkBtn.textContent = 'checking...';
+    try {
+      const status = await checkVerificationStatus(recoveryCtx.flow, recoveryCtx.email);
+      if (status.verified) {
+        recoveryCtx.onVerified(status);
+        return;
+      }
+      if (status.code === 'already_verified') {
+        errorNode.textContent = 'Your email is verified. Go back and sign in to continue.';
+        checkBtn.disabled = true; checkBtn.style.display = 'none';
+        return;
+      }
+      if (status.code === 'verification_pending') {
+        errorNode.textContent = 'Verification is still pending on the server. The original code has not been consumed yet. Try again in a moment.';
+      } else if (status.code === 'no_active_challenge') {
+        errorNode.textContent = 'No active verification found. The challenge may have expired. You can go back and start a new verification.';
+      } else if (status.code === 'session_expired') {
+        errorNode.textContent = 'Session expired — go back and sign in again to check verification status.';
+        checkBtn.disabled = true; checkBtn.style.display = 'none';
+      } else {
+        errorNode.textContent = status.error || 'Could not determine verification status.';
+      }
+    } catch {
+      errorNode.textContent = 'Could not reach the server to check status. Try again.';
+    }
+    checkBtn.disabled = false;
+    checkBtn.textContent = 'check status';
+  });
+  errorNode.after(checkBtn);
+}
+
+// A11y: the link-email panel is injected into #me-wrap, which lives *inside*
+// the profile card. Without a focus trap, Shift+Tab from the first field
+// escapes backward into the profile chrome — including the sheet's close
+// control (.me-back) that is visually behind the active panel. Trap Tab within
+// the panel so keyboard navigation can't reach controls outside the current
+// screen. Recomputes focusables on every keydown so it keeps working across the
+// email → code innerHTML swap (the #me-wrap element itself persists).
+const LINK_EMAIL_FOCUSABLE =
+  'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function _trapLinkEmailFocus(container) {
+  if (!container || container._linkEmailTrap) return;
+  container._linkEmailTrap = true;
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const list = Array.from(container.querySelectorAll(LINK_EMAIL_FOCUSABLE))
+      .filter((el) => !el.hidden && el.getAttribute('aria-hidden') !== 'true' &&
+        el.type !== 'hidden' && el.style.display !== 'none');
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = container.ownerDocument.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !container.contains(active)) { e.preventDefault(); last.focus(); }
+    } else if (active === last) {
+      e.preventDefault(); first.focus();
+    }
+  });
+}
+
+let _linkEmailGen = 0;
+let _linkEmailSendOpId = 0;
+let _linkEmailVerifyOpId = 0;
 function showLinkEmail() {
+  const linkProfile = profile;
+  const linkUserId = profile && profile.id;
+  const sameAccount = () => profile === linkProfile && profile && profile.id === linkUserId;
+  const gen = ++_linkEmailGen;
+  _linkEmailSendOpId++;
+  _linkEmailVerifyOpId++;
   const modal = document.querySelector('#sheet-me .modal-center');
   const meWrap = document.getElementById('me-wrap');
   const notisSection = document.getElementById('me-notis-section');
@@ -4008,48 +4308,84 @@ function showLinkEmail() {
   }
 
   meWrap.innerHTML =
-    '<div style="padding:16px 0">' +
-    '<h3 class="link-email-h">link your email</h3>' +
+    '<div class="link-email-panel" role="dialog" aria-modal="true" aria-label="link your email" style="padding:16px 0">' +
+    '<h3 class="link-email-h" id="link-email-title">link your email</h3>' +
     '<div class="link-email-sub">save your account so you can log in on other devices</div>' +
-    '<input class="link-email-input" id="link-email-input" type="email" placeholder="your email" autocomplete="email" autofocus/>' +
+    '<input class="link-email-input" id="link-email-input" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" autofocus/>' +
+    '<div id="link-email-send-status" role="alert"></div>' +
     '<button class="link-email-btn" id="link-email-go">send code</button>' +
     '<button class="link-email-go-back" id="link-email-cancel">go back</button>' +
     '</div>';
+  _trapLinkEmailFocus(meWrap);
 
-  setTimeout(() => document.getElementById('link-email-input').focus(), 80);
+  const emailInput = document.getElementById('link-email-input');
+  setTimeout(() => { if (sameAccount() && emailInput.isConnected) emailInput.focus(); }, 80);
 
   document.getElementById('link-email-cancel').addEventListener('click', () => {
     if (notisSection) notisSection.style.display = '';
     renderMe();
+    requestAnimationFrame(() => document.getElementById('row-email')?.focus());
   });
 
   document.getElementById('link-email-go').addEventListener('click', async () => {
     const email = document.getElementById('link-email-input').value.trim();
     if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
     const btn = document.getElementById('link-email-go');
+    // Cooldown: reuse the shared emailSendCooldowns map
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { toast('code already sent — wait ' + cooldownLeft + 's'); return; }
     btn.textContent = 'sending...'; btn.disabled = true;
+    const sendOp = ++_linkEmailSendOpId;
+    const stale = () => sendOp !== _linkEmailSendOpId || gen !== _linkEmailGen || !sameAccount() || document.getElementById('link-email-go') !== btn;
 
     // Send OTP via our edge function (bypasses Supabase SMTP entirely)
+    // Bind the entire auth+fetch under one abort so a hung getSession
+    // doesn't leave the button disabled with no feedback.
     try {
+      const sendCtrl = new AbortController();
+      const authTimer = setTimeout(() => sendCtrl.abort(), 15000);
+      let headers;
+      try { headers = await Promise.race([userAuthHeaders(), new Promise((_, rej) => { sendCtrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('auth timed out'), { name: 'AbortError' }))); })]); }
+      catch (e) { clearTimeout(authTimer); throw e; }
+      if (stale()) { clearTimeout(authTimer); return; }
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
-        headers: await userAuthHeaders(),
-        body: JSON.stringify({ action: 'send', email, user_id: profile.id })
+        headers,
+        body: JSON.stringify({ action: 'send', email, user_id: linkUserId }),
+        signal: sendCtrl.signal
       });
+      clearTimeout(authTimer);
+      if (stale()) return;
       if (!r.ok) { toast('failed to send code'); btn.textContent = 'send code'; btn.disabled = false; return; }
-    } catch (e) { toast('failed: ' + e.message); btn.textContent = 'send code'; btn.disabled = false; return; }
+    } catch (e) {
+      if (stale()) return;
+      if (e && e.code === 'session_expired') {
+        const statusEl = document.getElementById('link-email-send-status');
+        if (statusEl) { statusEl.textContent = 'Session expired — go back and sign in again.'; statusEl.setAttribute('role', 'alert'); statusEl.focus(); }
+        else toast('session expired — sign in again');
+        btn.textContent = 'send code'; btn.disabled = true; return;
+      }
+      toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed: ' + e.message);
+      btn.textContent = 'send code'; btn.disabled = false; return;
+    }
+    if (stale()) return;
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
     meWrap.innerHTML =
-      '<div style="padding:16px 0">' +
+      '<div class="link-email-panel" role="dialog" aria-modal="true" aria-label="enter your code" style="padding:16px 0">' +
       '<div style="font-size:32px;text-align:center;margin-bottom:4px">&#9993;</div>' +
-      '<h3 class="link-email-h">enter your code</h3>' +
+      '<h3 class="link-email-h" id="link-email-title">enter your code</h3>' +
       '<div class="link-email-sub">we sent a code to <b>' + esc(email) + '</b></div>' +
-      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" style="letter-spacing:4px" autofocus/>' +
+      '<input class="link-email-input" id="link-email-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="enter code" autocomplete="one-time-code" aria-label="verification code" style="letter-spacing:4px" autofocus/>' +
+      '<div id="link-email-verify-status" role="alert"></div>' +
       '<button class="link-email-btn" id="link-email-verify">verify</button>' +
       '<button class="link-email-go-back" id="link-email-done">go back</button>' +
       '</div>';
+    _trapLinkEmailFocus(meWrap);
 
-    setTimeout(() => document.getElementById('link-email-otp').focus(), 80);
+    const otpInput = document.getElementById('link-email-otp');
+    setTimeout(() => { if (sameAccount() && otpInput.isConnected) otpInput.focus(); }, 80);
 
     document.getElementById('link-email-verify').addEventListener('click', async () => {
       const verifyBtn = document.getElementById('link-email-verify');
@@ -4057,26 +4393,63 @@ function showLinkEmail() {
       const code = document.getElementById('link-email-otp').value.trim();
       if (!code || code.length < 6) { toast('enter the 6-digit code'); return; }
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      const verifyOp = ++_linkEmailVerifyOpId;
+      const vStale = () => verifyOp !== _linkEmailVerifyOpId || gen !== _linkEmailGen || !sameAccount() || document.getElementById('link-email-verify') !== verifyBtn;
       try {
         const ctrl = new AbortController();
-        setTimeout(() => ctrl.abort(), 15000);
+        const vTimer = setTimeout(() => ctrl.abort(), 15000);
+        let headers;
+        try { headers = await Promise.race([userAuthHeaders(), new Promise((_, rej) => { ctrl.signal.addEventListener('abort', () => rej(Object.assign(new Error('auth timed out'), { name: 'AbortError' }))); })]); }
+        catch (e) { clearTimeout(vTimer); throw e; }
+        if (vStale()) { clearTimeout(vTimer); return; }
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
-          headers: await userAuthHeaders(),
-          body: JSON.stringify({ action: 'verify', email, code, user_id: profile.id }),
+          headers,
+          body: JSON.stringify({ action: 'verify', email, code, user_id: linkUserId }),
           signal: ctrl.signal
         });
-        const result = await r.json();
-        if (result.error) {
-          toast(result.error);
+        clearTimeout(vTimer);
+        if (vStale()) return;
+        let result;
+        try { result = await r.json(); } catch { result = null; }
+        if (vStale()) return;
+        result = verificationResponseState(result, r, verifyBtn);
+        const linkRecovery = { flow: 'link', email, onVerified: () => {
+          pings = pings.filter(p => p.verb !== 'system');
+          sb.auth.refreshSession().catch(() => {});
+          localStorage.setItem('pm_linked_email', email);
+          profile._linkedEmail = email;
+          toast('email linked!');
+          if (notisSection) notisSection.style.display = '';
+          updateNotisBadge(); renderNotis(); renderMe(); updateLinkEmailDot();
+        }};
+        if (showVerificationPending(result, verifyBtn, document.getElementById('link-email-verify-status'), null, linkRecovery)) return;
+        if (!r.ok || result.error || result.verified !== true) {
+          toast(result.error || 'verification failed — try again');
           verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
           return;
         }
       } catch (e) {
-        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
-        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (vStale()) return;
+        if (e && e.code === 'session_expired') {
+          const statusEl = document.getElementById('link-email-verify-status');
+          if (statusEl) { statusEl.textContent = 'Session expired — go back and sign in again to resume.'; statusEl.setAttribute('role', 'alert'); statusEl.focus(); }
+          verifyBtn.textContent = 'verify'; verifyBtn.disabled = true;
+          return;
+        }
+        const linkRecoveryCatch = { flow: 'link', email, onVerified: () => {
+          pings = pings.filter(p => p.verb !== 'system');
+          sb.auth.refreshSession().catch(() => {});
+          localStorage.setItem('pm_linked_email', email);
+          profile._linkedEmail = email;
+          toast('email linked!');
+          if (notisSection) notisSection.style.display = '';
+          updateNotisBadge(); renderNotis(); renderMe(); updateLinkEmailDot();
+        }};
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, document.getElementById('link-email-verify-status'), null, linkRecoveryCatch);
         return;
       }
+      if (vStale()) return;
       // Edge function already deleted system pings from DB — remove from local array
       pings = pings.filter(p => p.verb !== 'system');
       // Refresh session (don't block on it)
@@ -4094,12 +4467,14 @@ function showLinkEmail() {
 
     // Auto-submit when full code entered
     document.getElementById('link-email-otp').addEventListener('input', (e) => {
-      if (e.target.value.trim().length >= 6) document.getElementById('link-email-verify').click();
+      const button = document.getElementById('link-email-verify');
+      if (button.dataset.verificationPending !== 'true' && e.target.value.trim().length >= 6) button.click();
     });
 
     document.getElementById('link-email-done').addEventListener('click', () => {
       if (notisSection) notisSection.style.display = '';
       renderMe();
+      requestAnimationFrame(() => document.getElementById('row-email')?.focus());
     });
   });
 }
@@ -4118,8 +4493,22 @@ function isStandalonePWA() {
 
 /* ── T8: SETUP — 3-screen onboarding ── */
 
+function setSetupActive(active) {
+  const app = document.getElementById('app');
+  const root = document.getElementById('setup-root');
+  if (active) {
+    if (app) { app.inert = true; app.setAttribute('aria-hidden', 'true'); }
+    if (root) { root.setAttribute('role', 'dialog'); root.setAttribute('aria-modal', 'true'); root.setAttribute('aria-label', 'setup'); }
+  } else {
+    if (app) { app.inert = false; app.removeAttribute('aria-hidden'); }
+    if (root) { root.removeAttribute('role'); root.removeAttribute('aria-modal'); root.removeAttribute('aria-label'); }
+  }
+}
+
 // Screen 1 — Hero
 function showSetup() {
+  ++setupScreenGen;
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4162,7 +4551,7 @@ function showSetup() {
 
     '<button class="setup-primary" id="s1-in">i\'m in</button>' +
     '<div class="setup-disclaimer">you\'ll hear when someone\'s looking for a game. free, no spam.</div>' +
-    '<button class="setup-skip" id="s1-signin">already have an account? sign in</button>' +
+    '<button class="setup-signin-link" id="s1-signin">already have an account? sign in</button>' +
     '</div>' + // end s-page-1
     '</div>'; // end setup-fs
 
@@ -4178,15 +4567,43 @@ function showSetup() {
 }
 window.showSetup = showSetup;
 
+// Focus trap for setup screens — prevents Tab/Shift+Tab from escaping to
+// hidden sheet controls behind the active panel. Recomputes focusables on
+// every keydown so it works across innerHTML swaps.
+const SETUP_FOCUSABLE =
+  'a[href],button:not([disabled]):not([hidden]),input:not([disabled]):not([hidden]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+function _trapSetupFocus(container) {
+  if (!container || !container.addEventListener || container._setupFocusTrap) return;
+  container._setupFocusTrap = true;
+  container.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const list = Array.from(container.querySelectorAll(SETUP_FOCUSABLE))
+      .filter((el) => !el.hidden && el.getAttribute('aria-hidden') !== 'true' &&
+        el.type !== 'hidden' && el.style.display !== 'none' && el.offsetParent !== null);
+    if (!list.length) return;
+    const first = list[0];
+    const last = list[list.length - 1];
+    const active = container.ownerDocument.activeElement;
+    if (e.shiftKey) {
+      if (active === first || !container.contains(active)) { e.preventDefault(); last.focus(); }
+    } else if (active === last) {
+      e.preventDefault(); first.focus();
+    }
+  });
+}
+
 // Screen 1b — Email sign-in via custom OTP
 function showSetupEmail(prefillEmail) {
+  setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
+  if (root && root.setAttribute) root.setAttribute('aria-label', 'sign in');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-email">' +
     '<h2 class="setup-h2">enter your email</h2>' +
-    '<input class="setup-name-input" id="setup-email" type="email" placeholder="your email" autocomplete="email" value="' + esc(pre) + '" autofocus/>' +
+    '<input class="setup-name-input" id="setup-email" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" value="' + esc(pre) + '" autofocus/>' +
+    '<div class="setup-inline-err" id="s-email-err" role="alert"></div>' +
     '<button class="setup-primary" id="s-email-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll send a 6-digit code — no password needed</div>' +
     '<div class="setup-nudge" id="s-email-nudge" hidden>no account with that email yet? ' +
@@ -4195,6 +4612,7 @@ function showSetupEmail(prefillEmail) {
     '<button class="setup-skip" id="s-email-new">new here? create an account</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const inp = document.getElementById('setup-email');
   const nudge = document.getElementById('s-email-nudge');
@@ -4207,24 +4625,55 @@ function showSetupEmail(prefillEmail) {
   document.getElementById('s-email-new').addEventListener('click', toSignup);
   document.getElementById('s-email-nudge-go').addEventListener('click', toSignup);
 
+  const myGen = ++setupScreenGen;
+  const sendBtn = document.getElementById('s-email-go');
+  const sendBtnLabel = 'send me a code';
+  let sendCooldownTimer = null;
+  function updateSendCooldownUI() {
+    const email = inp.value.trim().toLowerCase();
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'code sent — wait ' + remaining + 's';
+      sendCooldownTimer = setTimeout(updateSendCooldownUI, 1000);
+    } else {
+      sendBtn.disabled = false;
+      sendBtn.textContent = sendBtnLabel;
+    }
+  }
+  inp.addEventListener('input', () => { signinSendForEmail = null; if (sendCooldownTimer) { clearTimeout(sendCooldownTimer); sendCooldownTimer = null; } updateSendCooldownUI(); });
+  updateSendCooldownUI();
+  let signinSendForEmail = null;
   document.getElementById('s-email-go').addEventListener('click', async () => {
     const email = inp.value.trim().toLowerCase();
-    if (!email || !email.includes('@')) { toast('enter a valid email'); return; }
     const btn = document.getElementById('s-email-go');
+    if (btn.disabled) return;
+    const error = document.getElementById('s-email-err');
+    if (!isValidEmail(email)) { error.textContent = 'enter a valid email'; return; }
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { error.textContent = 'code already sent — wait ' + cooldownLeft + 's'; btn.disabled = true; updateSendCooldownUI(); return; }
+    error.textContent = '';
     btn.textContent = 'sending...'; btn.disabled = true;
+    emailSendCooldowns.set(email, Date.now() + 60000);
+    signinSendForEmail = email;
 
     const res = await signInSendCode(email);
+    if (setupScreenGen !== myGen) return;
+    if (signinSendForEmail !== email) return;
     if (!res.ok) {
-      btn.textContent = 'send me a code'; btn.disabled = false;
-      // The server answers "if that email exists…" for unknown accounts (no
-      // enumeration), so point new people at signup unless they're rate-limited.
-      if (!/wait/i.test(res.error || '')) nudge.hidden = false;
+      emailSendCooldowns.delete(email);
+      btn.textContent = sendBtnLabel; btn.disabled = false;
+      error.textContent = res.error;
+      nudge.hidden = res.code !== 'signin_unconfirmed';
       return;
     }
     nudge.hidden = true;
 
     // Show "enter code" screen
     const root = document.getElementById('setup-root');
+    if (root && root.setAttribute) root.setAttribute('aria-label', 'verify sign-in code');
     root.innerHTML =
       '<div class="setup-fs">' +
       '<div class="setup-page s-slide-in">' +
@@ -4232,23 +4681,44 @@ function showSetupEmail(prefillEmail) {
       '<button class="setup-back" id="s-otp-back">&larr;</button>' +
       '<h2 class="setup-h2">check your inbox</h2>' +
       '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
-      '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+      '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="verification code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+      '<div class="setup-inline-err" id="s-signin-otp-err" role="alert"></div>' +
       '<button class="setup-primary" id="s-otp-go">verify</button>' +
+      '<button class="setup-skip" id="s-otp-resend-signin">didn\'t get it? send a new code</button>' +
       '<button class="setup-skip" id="s-email-retry">use a different email</button>' +
       '</div>' +
       '</div>';
+    if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
     const otpInp = document.getElementById('setup-otp');
+    const otpErr = document.getElementById('s-signin-otp-err');
+    const verifyBtn = document.getElementById('s-otp-go');
+    const signinOtpGen = setupScreenGen;
+    let navigatedAway = false;
+    let inFlight = false;
+    let activeCtrl = null;
     setTimeout(() => otpInp.focus(), 80);
+    emailSendCooldowns.set(email, Date.now() + 60000);
 
-    document.getElementById('s-otp-go').addEventListener('click', async () => {
+    const isStale = () => navigatedAway || setupScreenGen !== signinOtpGen;
+    const resetVerify = (msg) => {
+      otpErr.textContent = msg || '';
+      verifyBtn.textContent = 'verify';
+      verifyBtn.disabled = false;
+      inFlight = false;
+    };
+
+    verifyBtn.addEventListener('click', async () => {
+      if (verifyBtn.disabled || inFlight) return;
       const code = otpInp.value.trim();
-      if (code.length !== 6) { toast('enter the 6-digit code'); return; }
-      const verifyBtn = document.getElementById('s-otp-go');
+      if (!/^\d{6}$/.test(code)) { otpErr.textContent = 'enter the 6-digit code'; return; }
+      otpErr.textContent = '';
       verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+      inFlight = true;
 
       try {
         const ctrl = new AbortController();
+        activeCtrl = ctrl;
         setTimeout(() => ctrl.abort(), 15000);
         const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
           method: 'POST',
@@ -4256,38 +4726,85 @@ function showSetupEmail(prefillEmail) {
           body: JSON.stringify({ action: 'signin-verify', email, code }),
           signal: ctrl.signal
         });
-        const result = await r.json();
-        if (result.error) {
-          toast(result.error);
-          verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (isStale()) return;
+        let result = await r.json().catch(() => null);
+        if (isStale()) return;
+        result = verificationResponseState(result, r, verifyBtn);
+        const signinRecovery = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.verified && status.email) return;
+          if (status.token_hash) {
+            const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+            if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
+            localStorage.setItem('pm_linked_email', email);
+          }
+        }};
+        if (showVerificationPending(result, verifyBtn, otpErr, resendBtn, signinRecovery)) { inFlight = false; return; }
+        if (!result || (!result.token_hash && !result.error)) {
+          resetVerify('unexpected response — try again or request a new code');
           return;
         }
-        if (result.token_hash) {
-          // Use the token to sign in via Supabase client
-          const { data, error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
-          if (error) {
-            toast('sign in failed — try again');
-            verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
-            return;
-          }
-          // Auth succeeded — onAuthStateChange will handle the rest
-        }
+        if (result.error) { resetVerify(result.error); return; }
+        if (isStale()) return;
+        const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+        if (isStale()) return;
+        if (error) { resetVerify('sign in failed — try again or request a new code'); return; }
+        localStorage.setItem('pm_linked_email', email);
       } catch (e) {
-        toast(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
-        verifyBtn.textContent = 'verify'; verifyBtn.disabled = false;
+        if (isStale()) return;
+        const signinRecoveryCatch = { flow: 'signin', email, onVerified: async (status) => {
+          if (status.verified && status.email) return;
+          if (status.token_hash) {
+            const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+            if (error) { resetVerify('sign in failed — recovery could not complete'); return; }
+            localStorage.setItem('pm_linked_email', email);
+          }
+        }};
+        showVerificationPending({ code: 'transport_unknown' }, verifyBtn, otpErr, resendBtn, signinRecoveryCatch);
+        inFlight = false;
       }
     });
 
-    // Auto-submit when 6 digits entered
     otpInp.addEventListener('input', () => {
-      if (otpInp.value.trim().length === 6) {
-        document.getElementById('s-otp-go').click();
-      }
+      if (verifyBtn.dataset.verificationPending !== 'true' && otpInp.value.trim().length === 6) verifyBtn.click();
     });
 
-    document.getElementById('s-email-retry').addEventListener('click', showSetupEmail);
-    document.getElementById('s-otp-back').addEventListener('click', showSetupEmail);
+    const resendBtn = document.getElementById('s-otp-resend-signin');
+    const resendLabel = 'didn\'t get it? send a new code';
+    let resendTimer = null;
+    function updateResendUI() {
+      if (resendBtn.dataset.verificationPending === 'true') return;
+      const expiry = emailSendCooldowns.get(email) || 0;
+      const remaining = Math.ceil((expiry - Date.now()) / 1000);
+      if (remaining > 0) {
+        resendBtn.disabled = true;
+        resendBtn.textContent = 'resend in ' + remaining + 's';
+        resendTimer = setTimeout(updateResendUI, 1000);
+      } else {
+        resendBtn.disabled = false;
+        resendBtn.textContent = resendLabel;
+      }
+    }
+    updateResendUI();
+    resendBtn.addEventListener('click', async () => {
+      if (resendBtn.disabled) return;
+      resendBtn.disabled = true;
+      const res = await signInSendCode(email);
+      if (navigatedAway) return;
+      if (res.ok) {
+        _resetAfterResend(verifyBtn, otpInp, otpErr, resendBtn);
+        toast('new code sent to ' + email);
+        emailSendCooldowns.set(email, Date.now() + 60000);
+      } else {
+        otpErr.textContent = res.error || 'could not resend — try again';
+      }
+      updateResendUI();
+    });
+
+    const navAway = () => { navigatedAway = true; if (activeCtrl) activeCtrl.abort(); if (resendTimer) clearTimeout(resendTimer); showSetupEmail(email); };
+    document.getElementById('s-email-retry').addEventListener('click', navAway);
+    document.getElementById('s-otp-back').addEventListener('click', navAway);
   });
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') document.getElementById('s-email-go').click(); });
 }
 
 // Screen 1c — Email-required signup: email → code → session → name step.
@@ -4295,20 +4812,23 @@ function showSetupEmail(prefillEmail) {
 // back in from any device (the old anonymous signup lived only in this
 // browser's localStorage).
 function showSetupSignupEmail(prefillEmail) {
+  setSetupActive(true);
   const pre = typeof prefillEmail === 'string' ? prefillEmail : '';
   const root = document.getElementById('setup-root');
+  root.setAttribute('aria-label', 'create account');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-signup">' +
     '<button class="setup-back" id="s-signup-back">&larr;</button>' +
     '<h2 class="setup-h2">what\'s your email?</h2>' +
-    '<input class="setup-name-input" id="setup-signup-email" type="email" placeholder="your email" autocomplete="email" value="' + esc(pre) + '" autofocus/>' +
+    '<input class="setup-name-input" id="setup-signup-email" type="email" name="email" placeholder="your email" autocomplete="email" aria-label="email address" value="' + esc(pre) + '" autofocus/>' +
     '<div class="setup-inline-err" id="s-signup-err"></div>' +
     '<button class="setup-primary" id="s-signup-go">send me a code</button>' +
     '<div class="setup-disclaimer">we\'ll email you a 6-digit code — no password. it\'s how you get back in on any device.</div>' +
     '<button class="setup-skip" id="s-signup-signin">already have an account? sign in</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const inp = document.getElementById('setup-signup-email');
   const err = document.getElementById('s-signup-err');
@@ -4329,15 +4849,42 @@ function showSetupSignupEmail(prefillEmail) {
     }
   };
 
+  const signupGen = ++setupScreenGen;
+  const signupBtnLabel = 'send me a code';
+  let signupCooldownTimer = null;
+  function updateSignupCooldownUI() {
+    const email = inp.value.trim().toLowerCase();
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      btn.disabled = true;
+      btn.textContent = 'code sent — wait ' + remaining + 's';
+      signupCooldownTimer = setTimeout(updateSignupCooldownUI, 1000);
+    } else {
+      btn.disabled = false;
+      btn.textContent = signupBtnLabel;
+    }
+  }
+  inp.addEventListener('input', () => { signupSendForEmail = null; if (signupCooldownTimer) { clearTimeout(signupCooldownTimer); signupCooldownTimer = null; } updateSignupCooldownUI(); });
+  updateSignupCooldownUI();
+  let signupSendForEmail = null;
   btn.addEventListener('click', async () => {
     if (btn.disabled) return;
     const email = inp.value.trim().toLowerCase();
     if (!isValidEmail(email)) { showErr('enter a valid email'); return; }
+    const cooldownExpiry = emailSendCooldowns.get(email) || 0;
+    const cooldownLeft = Math.ceil((cooldownExpiry - Date.now()) / 1000);
+    if (cooldownLeft > 0) { showErr('code already sent — wait ' + cooldownLeft + 's'); btn.disabled = true; updateSignupCooldownUI(); return; }
     showErr('');
     btn.textContent = 'sending...'; btn.disabled = true;
+    emailSendCooldowns.set(email, Date.now() + 60000);
+    signupSendForEmail = email;
     const res = await signupSendCode(email);
+    if (setupScreenGen !== signupGen) return;
+    if (signupSendForEmail !== email) return;
     if (!res.ok) {
-      btn.textContent = 'send me a code'; btn.disabled = false;
+      emailSendCooldowns.delete(email);
+      btn.textContent = signupBtnLabel; btn.disabled = false;
       showErr(res.error, res.code === 'already_registered');
       return;
     }
@@ -4347,7 +4894,9 @@ function showSetupSignupEmail(prefillEmail) {
 }
 
 function showSetupSignupOtp(email) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
+  root.setAttribute('aria-label', 'verify signup code');
   root.innerHTML =
     '<div class="setup-fs">' +
     '<div class="setup-page s-slide-in" id="s-page-signup-otp">' +
@@ -4355,28 +4904,36 @@ function showSetupSignupOtp(email) {
     '<button class="setup-back" id="s-otp-back">&larr;</button>' +
     '<h2 class="setup-h2">check your inbox</h2>' +
     '<div class="setup-check-sub">we sent a 6-digit code to <b>' + esc(email) + '</b></div>' +
-    '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
+    '<input class="setup-name-input" id="setup-otp" type="text" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="one-time-code" aria-label="verification code" style="text-align:center;letter-spacing:8px;font-size:28px" autofocus/>' +
     '<div class="setup-inline-err" id="s-otp-err"></div>' +
     '<button class="setup-primary" id="s-otp-go">verify</button>' +
     '<button class="setup-skip" id="s-otp-resend">didn\'t get it? send a new code</button>' +
     '<button class="setup-skip" id="s-otp-retry">use a different email</button>' +
     '</div>' +
     '</div>';
+  if (typeof _trapSetupFocus === 'function') _trapSetupFocus(root);
 
   const otpInp = document.getElementById('setup-otp');
   const err = document.getElementById('s-otp-err');
   const verifyBtn = document.getElementById('s-otp-go');
+  const otpGen = ++setupScreenGen;
+  let navigatedAway = false;
+  let inFlight = false;
+  let activeCtrl = null;
   setTimeout(() => otpInp.focus(), 80);
-  const reset = (msg) => { err.textContent = msg || ''; verifyBtn.textContent = 'verify'; verifyBtn.disabled = false; };
+  const isStale = () => navigatedAway || setupScreenGen !== otpGen;
+  const reset = (msg) => { err.textContent = msg || ''; verifyBtn.textContent = 'verify'; verifyBtn.disabled = false; inFlight = false; };
 
   verifyBtn.addEventListener('click', async () => {
-    if (verifyBtn.disabled) return;
+    if (verifyBtn.disabled || inFlight) return;
     const code = otpInp.value.trim();
     if (!/^\d{6}$/.test(code)) { err.textContent = 'enter the 6-digit code'; return; }
     err.textContent = '';
     verifyBtn.textContent = 'verifying...'; verifyBtn.disabled = true;
+    inFlight = true;
     try {
       const ctrl = new AbortController();
+      activeCtrl = ctrl;
       setTimeout(() => ctrl.abort(), 15000);
       const r = await fetch(SUPABASE_URL + '/functions/v1/send-email', {
         method: 'POST',
@@ -4384,37 +4941,83 @@ function showSetupSignupOtp(email) {
         body: JSON.stringify({ action: 'signup-verify', email, code }),
         signal: ctrl.signal
       });
-      const result = await r.json();
-      if (result.error || !result.token_hash) { reset(result.error || 'failed — try again'); return; }
-      // Exchange the server-minted token for a session; onAuthStateChange
-      // (SIGNED_IN, no profile yet) continues at the name step.
+      if (isStale()) return;
+      let result = await r.json().catch(() => null);
+      if (isStale()) return;
+      result = verificationResponseState(result, r, verifyBtn);
+      const signupRecovery = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.verified && status.email) return;
+        if (status.token_hash) {
+          const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+          if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
+          localStorage.setItem('pm_linked_email', email);
+        }
+      }};
+      if (showVerificationPending(result, verifyBtn, err, resendBtn, signupRecovery)) { inFlight = false; return; }
+      if (!result || (!result.token_hash && !result.error)) { reset('unexpected response — try again or request a new code'); return; }
+      if (result.error) { reset(result.error); return; }
+      if (isStale()) return;
       const { error } = await sb.auth.verifyOtp({ token_hash: result.token_hash, type: 'magiclink' });
+      if (isStale()) return;
       if (error) { reset('couldn\'t sign you in — try again or request a new code'); return; }
       localStorage.setItem('pm_linked_email', email);
     } catch (e) {
-      reset(e.name === 'AbortError' ? 'timed out — try again' : 'failed — try again');
+      if (isStale()) return;
+      const signupRecoveryCatch = { flow: 'signup', email, onVerified: async (status) => {
+        if (status.verified && status.email) return;
+        if (status.token_hash) {
+          const { error } = await sb.auth.verifyOtp({ token_hash: status.token_hash, type: 'magiclink' });
+          if (error) { reset('couldn\'t sign you in — recovery could not complete'); return; }
+          localStorage.setItem('pm_linked_email', email);
+        }
+      }};
+      showVerificationPending({ code: 'transport_unknown' }, verifyBtn, err, resendBtn, signupRecoveryCatch);
+      inFlight = false;
     }
   });
-  // Auto-submit when 6 digits entered
   otpInp.addEventListener('input', () => {
-    if (otpInp.value.trim().length === 6) verifyBtn.click();
+    if (verifyBtn.dataset.verificationPending !== 'true' && otpInp.value.trim().length === 6) verifyBtn.click();
   });
 
-  document.getElementById('s-otp-resend').addEventListener('click', async () => {
-    const b = document.getElementById('s-otp-resend');
-    if (b.disabled) return;
-    b.disabled = true;
+  const resendBtn = document.getElementById('s-otp-resend');
+  const signupResendLabel = 'didn\'t get it? send a new code';
+  let signupResendTimer = null;
+  function updateSignupResendUI() {
+    if (resendBtn.dataset.verificationPending === 'true') return;
+    const expiry = emailSendCooldowns.get(email) || 0;
+    const remaining = Math.ceil((expiry - Date.now()) / 1000);
+    if (remaining > 0) {
+      resendBtn.disabled = true;
+      resendBtn.textContent = 'resend in ' + remaining + 's';
+      signupResendTimer = setTimeout(updateSignupResendUI, 1000);
+    } else {
+      resendBtn.disabled = false;
+      resendBtn.textContent = signupResendLabel;
+    }
+  }
+  updateSignupResendUI();
+  resendBtn.addEventListener('click', async () => {
+    if (resendBtn.disabled) return;
+    resendBtn.disabled = true;
     const res = await signupSendCode(email);
-    b.disabled = false;
-    err.textContent = res.ok ? '' : res.error;
-    if (res.ok) toast('new code sent to ' + email);
+    if (navigatedAway || setupScreenGen !== otpGen) return;
+    if (res.ok) {
+      _resetAfterResend(verifyBtn, otpInp, err, resendBtn);
+      toast('new code sent to ' + email);
+      emailSendCooldowns.set(email, Date.now() + 60000);
+    } else {
+      err.textContent = res.error || 'could not resend — try again';
+    }
+    updateSignupResendUI();
   });
-  document.getElementById('s-otp-retry').addEventListener('click', () => showSetupSignupEmail(email));
-  document.getElementById('s-otp-back').addEventListener('click', () => showSetupSignupEmail(email));
+  const navAway = () => { navigatedAway = true; if (activeCtrl) activeCtrl.abort(); if (signupResendTimer) clearTimeout(signupResendTimer); showSetupSignupEmail(email); };
+  document.getElementById('s-otp-retry').addEventListener('click', navAway);
+  document.getElementById('s-otp-back').addEventListener('click', navAway);
 }
 
 // Screen 2 — Name (called after magic link auth or as fallback)
 async function showSetupScreen2(user, existingProfile, prefill) {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
   root.innerHTML =
     '<div class="setup-fs">' +
@@ -4508,6 +5111,7 @@ async function showSetupScreen2(user, existingProfile, prefill) {
 
 // Screen 3 — Push opt-in (T8 + T9)
 function showSetupScreen3() {
+  setSetupActive(true);
   const root = document.getElementById('setup-root');
 
   // T9: detect platform
@@ -4561,6 +5165,7 @@ function showSetupScreen3() {
 
   const done = () => {
     root.innerHTML = '';
+    setSetupActive(false);
     renderHome();
     registerPushSubscription();
     toast('welcome, ' + (profile?.name || 'raider'));
@@ -4663,8 +5268,10 @@ function showQrShare() {
   }
 
   // Close profile modal, open share
-  document.getElementById('sheet-me').classList.remove('open');
-  document.getElementById('sheet-share').classList.add('open');
+  const meSheet = document.getElementById('sheet-me');
+  meSheet.classList.remove('open');
+  meSheet.inert = true;
+  openSheet(document.getElementById('sheet-share'));
 }
 
 /* ── CHAT (removed — using SMS deep links instead) ── */

@@ -875,10 +875,11 @@ button { font: inherit; color: inherit; }
   z-index: 30;
   pointer-events: none;
   opacity: 0;
-  transition: opacity .2s ease;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility 0s .2s;
   display: flex; align-items: center; justify-content: center;
 }
-.sheet-wrap.open { pointer-events: auto; opacity: 1; }
+.sheet-wrap.open { pointer-events: auto; opacity: 1; visibility: visible; transition: opacity .2s ease, visibility 0s 0s; }
 /* Scrim kept for tap-anywhere-to-dismiss, but visually transparent so the
    background stays visible behind the popup (no full-screen dimming). */
 .sheet-scrim { position: absolute; inset: 0; background: transparent; cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1604,6 +1605,15 @@ button { font: inherit; color: inherit; }
   cursor: pointer; padding: 4px 10px;
   text-decoration: underline; text-decoration-style: dashed;
   text-underline-offset: 3px;
+}
+
+.setup-signin-link {
+  background: none; border: 2px solid var(--ink);
+  border-radius: 14px;
+  font-family: 'Space Grotesk', sans-serif; font-weight: 600;
+  font-size: 15px; color: var(--ink);
+  cursor: pointer; padding: 10px 20px;
+  margin-top: 4px;
 }
 
 /* Small disclaimer text */

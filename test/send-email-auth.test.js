@@ -114,7 +114,7 @@ const path = require('node:path');
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'supabase', 'functions', 'send-email', 'index.ts'), 'utf8');
 
 test('send-email source: the request body never supplies a user_id', () => {
-  assert.match(SRC, /const \{ action, email, code \} = await req\.json\(\)/);
+  assert.match(SRC, /const \{ action, email, code(?:, flow)? \} = await req\.json\(\)/);
   assert.doesNotMatch(SRC, /body\.user_id|bodyUserId|req\.user_id/);
 });
 
